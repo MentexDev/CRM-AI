@@ -98,22 +98,23 @@ export function DataProvider({ children }) {
     if (!isSupabaseConfigured) localStorage.setItem(PRIZES_KEY, JSON.stringify(prizes))
   }, [prizes])
 
+  // ---------- Fetch unificado (lo usan tanto la carga inicial como el refetch
+  //            tras mutaciones, por si el realtime tarda) ----------
+  const fetchAll = useCallback(async () => {
+    if (!isSupabaseConfigured) return
+    const [{ data: p }, { data: s }, { data: pr }] = await Promise.all([
+      supabase.from('products').select('*').order('created_at'),
+      supabase.from('sales').select('*').order('sold_at', { ascending: false }),
+      supabase.from('prizes').select('*').order('threshold'),
+    ])
+    if (p) setProducts(p.map(mapProduct))
+    if (s) setSales(s.map(mapSale))
+    if (pr) setPrizes(pr.map(mapPrize))
+  }, [])
+
   // ---------- Carga inicial + realtime cuando hay Supabase ----------
   useEffect(() => {
     if (!isSupabaseConfigured) return
-    let active = true
-
-    const fetchAll = async () => {
-      const [{ data: p }, { data: s }, { data: pr }] = await Promise.all([
-        supabase.from('products').select('*').order('created_at'),
-        supabase.from('sales').select('*').order('sold_at', { ascending: false }),
-        supabase.from('prizes').select('*').order('threshold'),
-      ])
-      if (!active) return
-      if (p) setProducts(p.map(mapProduct))
-      if (s) setSales(s.map(mapSale))
-      if (pr) setPrizes(pr.map(mapPrize))
-    }
     fetchAll()
 
     const channel = supabase
@@ -124,10 +125,9 @@ export function DataProvider({ children }) {
       .subscribe()
 
     return () => {
-      active = false
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [fetchAll])
 
   // ============= PRODUCTOS =============
   const upsertProduct = useCallback(async (p) => {
@@ -154,6 +154,7 @@ export function DataProvider({ children }) {
           .upsert(row, { onConflict: 'sku' })
         if (error) throw error
       }
+      await fetchAll()
       return
     }
     // Fallback local
@@ -176,16 +177,17 @@ export function DataProvider({ children }) {
       }
       return [...prev, { ...p, initialSizes: { ...sizes }, sizes }]
     })
-  }, [])
+  }, [fetchAll])
 
   const removeProduct = useCallback(async (id) => {
     if (isSupabaseConfigured) {
       const { error } = await supabase.from('products').delete().eq('id', id)
       if (error) throw error
+      await fetchAll()
       return
     }
     setProducts((prev) => prev.filter((p) => p.id !== id))
-  }, [])
+  }, [fetchAll])
 
   const setInitialSize = useCallback(async (productId, size, qty) => {
     if (isSupabaseConfigured) {
@@ -195,6 +197,7 @@ export function DataProvider({ children }) {
         p_qty: Number(qty) || 0,
       })
       if (error) throw error
+      await fetchAll()
       return
     }
     setProducts((prev) =>
@@ -212,7 +215,7 @@ export function DataProvider({ children }) {
         }
       }),
     )
-  }, [])
+  }, [fetchAll])
 
   // ============= VENTAS =============
   const registerOrder = useCallback(
@@ -233,6 +236,8 @@ export function DataProvider({ children }) {
           p_customer: { ...emptyCustomer(), ...(customer || {}) },
         })
         if (error) throw new Error(error.message || 'No se pudo registrar la venta')
+        // Refetch inmediato (no esperamos al realtime, que a veces tarda 1-2s)
+        await fetchAll()
         return (data || []).map(mapSale)
       }
 
@@ -293,6 +298,7 @@ export function DataProvider({ children }) {
     if (isSupabaseConfigured) {
       const { error } = await supabase.rpc('cancel_sale', { p_sale: saleId })
       if (error) throw error
+      await fetchAll()
       return
     }
     setSales((prev) => {
@@ -314,12 +320,13 @@ export function DataProvider({ children }) {
       }
       return prev.filter((s) => s.id !== saleId)
     })
-  }, [])
+  }, [fetchAll])
 
   const cancelOrder = useCallback(async (orderId) => {
     if (isSupabaseConfigured) {
       const { error } = await supabase.rpc('cancel_order', { p_order: orderId })
       if (error) throw error
+      await fetchAll()
       return
     }
     setSales((prev) => {
@@ -337,7 +344,7 @@ export function DataProvider({ children }) {
       }
       return prev.filter((s) => s.orderId !== orderId)
     })
-  }, [])
+  }, [fetchAll])
 
   // ============= PREMIOS =============
   const upsertPrize = useCallback(async (p) => {
@@ -355,6 +362,7 @@ export function DataProvider({ children }) {
         const { error } = await supabase.from('prizes').insert(row)
         if (error) throw error
       }
+      await fetchAll()
       return
     }
     setPrizes((prev) => {
@@ -362,26 +370,27 @@ export function DataProvider({ children }) {
       const next = exists ? prev.map((x) => (x.id === p.id ? p : x)) : [...prev, p]
       return [...next].sort((a, b) => Number(a.threshold) - Number(b.threshold))
     })
-  }, [])
+  }, [fetchAll])
 
   const removePrize = useCallback(async (id) => {
     if (isSupabaseConfigured) {
       const { error } = await supabase.from('prizes').delete().eq('id', id)
       if (error) throw error
+      await fetchAll()
       return
     }
     setPrizes((prev) => prev.filter((p) => p.id !== id))
-  }, [])
+  }, [fetchAll])
 
   const resetPrizes = useCallback(async () => {
     if (isSupabaseConfigured) {
-      // En Supabase no reseteamos a los mocks: eliminamos todos y dejamos vacío
       const { error } = await supabase.from('prizes').delete().neq('id', '00000000-0000-0000-0000-000000000000')
       if (error) throw error
+      await fetchAll()
       return
     }
     setPrizes(seedPrizes)
-  }, [])
+  }, [fetchAll])
 
   // ============= AGREGADOS =============
   const totalsBySeller = useMemo(() => {

@@ -37,7 +37,15 @@ const calcLineTotal = (product, line) => {
 export default function SaleModal({ open, onClose, fixedSellerId }) {
   const { user, listSellers } = useAuth()
   const { products, registerOrder } = useData()
-  const sellers = listSellers().filter((s) => s.role === 'seller')
+
+  // Selector de vendedora: incluye al admin (puede vender él mismo) + las vendedoras
+  const sellerOptions = useMemo(() => {
+    const real = listSellers().filter((s) => s.role === 'seller')
+    if (user?.role === 'admin') {
+      return [{ id: user.id, name: `${user.name} · admin` }, ...real]
+    }
+    return real
+  }, [user, listSellers])
 
   const [sellerId, setSellerId] = useState(fixedSellerId || user?.id || '')
   const [items, setItems] = useState([newLine()])
@@ -106,7 +114,7 @@ export default function SaleModal({ open, onClose, fixedSellerId }) {
       return toast.error('Cantidad inválida')
 
     const seller =
-      sellers.find((s) => s.id === sellerId) ||
+      sellerOptions.find((s) => s.id === sellerId) ||
       (user?.id === sellerId ? user : null)
     if (!seller) return toast.error('Vendedora no encontrada')
 
@@ -149,8 +157,8 @@ export default function SaleModal({ open, onClose, fixedSellerId }) {
               value={sellerId}
               onChange={(e) => setSellerId(e.target.value)}
             >
-              <option value="">Selecciona…</option>
-              {sellers.map((s) => (
+              {sellerOptions.length === 0 && <option value="">Selecciona…</option>}
+              {sellerOptions.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
@@ -175,6 +183,7 @@ export default function SaleModal({ open, onClose, fixedSellerId }) {
                 index={idx}
                 line={it}
                 products={products}
+                allItems={items}
                 onChange={(patch) => updateLine(it.id, patch)}
                 onRemove={() => removeLine(it.id)}
                 canRemove={items.length > 1}
@@ -283,10 +292,28 @@ export default function SaleModal({ open, onClose, fixedSellerId }) {
   )
 }
 
-function SaleLine({ index, line, products, onChange, onRemove, canRemove }) {
+function SaleLine({ index, line, products, allItems, onChange, onRemove, canRemove }) {
   const product = products.find((p) => p.id === line.productId)
   const { subtotal, discount, total } = calcLineTotal(product, line)
   const pct = Math.max(0, Math.min(100, Number(line.discountPct) || 0))
+
+  // Cantidad ya reservada para este producto+talla en OTRAS líneas del pedido
+  const reservedInOtherLines = (size) =>
+    (allItems || [])
+      .filter(
+        (it) =>
+          it.id !== line.id &&
+          it.productId === line.productId &&
+          it.size === size,
+      )
+      .reduce((a, it) => a + (Number(it.quantity) || 0), 0)
+
+  // Stock disponible para esta línea = stock real - lo ya reservado en otras líneas
+  const availableForSize = (size) => {
+    if (!product) return 0
+    const stock = Number(product.sizes?.[size] || 0)
+    return Math.max(0, stock - reservedInOtherLines(size))
+  }
 
   return (
     <motion.div
@@ -328,10 +355,10 @@ function SaleLine({ index, line, products, onChange, onRemove, canRemove }) {
           >
             <option value="">—</option>
             {SIZES.map((s) => {
-              const stock = Number(product?.sizes?.[s] || 0)
+              const available = availableForSize(s)
               return (
-                <option key={s} value={s} disabled={stock === 0}>
-                  {s} {stock === 0 ? '(agotada)' : `(${stock})`}
+                <option key={s} value={s} disabled={available === 0}>
+                  {s} {available === 0 ? '(agotada)' : `(${available})`}
                 </option>
               )
             })}
@@ -345,10 +372,20 @@ function SaleLine({ index, line, products, onChange, onRemove, canRemove }) {
           <input
             type="number"
             min="1"
+            max={line.size ? availableForSize(line.size) || 1 : undefined}
             className="input mt-1 text-center"
             value={line.quantity}
-            onChange={(e) => onChange({ quantity: e.target.value })}
+            onChange={(e) => {
+              const v = Number(e.target.value) || 0
+              const max = line.size ? availableForSize(line.size) : Infinity
+              onChange({ quantity: Math.min(v, max) })
+            }}
           />
+          {line.size && Number(line.quantity) > availableForSize(line.size) && (
+            <div className="text-[10px] text-amber-300/80 mt-1">
+              Máx {availableForSize(line.size)} disponibles
+            </div>
+          )}
         </div>
 
         <div className="col-span-2 sm:col-span-1 flex justify-end">
