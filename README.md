@@ -126,11 +126,15 @@ Una fila por referencia. La primera fila es el encabezado.
 
 ---
 
-## Deploy en Cloudflare Pages
+## Deploy en Cloudflare (Workers + Static Assets)
+
+El proyecto se despliega como **Cloudflare Worker con assets estáticos** (flujo nuevo
+recomendado por Cloudflare). El Worker sirve los archivos de `dist/` y maneja el
+fallback de SPA (rutas profundas como `/admin/vendedoras`) automáticamente.
 
 ### Opción A — desde el dashboard (recomendado)
 
-1. Conecta tu repo de GitHub a Cloudflare Pages
+1. Conecta tu repo de GitHub en Cloudflare → **Workers & Pages**
 2. **Build settings**:
    - Framework preset: `Vite`
    - Build command: `npm run build`
@@ -138,7 +142,7 @@ Una fila por referencia. La primera fila es el encabezado.
 3. **Environment variables** (Production y Preview):
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
-4. Cloudflare detecta `public/_redirects` y `public/_headers` automáticamente
+4. Cloudflare lee [`wrangler.jsonc`](wrangler.jsonc) y configura el Worker
 
 ### Opción B — desde la CLI
 
@@ -148,18 +152,17 @@ wrangler login
 npm run deploy
 ```
 
-El script `deploy` corre `vite build` y publica `dist/` al proyecto
-`wein-nina-inventary` en Cloudflare Pages.
+El script corre `vite build && wrangler deploy`.
 
 ### Archivos relevantes
 
-- [`public/_redirects`](public/_redirects) — `/* /index.html 200` para que React Router
-  funcione en URLs profundas (ej. `/admin/vendedoras` recargado)
+- [`wrangler.jsonc`](wrangler.jsonc) — config del Worker con `assets.directory: "./dist"`
+  y `not_found_handling: "single-page-application"` (fallback a `/index.html` para
+  React Router)
 - [`public/_headers`](public/_headers) — cache largo en `/assets/*`, headers de seguridad
 
-> **Nota**: no incluimos `wrangler.toml`. Cloudflare Pages lo interpreta como proyecto
-> Workers y rompe el deploy. El script `npm run deploy` pasa los flags directamente
-> a `wrangler pages deploy`.
+> **Nota**: requiere Vite 6+ (el flujo Workers + Static Assets de Cloudflare no soporta
+> Vite 5).
 
 ---
 
