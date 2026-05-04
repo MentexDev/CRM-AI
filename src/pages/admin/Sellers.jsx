@@ -65,10 +65,10 @@ export default function Sellers() {
     setOpen(true)
   }
 
-  const save = () => {
+  const save = async () => {
     try {
       if (editId) {
-        updateSeller(editId, {
+        await updateSeller(editId, {
           firstName: draft.firstName.trim(),
           lastName: draft.lastName.trim(),
           password: draft.password,
@@ -76,7 +76,7 @@ export default function Sellers() {
         })
         toast.success('Vendedora actualizada')
       } else {
-        const u = registerSeller({
+        const u = await registerSeller({
           firstName: draft.firstName,
           lastName: draft.lastName,
           password: draft.password,
@@ -90,10 +90,14 @@ export default function Sellers() {
     }
   }
 
-  const del = (s) => {
+  const del = async (s) => {
     if (!confirm(`¿Eliminar a ${s.name}? Sus ventas se conservan en el historial.`)) return
-    removeSeller(s.id)
-    toast.success('Vendedora eliminada')
+    try {
+      await removeSeller(s.id)
+      toast.success('Vendedora eliminada')
+    } catch (err) {
+      toast.error(err.message || 'No se pudo eliminar')
+    }
   }
 
   const openGoal = (s) => {
@@ -101,13 +105,17 @@ export default function Sellers() {
     setGoalDraft(s.goal || DEFAULT_GOAL)
   }
 
-  const saveGoal = () => {
+  const saveGoal = async () => {
     if (!goalModal) return
     const value = Number(goalDraft) || 0
     if (value < 0) return toast.error('La meta no puede ser negativa')
-    updateSeller(goalModal.id, { goal: value })
-    toast.success(`Meta de ${goalModal.name.split(' ')[0]} actualizada a ${fmtCOP(value)}`)
-    setGoalModal(null)
+    try {
+      await updateSeller(goalModal.id, { goal: value })
+      toast.success(`Meta de ${goalModal.name.split(' ')[0]} actualizada a ${fmtCOP(value)}`)
+      setGoalModal(null)
+    } catch (err) {
+      toast.error(err.message || 'No se pudo actualizar la meta')
+    }
   }
 
   const copyUser = async (s) => {

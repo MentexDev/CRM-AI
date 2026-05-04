@@ -95,7 +95,7 @@ export default function SaleModal({ open, onClose, fixedSellerId }) {
 
     setBusy(true)
     try {
-      const result = registerOrder({
+      const result = await registerOrder({
         sellerId: seller.id,
         sellerName: seller.name,
         items: items.map((it) => ({

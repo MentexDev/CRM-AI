@@ -83,34 +83,46 @@ export default function Inventory() {
     setOpen(true)
   }
 
-  const save = () => {
+  const save = async () => {
     if (!draft.name || !draft.sku) {
       toast.error('Nombre y referencia son obligatorios')
       return
     }
-    upsertProduct({
-      ...draft,
-      price: Number(draft.price) || 0,
-      cost: Number(draft.cost) || 0,
-      initialSizes: Object.fromEntries(
-        SIZES.map((s) => [s, Number(draft.initialSizes[s]) || 0]),
-      ),
-      sizes: Object.fromEntries(SIZES.map((s) => [s, Number(draft.initialSizes[s]) || 0])),
-    })
-    toast.success(editing ? 'Producto actualizado' : 'Producto creado')
-    setOpen(false)
+    try {
+      await upsertProduct({
+        ...draft,
+        price: Number(draft.price) || 0,
+        cost: Number(draft.cost) || 0,
+        initialSizes: Object.fromEntries(
+          SIZES.map((s) => [s, Number(draft.initialSizes[s]) || 0]),
+        ),
+        sizes: Object.fromEntries(SIZES.map((s) => [s, Number(draft.initialSizes[s]) || 0])),
+      })
+      toast.success(editing ? 'Producto actualizado' : 'Producto creado')
+      setOpen(false)
+    } catch (err) {
+      toast.error(err.message || 'No se pudo guardar')
+    }
   }
 
-  const del = (p) => {
+  const del = async (p) => {
     if (!confirm(`¿Eliminar "${p.name}"? Esta acción no se puede deshacer.`)) return
-    removeProduct(p.id)
-    toast.success('Producto eliminado')
+    try {
+      await removeProduct(p.id)
+      toast.success('Producto eliminado')
+    } catch (err) {
+      toast.error(err.message || 'No se pudo eliminar')
+    }
   }
 
   // Edición inline en tabla "inicial"
-  const onCellBlur = (productId, size, e) => {
+  const onCellBlur = async (productId, size, e) => {
     const v = Number(e.target.value) || 0
-    setInitialSize(productId, size, v)
+    try {
+      await setInitialSize(productId, size, v)
+    } catch (err) {
+      toast.error(err.message || 'No se pudo actualizar')
+    }
   }
 
   return (

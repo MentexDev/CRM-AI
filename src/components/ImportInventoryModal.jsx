@@ -121,33 +121,40 @@ export default function ImportInventoryModal({ open, onClose }) {
     if (file) onFile(file)
   }
 
-  const confirm = () => {
+  const confirm = async () => {
     if (!parsed) return
+    setBusy(true)
     let imported = 0
     let updated = 0
+    let failed = 0
     for (const r of parsed.rows) {
       if (!r.sku || !r.name || !r.price) continue
       const existing = products.find(
         (p) => String(p.sku).toLowerCase() === String(r.sku).toLowerCase(),
       )
-      const id = existing?.id || `prod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-      upsertProduct({
-        id,
-        sku: r.sku,
-        name: r.name,
-        category: r.category || '',
-        color: r.color || '',
-        price: r.price,
-        cost: r.cost || 0,
-        initialSizes: r.sizes,
-        sizes: r.sizes,
-      })
-      if (existing) updated += 1
-      else imported += 1
+      try {
+        await upsertProduct({
+          id: existing?.id,
+          sku: r.sku,
+          name: r.name,
+          category: r.category || '',
+          color: r.color || '',
+          price: r.price,
+          cost: r.cost || 0,
+          initialSizes: r.sizes,
+          sizes: r.sizes,
+        })
+        if (existing) updated += 1
+        else imported += 1
+      } catch {
+        failed += 1
+      }
     }
+    setBusy(false)
     toast.success(
-      `${imported} nuevas referencias` +
-        (updated > 0 ? ` · ${updated} actualizadas` : ''),
+      `${imported} nuevas` +
+        (updated > 0 ? ` · ${updated} actualizadas` : '') +
+        (failed > 0 ? ` · ${failed} con error` : ''),
     )
     handleClose()
   }

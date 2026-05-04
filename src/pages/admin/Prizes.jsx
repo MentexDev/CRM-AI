@@ -28,32 +28,44 @@ export default function Prizes() {
     setOpen(true)
   }
 
-  const save = () => {
+  const save = async () => {
     if (!draft.name.trim()) return toast.error('El nombre del premio es obligatorio')
     const threshold = Number(draft.threshold)
     if (!threshold || threshold <= 0) return toast.error('La meta debe ser mayor a 0')
     if (!draft.icon) return toast.error('Selecciona un ícono')
-    upsertPrize({
-      id: draft.id || `pz-${Date.now()}`,
-      type: draft.type === 'units' ? 'units' : 'amount',
-      name: draft.name.trim(),
-      threshold,
-      icon: draft.icon,
-    })
-    toast.success(editing ? 'Premio actualizado' : 'Premio creado')
-    setOpen(false)
+    try {
+      await upsertPrize({
+        id: draft.id || `pz-${Date.now()}`,
+        type: draft.type === 'units' ? 'units' : 'amount',
+        name: draft.name.trim(),
+        threshold,
+        icon: draft.icon,
+      })
+      toast.success(editing ? 'Premio actualizado' : 'Premio creado')
+      setOpen(false)
+    } catch (err) {
+      toast.error(err.message || 'No se pudo guardar el premio')
+    }
   }
 
-  const del = (p) => {
+  const del = async (p) => {
     if (!confirm(`¿Eliminar el premio "${p.name}"?`)) return
-    removePrize(p.id)
-    toast.success('Premio eliminado')
+    try {
+      await removePrize(p.id)
+      toast.success('Premio eliminado')
+    } catch (err) {
+      toast.error(err.message || 'No se pudo eliminar')
+    }
   }
 
-  const reset = () => {
+  const reset = async () => {
     if (!confirm('¿Restaurar los premios por defecto? Se reemplazarán los actuales.')) return
-    resetPrizes()
-    toast.success('Premios restaurados')
+    try {
+      await resetPrizes()
+      toast.success('Premios restaurados')
+    } catch (err) {
+      toast.error(err.message || 'No se pudo restaurar')
+    }
   }
 
   const sorted = [...prizes].sort((a, b) => {

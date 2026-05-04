@@ -28,11 +28,15 @@ export default function Sales() {
   const units = filtered.reduce((a, s) => a + s.quantity, 0)
   const discountSum = filtered.reduce((a, s) => a + (s.discount || 0), 0)
 
-  const onCancel = (s) => {
+  const onCancel = async (s) => {
     if (!confirm(`¿Anular la venta de ${s.productName} (talla ${s.size})? Se devuelve al stock.`))
       return
-    cancelSale(s.id)
-    toast.success('Venta anulada y stock devuelto')
+    try {
+      await cancelSale(s.id)
+      toast.success('Venta anulada y stock devuelto')
+    } catch (err) {
+      toast.error(err.message || 'No se pudo anular la venta')
+    }
   }
 
   return (
