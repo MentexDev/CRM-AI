@@ -156,7 +156,10 @@ El script `deploy` corre `vite build` y publica `dist/` al proyecto
 - [`public/_redirects`](public/_redirects) — `/* /index.html 200` para que React Router
   funcione en URLs profundas (ej. `/admin/vendedoras` recargado)
 - [`public/_headers`](public/_headers) — cache largo en `/assets/*`, headers de seguridad
-- [`wrangler.toml`](wrangler.toml) — config para `wrangler pages deploy`
+
+> **Nota**: no incluimos `wrangler.toml`. Cloudflare Pages lo interpreta como proyecto
+> Workers y rompe el deploy. El script `npm run deploy` pasa los flags directamente
+> a `wrangler pages deploy`.
 
 ---
 
@@ -199,7 +202,6 @@ public/
 supabase/
   schema.sql             Tablas, RLS, funciones transaccionales
   seed.sql               Promover admin + premios demo
-wrangler.toml            Config Cloudflare Pages
 vite.config.js           Code splitting (xlsx, motion, supabase, icons)
 tailwind.config.js       Paleta NINA (silver gradient, animaciones)
 ```
