@@ -1,0 +1,59 @@
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { useAuth } from './context/AuthContext'
+import Login from './pages/Login'
+import AdminLayout from './pages/admin/AdminLayout'
+import Overview from './pages/admin/Overview'
+import Inventory from './pages/admin/Inventory'
+import Sellers from './pages/admin/Sellers'
+import Sales from './pages/admin/Sales'
+import Ranking from './pages/admin/Ranking'
+import Prizes from './pages/admin/Prizes'
+import SellerDashboard from './pages/seller/SellerDashboard'
+
+function Protected({ children, role }) {
+  const { user, loading } = useAuth()
+  if (loading) {
+    return (
+      <div className="min-h-screen grid place-items-center">
+        <div className="silver-text font-display text-xl tracking-[0.2em]">CARGANDO…</div>
+      </div>
+    )
+  }
+  if (!user) return <Navigate to="/login" replace />
+  if (role && user.role !== role) {
+    return <Navigate to={user.role === 'admin' ? '/admin' : '/vendedora'} replace />
+  }
+  return children
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route
+        path="/admin"
+        element={
+          <Protected role="admin">
+            <AdminLayout />
+          </Protected>
+        }
+      >
+        <Route index element={<Overview />} />
+        <Route path="inventario" element={<Inventory />} />
+        <Route path="vendedoras" element={<Sellers />} />
+        <Route path="ventas" element={<Sales />} />
+        <Route path="ranking" element={<Ranking />} />
+        <Route path="premios" element={<Prizes />} />
+      </Route>
+      <Route
+        path="/vendedora"
+        element={
+          <Protected role="seller">
+            <SellerDashboard />
+          </Protected>
+        }
+      />
+      <Route path="*" element={<Navigate to="/login" replace />} />
+    </Routes>
+  )
+}

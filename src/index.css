@@ -1,0 +1,108 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@400;600;700;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-nina-black text-nina-chrome font-sans antialiased;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(232, 232, 232, 0.06), transparent 60%),
+      radial-gradient(900px 500px at 110% 20%, rgba(200, 200, 200, 0.05), transparent 55%),
+      #0a0a0a;
+    background-attachment: fixed;
+  }
+  ::selection {
+    background: #e8e8e8;
+    color: #0a0a0a;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0a0a0a;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #2a2a2a, #1a1a1a);
+    border-radius: 10px;
+    border: 2px solid #0a0a0a;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a3a3a;
+  }
+}
+
+@layer components {
+  .silver-text {
+    background: linear-gradient(135deg, #ffffff 0%, #c8c8c8 35%, #8a8a8a 50%, #c8c8c8 65%, #ffffff 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer 6s linear infinite;
+  }
+
+  .panel {
+    @apply bg-nina-panel/80 border border-nina-line rounded-2xl backdrop-blur-sm;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.04) inset,
+      0 30px 60px -30px rgba(0, 0, 0, 0.6);
+  }
+
+  .panel-hover {
+    @apply transition-all duration-300 hover:border-nina-silver/30 hover:shadow-glow;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn text-nina-black;
+    background: linear-gradient(135deg, #ffffff 0%, #c8c8c8 50%, #ffffff 100%);
+    background-size: 200% auto;
+    box-shadow: 0 4px 20px rgba(232, 232, 232, 0.18);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-position: right center;
+    box-shadow: 0 6px 30px rgba(232, 232, 232, 0.3);
+    transform: translateY(-1px);
+  }
+
+  .btn-ghost {
+    @apply btn bg-nina-line/40 text-nina-chrome border border-nina-line hover:bg-nina-line hover:border-nina-silver/30;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-500/10 text-red-300 border border-red-500/20 hover:bg-red-500/20;
+  }
+
+  .input {
+    @apply w-full bg-nina-ink border border-nina-line rounded-xl px-4 py-2.5 text-nina-chrome placeholder:text-nina-mute focus:outline-none focus:border-nina-silver/50 focus:ring-1 focus:ring-nina-silver/20 transition;
+  }
+
+  .label {
+    @apply block text-xs uppercase tracking-[0.18em] text-nina-mute mb-2 font-medium;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border;
+  }
+
+  .badge-stock-ok {
+    @apply chip bg-emerald-500/10 border-emerald-500/20 text-emerald-300;
+  }
+  .badge-stock-low {
+    @apply chip bg-amber-500/10 border-amber-500/20 text-amber-300;
+  }
+  .badge-stock-out {
+    @apply chip bg-red-500/10 border-red-500/20 text-red-300;
+  }
+}
