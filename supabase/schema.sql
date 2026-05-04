@@ -120,33 +120,30 @@ create index if not exists sales_order_idx   on public.sales(order_id);
 create index if not exists sales_sold_at_idx on public.sales(sold_at desc);
 
 -- Función transaccional: registra un pedido completo (varias líneas) y descuenta
--- el stock atómicamente. Reparte el descuento proporcional entre líneas.
--- p_items = jsonb array: [{"product_id": "uuid", "size": "8", "quantity": 2}, ...]
+-- el stock atómicamente. Cada línea trae su propio discount_pct y payment_method.
+-- p_items = jsonb array:
+--   [{"product_id": "uuid", "size": "8", "quantity": 2,
+--     "discount_pct": 10, "payment_method": "Efectivo"}, ...]
 -- p_customer = jsonb: {"name":"...","cedula":"...","address":"...","phone":"...","email":"..."}
+drop function if exists public.register_order(uuid, jsonb, text, numeric, jsonb);
+
 create or replace function public.register_order(
   p_seller_id uuid,
   p_items jsonb,
-  p_payment_method text default 'Efectivo',
-  p_discount numeric default 0,
   p_customer jsonb default '{}'::jsonb
 ) returns setof public.sales
 language plpgsql security definer set search_path = public as $$
 declare
   v_order_id text := 'ord-' || extract(epoch from now())::bigint || '-' || substr(md5(random()::text), 1, 6);
-  v_seller   profiles%rowtype;
+  v_seller   public.profiles%rowtype;
   v_item     jsonb;
-  v_product  products%rowtype;
+  v_product  public.products%rowtype;
   v_size     text;
   v_qty      int;
-  v_subtotal numeric := 0;
-  v_total_disc numeric;
-  v_lines    jsonb := '[]'::jsonb;
-  v_line     jsonb;
-  v_idx      int := 0;
+  v_disc_pct numeric;
+  v_pay      text;
   v_line_subtotal numeric;
   v_line_disc numeric;
-  v_acc_disc numeric := 0;
-  v_count    int;
   v_sold_at  timestamptz := now();
   v_cust_name text := coalesce(p_customer->>'name', 'NA');
   v_cust_ced  text := coalesce(p_customer->>'cedula', 'NA');
@@ -161,11 +158,16 @@ begin
     raise exception 'Agrega al menos una venta al pedido';
   end if;
 
-  -- 1) Validar stock y calcular subtotal
   for v_item in select * from jsonb_array_elements(p_items) loop
-    v_size := v_item->>'size';
-    v_qty  := (v_item->>'quantity')::int;
+    v_size     := v_item->>'size';
+    v_qty      := (v_item->>'quantity')::int;
+    v_disc_pct := coalesce((v_item->>'discount_pct')::numeric, 0);
+    v_pay      := coalesce(v_item->>'payment_method', 'Efectivo');
+
     if v_qty <= 0 then raise exception 'Cantidad inválida'; end if;
+    if v_disc_pct < 0 or v_disc_pct > 100 then
+      raise exception 'Descuento debe estar entre 0 y 100';
+    end if;
 
     select * into v_product from public.products
       where id = (v_item->>'product_id')::uuid for update;
@@ -176,41 +178,16 @@ begin
     end if;
 
     v_line_subtotal := v_product.price * v_qty;
-    v_subtotal := v_subtotal + v_line_subtotal;
-
-    v_lines := v_lines || jsonb_build_object(
-      'product', row_to_json(v_product),
-      'size', v_size,
-      'quantity', v_qty,
-      'line_subtotal', v_line_subtotal
-    );
-  end loop;
-
-  v_total_disc := greatest(0, least(coalesce(p_discount, 0), v_subtotal));
-  v_count := jsonb_array_length(v_lines);
-
-  -- 2) Insertar líneas (descuento proporcional, última absorbe redondeo)
-  for v_idx in 0..(v_count - 1) loop
-    v_line := v_lines -> v_idx;
-    v_line_subtotal := (v_line->>'line_subtotal')::numeric;
-
-    if v_idx = v_count - 1 then
-      v_line_disc := v_total_disc - v_acc_disc;
-    else
-      v_line_disc := round((v_line_subtotal / v_subtotal) * v_total_disc);
-      v_acc_disc := v_acc_disc + v_line_disc;
-    end if;
+    v_line_disc := round(v_line_subtotal * v_disc_pct / 100);
 
     -- descontar stock
     update public.products set
       sizes = jsonb_set(
         sizes,
-        array[v_line->>'size'],
-        to_jsonb(
-          coalesce((sizes->>(v_line->>'size'))::int, 0) - (v_line->>'quantity')::int
-        )
+        array[v_size],
+        to_jsonb(coalesce((sizes->>v_size)::int, 0) - v_qty)
       )
-    where id = ((v_line->'product')->>'id')::uuid;
+    where id = v_product.id;
 
     return query insert into public.sales (
       order_id, seller_id, seller_name, product_id, product_name, sku,
@@ -221,16 +198,16 @@ begin
       v_order_id,
       p_seller_id,
       coalesce(v_seller.first_name || ' ' || v_seller.last_name, v_seller.username),
-      ((v_line->'product')->>'id')::uuid,
-      (v_line->'product')->>'name',
-      (v_line->'product')->>'sku',
-      v_line->>'size',
-      (v_line->>'quantity')::int,
-      ((v_line->'product')->>'price')::numeric,
+      v_product.id,
+      v_product.name,
+      v_product.sku,
+      v_size,
+      v_qty,
+      v_product.price,
       v_line_subtotal,
       v_line_disc,
       v_line_subtotal - v_line_disc,
-      p_payment_method,
+      v_pay,
       v_cust_name, v_cust_ced, v_cust_addr, v_cust_phn, v_cust_eml,
       v_sold_at
     ) returning *;

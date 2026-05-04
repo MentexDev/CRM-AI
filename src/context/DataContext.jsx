@@ -216,7 +216,7 @@ export function DataProvider({ children }) {
 
   // ============= VENTAS =============
   const registerOrder = useCallback(
-    async ({ sellerId, sellerName, items, paymentMethod = 'Efectivo', discount = 0, customer }) => {
+    async ({ sellerId, sellerName, items, customer }) => {
       if (!Array.isArray(items) || items.length === 0)
         throw new Error('Agrega al menos una venta al pedido')
 
@@ -227,16 +227,16 @@ export function DataProvider({ children }) {
             product_id: i.productId,
             size: String(i.size),
             quantity: Number(i.quantity),
+            discount_pct: Math.max(0, Math.min(100, Number(i.discountPct) || 0)),
+            payment_method: i.paymentMethod || 'Efectivo',
           })),
-          p_payment_method: paymentMethod,
-          p_discount: Number(discount) || 0,
           p_customer: { ...emptyCustomer(), ...(customer || {}) },
         })
         if (error) throw new Error(error.message || 'No se pudo registrar la venta')
         return (data || []).map(mapSale)
       }
 
-      // Fallback local
+      // Fallback local — descuento y método por línea
       const validated = items.map((it) => {
         const product = products.find((p) => p.id === it.productId)
         if (!product) throw new Error('Producto no encontrado')
@@ -247,19 +247,14 @@ export function DataProvider({ children }) {
           throw new Error(`Solo hay ${available} unidades de ${product.name} talla ${it.size}`)
         return { ...it, product, quantity: qty }
       })
-      const subtotal = validated.reduce((a, v) => a + v.product.price * v.quantity, 0)
-      const totalDiscount = Math.max(0, Math.min(Number(discount) || 0, subtotal))
       const orderId = `ord-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
       const soldAt = new Date().toISOString()
       const cust = { ...emptyCustomer(), ...(customer || {}) }
-      let acc = 0
+
       const newSales = validated.map((v, i) => {
         const lineSubtotal = v.product.price * v.quantity
-        const isLast = i === validated.length - 1
-        const lineDiscount = isLast
-          ? totalDiscount - acc
-          : Math.round((lineSubtotal / subtotal) * totalDiscount)
-        if (!isLast) acc += lineDiscount
+        const pct = Math.max(0, Math.min(100, Number(v.discountPct) || 0))
+        const lineDiscount = Math.round((lineSubtotal * pct) / 100)
         return {
           id: `sale-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 5)}`,
           orderId,
@@ -274,7 +269,7 @@ export function DataProvider({ children }) {
           lineSubtotal,
           discount: lineDiscount,
           total: lineSubtotal - lineDiscount,
-          paymentMethod,
+          paymentMethod: v.paymentMethod || 'Efectivo',
           customer: cust,
           soldAt,
         }
