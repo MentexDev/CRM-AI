@@ -76,7 +76,11 @@ export default function AdminLayout() {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setSaleOpen(true)}
-        className="fixed bottom-6 right-6 z-30 btn-primary !rounded-full !p-4 shadow-glow group"
+        className="fixed z-30 btn-primary !rounded-full !p-4 shadow-glow group"
+        style={{
+          bottom: 'calc(1.5rem + env(safe-area-inset-bottom))',
+          right: 'calc(1.5rem + env(safe-area-inset-right))',
+        }}
         aria-label="Registrar venta"
         title="Registrar venta"
       >

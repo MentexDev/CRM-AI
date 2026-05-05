@@ -71,8 +71,17 @@ export default function TopBar() {
   }[conn]
 
   return (
-    <header className="sticky top-0 z-30 backdrop-blur-md bg-nina-black/60 border-b border-nina-line">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
+    <header
+      className="sticky top-0 z-30 backdrop-blur-md bg-nina-black/60 border-b border-nina-line"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+    >
+      <div
+        className="max-w-7xl mx-auto py-4 flex items-center justify-between gap-4"
+        style={{
+          paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+          paddingRight: 'max(1rem, env(safe-area-inset-right))',
+        }}
+      >
         <Logo size="sm" subtitle={false} />
         <div className="flex items-center gap-3">
           <div className="hidden sm:flex flex-col items-end leading-tight">

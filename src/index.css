@@ -17,6 +17,11 @@
       radial-gradient(900px 500px at 110% 20%, rgba(200, 200, 200, 0.05), transparent 55%),
       #0a0a0a;
     background-attachment: fixed;
+    /* Respeta la safe area horizontal del dispositivo (notches laterales,
+       Dynamic Island en orientación landscape, etc). El TopBar ya maneja
+       top y bottom por su cuenta. */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
   ::selection {
     background: #e8e8e8;
