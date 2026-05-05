@@ -95,7 +95,9 @@ create table if not exists public.sales (
   order_id text not null,
   seller_id uuid not null references public.profiles(id) on delete restrict,
   seller_name text not null,
-  product_id uuid not null references public.products(id) on delete restrict,
+  -- product_id puede quedar NULL si se elimina el producto; la venta histórica
+  -- se conserva con product_name + sku copiados (ver register_order)
+  product_id uuid references public.products(id) on delete set null,
   product_name text not null,
   sku text,
   size text not null,
