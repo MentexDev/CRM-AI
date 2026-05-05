@@ -147,12 +147,20 @@ export default function Sellers() {
         <EmptyState
           icon={UserPlus2}
           title="Aún no hay vendedoras registradas"
-          description="Crea la primera vendedora para que pueda iniciar sesión y registrar ventas durante la feria."
+          description="Si ya creaste vendedoras y no las ves, refresca la página (las suscripciones realtime pueden tardar unos segundos)."
           actions={
-            <button onClick={openNew} className="btn-primary">
-              <UserPlus2 className="w-4 h-4" />
-              Crear vendedora
-            </button>
+            <>
+              <button onClick={openNew} className="btn-primary">
+                <UserPlus2 className="w-4 h-4" />
+                Crear vendedora
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                className="btn-ghost"
+              >
+                Refrescar
+              </button>
+            </>
           }
         />
       ) : (

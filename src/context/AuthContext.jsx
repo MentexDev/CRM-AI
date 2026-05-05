@@ -209,12 +209,34 @@ export function AuthProvider({ children }) {
   // Suscripción a profiles para mantener listSellers() actualizado
   useEffect(() => {
     if (!isSupabaseConfigured) return
+    if (!user?.id) return // no fetch antes de que la sesión esté lista
     let active = true
+
     const fetchProfiles = async () => {
-      const { data } = await supabase.from('profiles').select('*').order('created_at')
-      if (active && data) setProfilesCache(data)
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .order('created_at')
+        if (error) {
+          console.error('[NINA] fetchProfiles error:', error)
+          return
+        }
+        if (active && data) {
+          setProfilesCache(data)
+          console.info(`[NINA] profiles cargados: ${data.length}`)
+        }
+      } catch (err) {
+        console.error('[NINA] fetchProfiles exception:', err)
+      }
     }
     fetchProfiles()
+
+    // Refetch cuando la pestaña vuelve al foco (cubrir casos de cache stale
+    // tras dormir el equipo, cambio de red, etc.)
+    const onFocus = () => fetchProfiles()
+    window.addEventListener('focus', onFocus)
+
     const channel = supabase
       .channel('profiles-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
@@ -223,9 +245,10 @@ export function AuthProvider({ children }) {
       .subscribe()
     return () => {
       active = false
+      window.removeEventListener('focus', onFocus)
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [user?.id])
 
   // ============= LOGIN / LOGOUT =============
   const login = async (username, password) => {
