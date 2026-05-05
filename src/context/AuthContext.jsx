@@ -124,42 +124,27 @@ export function AuthProvider({ children }) {
 
   const hydrateUserFromProfile = useCallback(async (authUser) => {
     if (!authUser) return null
-    // Pequeño helper para reintentar la query del profile hasta 3 veces
-    const fetchProfile = async () => {
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          const { data, error } = await withTimeout(
-            supabase.from('profiles').select('*').eq('id', authUser.id).maybeSingle(),
-            10000,
-            `hydrate profile (intento ${attempt})`,
-          )
-          if (error) {
-            console.warn(`[NINA] hydrate intento ${attempt}:`, error)
-            if (attempt === 3) return null
-          } else {
-            return data
-          }
-        } catch (err) {
-          console.warn(`[NINA] hydrate intento ${attempt} timeout:`, err)
-          if (attempt === 3) return null
-        }
-        // backoff entre reintentos: 500ms, 1500ms
-        await new Promise((r) => setTimeout(r, attempt * 500))
+    // Una sola tentativa, timeout corto. Si falla, devolvemos null y el
+    // caller decide si mantener cache o esperar al próximo evento de auth.
+    try {
+      const { data, error } = await withTimeout(
+        supabase.from('profiles').select('*').eq('id', authUser.id).maybeSingle(),
+        8000,
+        'hydrate profile',
+      )
+      if (error || !data) return null
+      return {
+        id: data.id,
+        username: data.username,
+        firstName: data.first_name,
+        lastName: data.last_name,
+        name: `${data.first_name} ${data.last_name}`.trim(),
+        role: data.role,
+        avatar: data.avatar,
+        goal: Number(data.goal) || 0,
       }
+    } catch {
       return null
-    }
-
-    const profile = await fetchProfile()
-    if (!profile) return null
-    return {
-      id: profile.id,
-      username: profile.username,
-      firstName: profile.first_name,
-      lastName: profile.last_name,
-      name: `${profile.first_name} ${profile.last_name}`.trim(),
-      role: profile.role,
-      avatar: profile.avatar,
-      goal: Number(profile.goal) || 0,
     }
   }, [])
 
@@ -179,42 +164,47 @@ export function AuthProvider({ children }) {
 
           // No hay sesión activa en Supabase Auth (token genuinamente ausente)
           if (!data.session?.user) {
-            // Si no había cache, mandamos a login. Si había cache pero la
-            // sesión real ya no existe, también limpiamos.
             setUser(null)
             cacheUser(null)
             return
           }
 
-          // Hay sesión válida → intentamos refrescar el profile en background
+          // Si ya tenemos user del cache para este mismo auth.user.id, NO
+          // bloqueamos esperando hydrate. Disparamos refresh en background.
+          const cached = loadCachedUser()
+          if (cached && cached.id === data.session.user.id) {
+            // refresh suave, sin urgencia ni logs ruidosos
+            hydrateUserFromProfile(data.session.user)
+              .then((u) => {
+                if (u && active) {
+                  setUser(u)
+                  cacheUser(u)
+                }
+              })
+              .catch(() => {})
+            return
+          }
+
+          // No hay cache (o es de otro user) → hydrate sí o sí
           const u = await hydrateUserFromProfile(data.session.user)
           if (!active) return
           if (u) {
             setUser(u)
             cacheUser(u)
           } else {
-            // Hydrate falló pero la sesión es válida. Mantenemos el user
-            // del cache (si existe). Si no había cache, dejamos al menos
-            // un objeto mínimo para que la app no rebote a /login.
-            console.warn('[NINA] hydrate falló pero la sesión es válida; mantengo cache')
-            const cached = loadCachedUser()
-            if (cached) {
-              setUser(cached)
-            } else {
-              // Mínimo absoluto: solo lo que sabemos del authUser.
-              setUser({
-                id: data.session.user.id,
-                username: data.session.user.email?.split('@')[0] || 'user',
-                name: data.session.user.email || 'Usuario',
-                role: 'seller',
-                avatar: 'NN',
-                goal: 0,
-              })
-            }
+            console.warn('[NINA] sesión válida pero profile no disponible')
+            // user mínimo para que la app cargue
+            setUser({
+              id: data.session.user.id,
+              username: data.session.user.email?.split('@')[0] || 'user',
+              name: data.session.user.email || 'Usuario',
+              role: 'seller',
+              avatar: 'NN',
+              goal: 0,
+            })
           }
         } catch (err) {
           // Red caída o Supabase lento: NO tocamos la sesión ni el cache.
-          // El user del cache (si lo había) sigue activo.
           console.error('[NINA] Auth init error (mantengo cache):', err)
         } finally {
           if (active) setLoading(false)

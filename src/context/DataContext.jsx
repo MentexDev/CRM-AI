@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import { seedProducts, seedSales, seedPrizes, emptySizes, SIZES } from '../lib/seed'
 
@@ -100,28 +100,52 @@ export function DataProvider({ children }) {
 
   // ---------- Fetch unificado (lo usan tanto la carga inicial como el refetch
   //            tras mutaciones, por si el realtime tarda) ----------
+  // Si ya hay un fetchAll en curso, las llamadas posteriores reusan la misma
+  // promesa en lugar de saturar la red con queries concurrentes (que causan
+  // timeouts en cascada). Tras terminar, queda libre para la siguiente.
+  const inFlight = useRef(null)
+
   const fetchAll = useCallback(async () => {
     if (!isSupabaseConfigured) return
-    try {
-      const timeout = (p) =>
-        Promise.race([
-          p,
-          new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout fetch')), 6000)),
+    if (inFlight.current) return inFlight.current
+
+    const run = async () => {
+      try {
+        // Cada query con su propio timeout. Si una falla, las otras igual
+        // pueden completar y actualizar su slice del estado.
+        const safe = async (p, label) => {
+          try {
+            const result = await Promise.race([
+              p,
+              new Promise((_, rej) =>
+                setTimeout(() => rej(new Error(`Timeout ${label}`)), 15000),
+              ),
+            ])
+            return result
+          } catch (err) {
+            console.warn(`[NINA] ${label} falló:`, err.message)
+            return { data: null, error: err }
+          }
+        }
+
+        const [pRes, sRes, prRes] = await Promise.all([
+          safe(supabase.from('products').select('*').order('created_at'), 'products'),
+          safe(
+            supabase.from('sales').select('*').order('sold_at', { ascending: false }),
+            'sales',
+          ),
+          safe(supabase.from('prizes').select('*').order('threshold'), 'prizes'),
         ])
-      const [pRes, sRes, prRes] = await Promise.all([
-        timeout(supabase.from('products').select('*').order('created_at')),
-        timeout(supabase.from('sales').select('*').order('sold_at', { ascending: false })),
-        timeout(supabase.from('prizes').select('*').order('threshold')),
-      ])
-      if (pRes.error) console.error('[NINA] products fetch error:', pRes.error)
-      if (sRes.error) console.error('[NINA] sales fetch error:', sRes.error)
-      if (prRes.error) console.error('[NINA] prizes fetch error:', prRes.error)
-      if (pRes.data) setProducts(pRes.data.map(mapProduct))
-      if (sRes.data) setSales(sRes.data.map(mapSale))
-      if (prRes.data) setPrizes(prRes.data.map(mapPrize))
-    } catch (err) {
-      console.error('[NINA] fetchAll exception:', err)
+        if (pRes?.data) setProducts(pRes.data.map(mapProduct))
+        if (sRes?.data) setSales(sRes.data.map(mapSale))
+        if (prRes?.data) setPrizes(prRes.data.map(mapPrize))
+      } finally {
+        inFlight.current = null
+      }
     }
+
+    inFlight.current = run()
+    return inFlight.current
   }, [])
 
   // ---------- Carga inicial + realtime cuando hay Supabase ----------

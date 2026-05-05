@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { NavLink, Outlet } from 'react-router-dom'
 import {
+  Contact,
   Gift,
   LayoutDashboard,
   Package,
@@ -18,6 +19,7 @@ const tabs = [
   { to: '/admin/inventario', icon: Package, label: 'Inventario' },
   { to: '/admin/vendedoras', icon: Users, label: 'Vendedoras' },
   { to: '/admin/ventas', icon: Receipt, label: 'Ventas' },
+  { to: '/admin/clientes', icon: Contact, label: 'Clientes' },
   { to: '/admin/ranking', icon: Trophy, label: 'Ranking' },
   { to: '/admin/premios', icon: Gift, label: 'Premios' },
 ]

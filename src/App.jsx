@@ -9,6 +9,7 @@ import Sellers from './pages/admin/Sellers'
 import Sales from './pages/admin/Sales'
 import Ranking from './pages/admin/Ranking'
 import Prizes from './pages/admin/Prizes'
+import Customers from './pages/admin/Customers'
 import SellerDashboard from './pages/seller/SellerDashboard'
 
 function Protected({ children, role }) {
@@ -84,6 +85,7 @@ export default function App() {
         <Route path="ventas" element={<Sales />} />
         <Route path="ranking" element={<Ranking />} />
         <Route path="premios" element={<Prizes />} />
+        <Route path="clientes" element={<Customers />} />
       </Route>
       <Route
         path="/vendedora"
