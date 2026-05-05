@@ -105,37 +105,71 @@ export function DataProvider({ children }) {
   // timeouts en cascada). Tras terminar, queda libre para la siguiente.
   const inFlight = useRef(null)
 
+  // Detecta errores típicos de token expirado de Supabase
+  const isAuthError = (err) => {
+    if (!err) return false
+    const code = err.code || err.statusCode || err.status
+    const msg = (err.message || '').toLowerCase()
+    return (
+      code === 401 ||
+      code === 'PGRST301' ||
+      msg.includes('jwt') ||
+      msg.includes('expired') ||
+      msg.includes('not authenticated')
+    )
+  }
+
+  const runQueries = async () => {
+    const safe = async (p, label) => {
+      try {
+        const result = await Promise.race([
+          p,
+          new Promise((_, rej) =>
+            setTimeout(() => rej(new Error(`Timeout ${label}`)), 15000),
+          ),
+        ])
+        return result
+      } catch (err) {
+        return { data: null, error: err }
+      }
+    }
+    return Promise.all([
+      safe(supabase.from('products').select('*').order('created_at'), 'products'),
+      safe(
+        supabase.from('sales').select('*').order('sold_at', { ascending: false }),
+        'sales',
+      ),
+      safe(supabase.from('prizes').select('*').order('threshold'), 'prizes'),
+    ])
+  }
+
   const fetchAll = useCallback(async () => {
     if (!isSupabaseConfigured) return
     if (inFlight.current) return inFlight.current
 
     const run = async () => {
       try {
-        // Cada query con su propio timeout. Si una falla, las otras igual
-        // pueden completar y actualizar su slice del estado.
-        const safe = async (p, label) => {
+        let [pRes, sRes, prRes] = await runQueries()
+
+        // Si alguna falló por auth caducado, refresh y reintenta UNA vez
+        const hasAuthError =
+          isAuthError(pRes?.error) ||
+          isAuthError(sRes?.error) ||
+          isAuthError(prRes?.error)
+        if (hasAuthError) {
+          console.warn('[NINA] token caducado en fetchAll, refrescando…')
           try {
-            const result = await Promise.race([
-              p,
-              new Promise((_, rej) =>
-                setTimeout(() => rej(new Error(`Timeout ${label}`)), 15000),
-              ),
-            ])
-            return result
+            await supabase.auth.refreshSession()
+            ;[pRes, sRes, prRes] = await runQueries()
           } catch (err) {
-            console.warn(`[NINA] ${label} falló:`, err.message)
-            return { data: null, error: err }
+            console.warn('[NINA] refreshSession falló:', err)
           }
         }
 
-        const [pRes, sRes, prRes] = await Promise.all([
-          safe(supabase.from('products').select('*').order('created_at'), 'products'),
-          safe(
-            supabase.from('sales').select('*').order('sold_at', { ascending: false }),
-            'sales',
-          ),
-          safe(supabase.from('prizes').select('*').order('threshold'), 'prizes'),
-        ])
+        if (pRes?.error && !pRes.data) console.warn('[NINA] products:', pRes.error.message)
+        if (sRes?.error && !sRes.data) console.warn('[NINA] sales:', sRes.error.message)
+        if (prRes?.error && !prRes.data) console.warn('[NINA] prizes:', prRes.error.message)
+
         if (pRes?.data) setProducts(pRes.data.map(mapProduct))
         if (sRes?.data) setSales(sRes.data.map(mapSale))
         if (prRes?.data) setPrizes(prRes.data.map(mapPrize))
@@ -154,16 +188,24 @@ export function DataProvider({ children }) {
 
     // Espera a que haya sesión válida antes de fetch (evita race condition
     // cuando el user viene de cache pero el cliente Supabase aún no tiene
-    // el access_token en memoria).
+    // el access_token en memoria). Además fuerza refreshSession para que
+    // el access_token sea fresco — sin esto, tras una mutación + refresh,
+    // el token guardado en localStorage puede estar caducado y las queries
+    // devuelven 401 silencioso (datos vacíos pero usuario "logueado").
     const fetchWhenReady = async () => {
-      const { data } = await supabase.auth.getSession()
-      if (data?.session?.user) {
-        fetchAll()
-      } else {
-        // No hay sesión todavía. onAuthStateChange disparará el fetch
-        // cuando llegue.
+      const { data: sessionData } = await supabase.auth.getSession()
+      if (!sessionData?.session?.user) {
         console.info('[NINA] DataContext: esperando sesión para fetch inicial')
+        return
       }
+      // Refresh explícito del token; si falla, fetchAll igual hará retry
+      // con auto-refresh ante un 401.
+      try {
+        await supabase.auth.refreshSession()
+      } catch (err) {
+        console.warn('[NINA] refreshSession inicial falló:', err)
+      }
+      fetchAll()
     }
     fetchWhenReady()
 
