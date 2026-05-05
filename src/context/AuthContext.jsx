@@ -5,6 +5,26 @@ import { seedSellers, buildUsername, DEFAULT_GOAL } from '../lib/seed'
 const AuthContext = createContext(null)
 const SESSION_KEY = 'nina:session'
 const USERS_KEY = 'nina:users:v2'
+// Cache del último perfil válido en Supabase, para mantener al user logueado
+// si la red falla o el hydrate hace timeout (lo guardamos cada vez que el
+// hydrate funciona y lo limpiamos solo en signOut explícito).
+const USER_CACHE_KEY = 'nina:user-cache'
+
+const cacheUser = (u) => {
+  try {
+    if (u) localStorage.setItem(USER_CACHE_KEY, JSON.stringify(u))
+    else localStorage.removeItem(USER_CACHE_KEY)
+  } catch {}
+}
+
+const loadCachedUser = () => {
+  try {
+    const raw = localStorage.getItem(USER_CACHE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
 
 // ---------- helpers locales (modo fallback sin Supabase) ----------
 const migrate = (users) =>
@@ -82,8 +102,14 @@ const callAdminFn = async (action, payload) => {
 
 // ---------- Provider ----------
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
+  // Arrancamos desde el cache del último user válido — entrada inmediata,
+  // sin esperar a que Supabase responda. Si el cache existe, la app se
+  // renderiza al instante y el hydrate pasa a ser un refresh en background.
+  const [user, setUser] = useState(() => (isSupabaseConfigured ? loadCachedUser() : null))
+  const [loading, setLoading] = useState(() =>
+    // si tenemos cache, ya estamos "listos" — el bg hydrate actualizará después
+    isSupabaseConfigured ? !loadCachedUser() : true,
+  )
   // cache local de profiles cuando estamos en Supabase, refrescada por realtime
   const [profilesCache, setProfilesCache] = useState([])
 
@@ -150,30 +176,46 @@ export function AuthProvider({ children }) {
             'getSession',
           )
           if (!active) return
-          // Sin sesión → al login (es lo que esperamos al primer load)
+
+          // No hay sesión activa en Supabase Auth (token genuinamente ausente)
           if (!data.session?.user) {
+            // Si no había cache, mandamos a login. Si había cache pero la
+            // sesión real ya no existe, también limpiamos.
             setUser(null)
+            cacheUser(null)
             return
           }
+
+          // Hay sesión válida → intentamos refrescar el profile en background
           const u = await hydrateUserFromProfile(data.session.user)
           if (!active) return
           if (u) {
             setUser(u)
+            cacheUser(u)
           } else {
-            // Hay sesión válida pero no pudimos cargar el profile.
-            // NO hacemos signOut: dejamos al usuario reintentar.
-            // Como mínimo seteamos un user básico para que pueda ver la app
-            // (el role queda undefined, así que el routing lo lleva a /vendedora
-            // por default — si no carga, tiene los botones de stuck).
-            console.warn('[NINA] Sesión válida pero profile no disponible')
-            setUser(null)
+            // Hydrate falló pero la sesión es válida. Mantenemos el user
+            // del cache (si existe). Si no había cache, dejamos al menos
+            // un objeto mínimo para que la app no rebote a /login.
+            console.warn('[NINA] hydrate falló pero la sesión es válida; mantengo cache')
+            const cached = loadCachedUser()
+            if (cached) {
+              setUser(cached)
+            } else {
+              // Mínimo absoluto: solo lo que sabemos del authUser.
+              setUser({
+                id: data.session.user.id,
+                username: data.session.user.email?.split('@')[0] || 'user',
+                name: data.session.user.email || 'Usuario',
+                role: 'seller',
+                avatar: 'NN',
+                goal: 0,
+              })
+            }
           }
         } catch (err) {
-          // Red caída o Supabase lento: NO borramos la sesión, solo dejamos
-          // user=null para que React Router lleve al login. Si la sesión
-          // sigue en localStorage, en el próximo refresh debería entrar.
-          console.error('[NINA] Auth init error:', err)
-          if (active) setUser(null)
+          // Red caída o Supabase lento: NO tocamos la sesión ni el cache.
+          // El user del cache (si lo había) sigue activo.
+          console.error('[NINA] Auth init error (mantengo cache):', err)
         } finally {
           if (active) setLoading(false)
         }
@@ -181,13 +223,25 @@ export function AuthProvider({ children }) {
       init()
 
       const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
-        // SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED, SIGNED_IN
-        if (event === 'SIGNED_OUT' || !session) {
+        // SIGNED_OUT explícito (logout, token revocado, refresh fallido por
+        // credenciales inválidas) → cerrar sesión real
+        if (event === 'SIGNED_OUT') {
           if (active) setUser(null)
+          cacheUser(null)
           return
         }
+        // Resto de eventos (SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED,
+        // INITIAL_SESSION): si hay user, refrescamos el profile y cache;
+        // si NO hay user en el evento pero NO es SIGNED_OUT, ignoramos
+        // (puede ser un blip).
+        if (!session?.user) return
         const u = await hydrateUserFromProfile(session.user)
-        if (active) setUser(u)
+        if (!active) return
+        if (u) {
+          setUser(u)
+          cacheUser(u)
+        }
+        // Si u es null no tocamos: mantenemos lo que ya tenía el user.
       })
       return () => {
         active = false
@@ -261,7 +315,9 @@ export function AuthProvider({ children }) {
         }
         throw error
       }
-      return await hydrateUserFromProfile(data.user)
+      const u = await hydrateUserFromProfile(data.user)
+      if (u) cacheUser(u)
+      return u
     }
     // Fallback local
     const users = loadUsersLocal()
@@ -286,9 +342,12 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     if (isSupabaseConfigured) {
-      await supabase.auth.signOut()
+      try {
+        await supabase.auth.signOut()
+      } catch {}
     }
     localStorage.removeItem(SESSION_KEY)
+    cacheUser(null)
     setUser(null)
   }
 
