@@ -98,30 +98,42 @@ export function AuthProvider({ children }) {
 
   const hydrateUserFromProfile = useCallback(async (authUser) => {
     if (!authUser) return null
-    try {
-      const { data: profile, error } = await withTimeout(
-        supabase.from('profiles').select('*').eq('id', authUser.id).maybeSingle(),
-        4000,
-        'hydrate profile',
-      )
-      if (error) {
-        console.error('[NINA] hydrate profile error:', error)
-        return null
+    // Pequeño helper para reintentar la query del profile hasta 3 veces
+    const fetchProfile = async () => {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const { data, error } = await withTimeout(
+            supabase.from('profiles').select('*').eq('id', authUser.id).maybeSingle(),
+            10000,
+            `hydrate profile (intento ${attempt})`,
+          )
+          if (error) {
+            console.warn(`[NINA] hydrate intento ${attempt}:`, error)
+            if (attempt === 3) return null
+          } else {
+            return data
+          }
+        } catch (err) {
+          console.warn(`[NINA] hydrate intento ${attempt} timeout:`, err)
+          if (attempt === 3) return null
+        }
+        // backoff entre reintentos: 500ms, 1500ms
+        await new Promise((r) => setTimeout(r, attempt * 500))
       }
-      if (!profile) return null
-      return {
-        id: profile.id,
-        username: profile.username,
-        firstName: profile.first_name,
-        lastName: profile.last_name,
-        name: `${profile.first_name} ${profile.last_name}`.trim(),
-        role: profile.role,
-        avatar: profile.avatar,
-        goal: Number(profile.goal) || 0,
-      }
-    } catch (err) {
-      console.error('[NINA] hydrate timeout/exception:', err)
       return null
+    }
+
+    const profile = await fetchProfile()
+    if (!profile) return null
+    return {
+      id: profile.id,
+      username: profile.username,
+      firstName: profile.first_name,
+      lastName: profile.last_name,
+      name: `${profile.first_name} ${profile.last_name}`.trim(),
+      role: profile.role,
+      avatar: profile.avatar,
+      goal: Number(profile.goal) || 0,
     }
   }, [])
 
@@ -134,19 +146,33 @@ export function AuthProvider({ children }) {
         try {
           const { data } = await withTimeout(
             supabase.auth.getSession(),
-            4000,
+            10000,
             'getSession',
           )
           if (!active) return
-          const u = await hydrateUserFromProfile(data.session?.user)
+          // Sin sesión → al login (es lo que esperamos al primer load)
+          if (!data.session?.user) {
+            setUser(null)
+            return
+          }
+          const u = await hydrateUserFromProfile(data.session.user)
           if (!active) return
-          setUser(u)
+          if (u) {
+            setUser(u)
+          } else {
+            // Hay sesión válida pero no pudimos cargar el profile.
+            // NO hacemos signOut: dejamos al usuario reintentar.
+            // Como mínimo seteamos un user básico para que pueda ver la app
+            // (el role queda undefined, así que el routing lo lleva a /vendedora
+            // por default — si no carga, tiene los botones de stuck).
+            console.warn('[NINA] Sesión válida pero profile no disponible')
+            setUser(null)
+          }
         } catch (err) {
-          // Sesión corrupta o red caída: limpiar sesión y mandar a login
+          // Red caída o Supabase lento: NO borramos la sesión, solo dejamos
+          // user=null para que React Router lleve al login. Si la sesión
+          // sigue en localStorage, en el próximo refresh debería entrar.
           console.error('[NINA] Auth init error:', err)
-          try {
-            await supabase.auth.signOut()
-          } catch {}
           if (active) setUser(null)
         } finally {
           if (active) setLoading(false)
