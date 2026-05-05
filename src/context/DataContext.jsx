@@ -127,7 +127,32 @@ export function DataProvider({ children }) {
   // ---------- Carga inicial + realtime cuando hay Supabase ----------
   useEffect(() => {
     if (!isSupabaseConfigured) return
-    fetchAll()
+
+    // Espera a que haya sesión válida antes de fetch (evita race condition
+    // cuando el user viene de cache pero el cliente Supabase aún no tiene
+    // el access_token en memoria).
+    const fetchWhenReady = async () => {
+      const { data } = await supabase.auth.getSession()
+      if (data?.session?.user) {
+        fetchAll()
+      } else {
+        // No hay sesión todavía. onAuthStateChange disparará el fetch
+        // cuando llegue.
+        console.info('[NINA] DataContext: esperando sesión para fetch inicial')
+      }
+    }
+    fetchWhenReady()
+
+    // Re-fetch en cambios de auth (login fresh, token refresh)
+    const { data: authSub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION')) {
+        fetchAll()
+      }
+    })
+
+    // Re-fetch cuando la pestaña vuelve al foco
+    const onFocus = () => fetchAll()
+    window.addEventListener('focus', onFocus)
 
     const channel = supabase
       .channel('data-changes')
@@ -137,6 +162,8 @@ export function DataProvider({ children }) {
       .subscribe()
 
     return () => {
+      authSub.subscription.unsubscribe()
+      window.removeEventListener('focus', onFocus)
       supabase.removeChannel(channel)
     }
   }, [fetchAll])

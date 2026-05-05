@@ -9,8 +9,12 @@ export default function TopBar() {
   const { user, logout } = useAuth()
   const nav = useNavigate()
 
-  // Estado de conexión: idle | online | offline
-  const [conn, setConn] = useState('idle')
+  // Estado de conexión: idle | online | offline | local
+  // Si hay user (al menos del cache) asumimos online optimista hasta que un ping falle.
+  const [conn, setConn] = useState(() => {
+    if (!isSupabaseConfigured) return 'local'
+    return user ? 'online' : 'idle'
+  })
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -18,25 +22,39 @@ export default function TopBar() {
       return
     }
     let alive = true
+    let consecutiveFailures = 0
+
     const ping = async () => {
       try {
         const { error } = await supabase.from('profiles').select('id').limit(1)
         if (!alive) return
-        setConn(error ? 'offline' : 'online')
+        if (error) {
+          consecutiveFailures += 1
+          // Solo marcamos offline tras 2 fallos seguidos para no parpadear con blips
+          if (consecutiveFailures >= 2) setConn('offline')
+        } else {
+          consecutiveFailures = 0
+          setConn('online')
+        }
       } catch {
-        if (alive) setConn('offline')
+        consecutiveFailures += 1
+        if (alive && consecutiveFailures >= 2) setConn('offline')
       }
     }
     ping()
-    const handler = () => ping()
-    window.addEventListener('online', handler)
-    window.addEventListener('offline', () => alive && setConn('offline'))
+    const onlineHandler = () => {
+      consecutiveFailures = 0
+      ping()
+    }
+    const offlineHandler = () => alive && setConn('offline')
+    window.addEventListener('online', onlineHandler)
+    window.addEventListener('offline', offlineHandler)
     const interval = setInterval(ping, 30000)
     return () => {
       alive = false
       clearInterval(interval)
-      window.removeEventListener('online', handler)
-      window.removeEventListener('offline', handler)
+      window.removeEventListener('online', onlineHandler)
+      window.removeEventListener('offline', offlineHandler)
     }
   }, [user?.id])
 

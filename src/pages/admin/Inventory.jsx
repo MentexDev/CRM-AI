@@ -162,7 +162,7 @@ export default function Inventory() {
         <EmptyState
           icon={Package}
           title="Aún no hay inventario cargado"
-          description="Importa el Excel del inventario inicial o crea referencias una por una. Cada referencia debe tener cantidad por talla (6, 8, 10, 12, 14)."
+          description="Importa el Excel del inventario inicial o crea referencias una por una. Si ya tienes productos en la base y no aparecen, refresca la página."
           actions={
             <>
               <button onClick={() => setImportOpen(true)} className="btn-primary">
@@ -172,6 +172,9 @@ export default function Inventory() {
               <button onClick={openNew} className="btn-ghost">
                 <Plus className="w-4 h-4" />
                 Crear manual
+              </button>
+              <button onClick={() => window.location.reload()} className="btn-ghost">
+                Refrescar
               </button>
             </>
           }
