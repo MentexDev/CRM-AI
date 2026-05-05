@@ -57,19 +57,26 @@ export default function TopBar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
         <Logo size="sm" subtitle={false} />
         <div className="flex items-center gap-3">
-          <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-nina-ink border border-nina-line text-[10px] uppercase tracking-[0.18em]"
-            title={`Estado: ${indicator.label}`}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full ${indicator.dot} ${indicator.shadow}`} />
-            <span className="text-nina-mute hidden sm:inline">{indicator.label}</span>
-          </div>
           <div className="hidden sm:flex flex-col items-end leading-tight">
             <span className="text-sm font-medium text-nina-chrome">{user?.name}</span>
             <span className="text-[10px] uppercase tracking-[0.2em] text-nina-mute">
               {user?.role === 'admin' ? 'Administrador' : 'Vendedora'}
             </span>
+            <span
+              className="flex items-center gap-1 text-[9px] uppercase tracking-[0.18em] text-nina-mute mt-0.5"
+              title={`Estado: ${indicator.label}`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${indicator.dot} ${indicator.shadow}`}
+              />
+              {indicator.label}
+            </span>
           </div>
+          {/* En móvil: solo el punto de estado al lado del avatar */}
+          <span
+            className={`sm:hidden w-2 h-2 rounded-full ${indicator.dot} ${indicator.shadow}`}
+            title={indicator.label}
+          />
           <div className="w-10 h-10 rounded-full grid place-items-center bg-silver-gradient text-nina-black font-bold text-sm shadow-chrome">
             {user?.avatar || user?.name?.[0]}
           </div>
