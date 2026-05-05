@@ -1,10 +1,10 @@
 -- WEIN NINA Inventary — promover admin
 -- Ejecutar DESPUÉS de schema.sql.
 -- Antes de correr esto: ve a Authentication → Users → Add user → Create new user
---   Email:    ninabrandon.villa@nina.local
+--   Email:    ninabrandon.villa@nina.app
 --   Password: NINA123*
 --   Auto Confirm User: ✅
--- (la app mapea el username NINAbrandon.villa al email sintético @nina.local)
+-- (la app mapea el username NINAbrandon.villa al email sintético @nina.app)
 
 update public.profiles
    set role       = 'admin',

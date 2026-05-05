@@ -42,8 +42,9 @@ const avatarFor = (firstName, lastName) =>
   `${(firstName || ' ')[0] || ''}${(lastName || ' ')[0] || ''}`.toUpperCase() || 'NN'
 
 // Username (NINAnombre.apellido) → email sintético para Supabase Auth
+// .app porque Supabase rechaza .local (RFC 6762, dominio reservado)
 const usernameToEmail = (username) =>
-  `${String(username || '').toLowerCase()}@nina.local`
+  `${String(username || '').toLowerCase()}@nina.app`
 
 // ---------- Provider ----------
 export function AuthProvider({ children }) {
