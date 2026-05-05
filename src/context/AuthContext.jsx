@@ -55,7 +55,7 @@ const callAdminFn = async (action, payload) => {
   const token = sessionData?.session?.access_token
   if (!token) throw new Error('Sesión expirada, vuelve a iniciar sesión')
 
-  const res = await fetch(`${supaUrl}/functions/v1/admin-sellers`, {
+  const res = await fetch(`${supaUrl}/functions/v1/quick-action`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -74,7 +74,7 @@ const callAdminFn = async (action, payload) => {
   if (!res.ok) {
     throw new Error(
       data.error ||
-        'No se pudo procesar — verifica que la Edge Function admin-sellers esté desplegada en Supabase',
+        'No se pudo procesar — verifica que la Edge Function quick-action esté desplegada en Supabase',
     )
   }
   return data
