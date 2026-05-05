@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { isSupabaseConfigured, supabase, supabaseSignup } from '../lib/supabase'
+import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import { seedSellers, buildUsername, DEFAULT_GOAL } from '../lib/seed'
 
 const AuthContext = createContext(null)
@@ -228,37 +228,52 @@ export function AuthProvider({ children }) {
         .maybeSingle()
       if (existing) throw new Error(`El usuario ${username} ya existe`)
 
-      // Usamos el cliente secundario (sin persistSession) para no sacar al
-      // admin de su sesión cuando se hace signUp.
-      const { data, error } = await supabaseSignup.auth.signUp({
-        email,
-        password,
-        options: {
+      // En lugar de usar supabase.auth.signUp() (que autenticaría con el nuevo
+      // user en cualquier cliente JS), hacemos fetch directo al endpoint REST.
+      // Esto crea el user en auth.users sin que ningún cliente Supabase JS
+      // reciba el evento SIGNED_IN. La sesión del admin queda intacta.
+      const supaUrl = import.meta.env.VITE_SUPABASE_URL
+      const apikey = import.meta.env.VITE_SUPABASE_ANON_KEY
+      const response = await fetch(`${supaUrl}/auth/v1/signup`, {
+        method: 'POST',
+        headers: {
+          apikey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
           data: {
             username,
             first_name: firstName.trim(),
             last_name: lastName.trim(),
             role: 'seller',
           },
-        },
+        }),
       })
-      if (error) throw error
 
-      // Limpiar cualquier sesión que el cliente secundario haya cacheado en memoria
-      try {
-        await supabaseSignup.auth.signOut()
-      } catch {}
+      if (!response.ok) {
+        let errMsg = 'No se pudo crear la cuenta'
+        try {
+          const err = await response.json()
+          errMsg = err.msg || err.error_description || err.error || errMsg
+        } catch {}
+        throw new Error(errMsg)
+      }
 
-      // Asegurar que el goal queda guardado en el profile (esto va por el
-      // cliente principal del admin, que sí tiene RLS de admin)
-      if (data.user?.id) {
+      const result = await response.json().catch(() => ({}))
+      const userId = result.id || result.user?.id
+
+      // Update goal en el profile (el trigger handle_new_user ya creó la fila)
+      if (userId) {
         await supabase
           .from('profiles')
           .update({ goal: Number(goal) || DEFAULT_GOAL })
-          .eq('id', data.user.id)
+          .eq('id', userId)
       }
+
       return {
-        id: data.user?.id,
+        id: userId,
         username,
         name: `${firstName.trim()} ${lastName.trim()}`,
       }
