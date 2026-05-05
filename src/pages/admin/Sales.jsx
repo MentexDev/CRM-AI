@@ -4,10 +4,12 @@ import { Plus, Receipt, Search, Tag, Trash2, UserRound } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useData } from '../../context/DataContext'
 import SaleModal from '../../components/SaleModal'
+import { useConfirm } from '../../components/ConfirmDialog'
 import { fmtCOP, fmtDate, fmtNumber } from '../../lib/format'
 
 export default function Sales() {
   const { sales, cancelSale } = useData()
+  const confirm = useConfirm()
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(false)
 
@@ -29,8 +31,13 @@ export default function Sales() {
   const discountSum = filtered.reduce((a, s) => a + (s.discount || 0), 0)
 
   const onCancel = async (s) => {
-    if (!confirm(`¿Anular la venta de ${s.productName} (talla ${s.size})? Se devuelve al stock.`))
-      return
+    const ok = await confirm({
+      title: '¿Anular esta venta?',
+      description: `${s.productName} (talla ${s.size}). Se devolverá la cantidad al stock.`,
+      confirmText: 'Anular',
+      variant: 'danger',
+    })
+    if (!ok) return
     try {
       await cancelSale(s.id)
       toast.success('Venta anulada y stock devuelto')

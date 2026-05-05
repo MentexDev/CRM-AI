@@ -5,6 +5,7 @@ import { Toaster } from 'react-hot-toast'
 import App from './App.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
 import { DataProvider } from './context/DataContext.jsx'
+import { ConfirmProvider } from './components/ConfirmDialog.jsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -12,7 +13,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <AuthProvider>
         <DataProvider>
-          <App />
+          <ConfirmProvider>
+            <App />
+          </ConfirmProvider>
           <Toaster
             position="top-right"
             toastOptions={{

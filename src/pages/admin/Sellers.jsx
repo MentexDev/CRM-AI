@@ -17,6 +17,7 @@ import { useData } from '../../context/DataContext'
 import Modal from '../../components/Modal'
 import ProgressBar from '../../components/ProgressBar'
 import EmptyState from '../../components/EmptyState'
+import { useConfirm } from '../../components/ConfirmDialog'
 import { fmtCOP, fmtNumber } from '../../lib/format'
 import { USERNAME_PREFIX, buildUsername, slug, DEFAULT_GOAL } from '../../lib/seed'
 
@@ -30,6 +31,7 @@ const emptyDraft = {
 export default function Sellers() {
   const { listSellers, registerSeller, removeSeller, updateSeller } = useAuth()
   const { totalsBySeller } = useData()
+  const confirm = useConfirm()
   const sellers = listSellers().filter((s) => s.role === 'seller')
 
   const [open, setOpen] = useState(false)
@@ -91,7 +93,13 @@ export default function Sellers() {
   }
 
   const del = async (s) => {
-    if (!confirm(`¿Eliminar a ${s.name}? Sus ventas se conservan en el historial.`)) return
+    const ok = await confirm({
+      title: `¿Eliminar a ${s.name}?`,
+      description: 'Sus ventas se conservan en el historial.',
+      confirmText: 'Eliminar',
+      variant: 'danger',
+    })
+    if (!ok) return
     try {
       await removeSeller(s.id)
       toast.success('Vendedora eliminada')

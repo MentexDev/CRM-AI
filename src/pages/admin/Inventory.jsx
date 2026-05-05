@@ -6,6 +6,7 @@ import { useData } from '../../context/DataContext'
 import Modal from '../../components/Modal'
 import EmptyState from '../../components/EmptyState'
 import ImportInventoryModal from '../../components/ImportInventoryModal'
+import { useConfirm } from '../../components/ConfirmDialog'
 import { fmtCOP, fmtNumber } from '../../lib/format'
 import { SIZES, emptySizes } from '../../lib/seed'
 
@@ -26,6 +27,7 @@ const sumSizes = (sizes) =>
 export default function Inventory() {
   const { products, upsertProduct, removeProduct, setInitialSize, soldByProductSize } =
     useData()
+  const confirm = useConfirm()
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(empty)
   const [editing, setEditing] = useState(false)
@@ -106,7 +108,13 @@ export default function Inventory() {
   }
 
   const del = async (p) => {
-    if (!confirm(`¿Eliminar "${p.name}"? Esta acción no se puede deshacer.`)) return
+    const ok = await confirm({
+      title: `¿Eliminar "${p.name}"?`,
+      description: 'Esta acción no se puede deshacer. Las ventas asociadas se conservan en el historial.',
+      confirmText: 'Eliminar',
+      variant: 'danger',
+    })
+    if (!ok) return
     try {
       await removeProduct(p.id)
       toast.success('Producto eliminado')

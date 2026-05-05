@@ -4,6 +4,7 @@ import { Banknote, Pencil, Plus, RotateCcw, ShoppingBag, Trash2, Trophy } from '
 import toast from 'react-hot-toast'
 import { useData } from '../../context/DataContext'
 import Modal from '../../components/Modal'
+import { useConfirm } from '../../components/ConfirmDialog'
 import { fmtPrizeThreshold } from '../../lib/format'
 
 const ICON_PRESETS = ['🎁', '🌟', '👗', '💎', '👑', '🏆', '✨', '💝', '🎀', '💄', '👜', '👠']
@@ -12,6 +13,7 @@ const empty = { id: '', type: 'amount', threshold: 1000000, name: '', icon: '�
 
 export default function Prizes() {
   const { prizes, upsertPrize, removePrize, resetPrizes } = useData()
+  const confirm = useConfirm()
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(empty)
   const [editing, setEditing] = useState(false)
@@ -49,7 +51,13 @@ export default function Prizes() {
   }
 
   const del = async (p) => {
-    if (!confirm(`¿Eliminar el premio "${p.name}"?`)) return
+    const ok = await confirm({
+      title: `¿Eliminar el premio "${p.name}"?`,
+      description: 'Las vendedoras dejarán de ver este premio en su panel.',
+      confirmText: 'Eliminar',
+      variant: 'danger',
+    })
+    if (!ok) return
     try {
       await removePrize(p.id)
       toast.success('Premio eliminado')
@@ -59,7 +67,13 @@ export default function Prizes() {
   }
 
   const reset = async () => {
-    if (!confirm('¿Restaurar los premios por defecto? Se reemplazarán los actuales.')) return
+    const ok = await confirm({
+      title: '¿Restaurar premios por defecto?',
+      description: 'Se eliminarán los premios actuales y se reemplazarán por los iniciales.',
+      confirmText: 'Restaurar',
+      variant: 'danger',
+    })
+    if (!ok) return
     try {
       await resetPrizes()
       toast.success('Premios restaurados')
