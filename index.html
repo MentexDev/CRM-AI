@@ -2,9 +2,25 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/nina.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WEIN NINA Inventary</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>WEIN · NINA Inventary</title>
+    <meta name="description" content="Inventario y ventas para la marca NINA durante la feria WEIN en Medellín" />
+
+    <!-- Favicon (browsers normales) -->
+    <link rel="icon" type="image/svg+xml" href="/pwa-icon.svg" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/pwa-64x64.png" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+
+    <!-- iOS — Safari ignora el manifest, necesita estos meta tags -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NINA" />
+
+    <!-- Android Chrome -->
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="application-name" content="WEIN · NINA Inventary" />
   </head>
   <body class="bg-black">
     <div id="root"></div>

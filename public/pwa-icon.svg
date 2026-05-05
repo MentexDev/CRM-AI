@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0a0a"/>
+      <stop offset="100%" stop-color="#1a1a1a"/>
+    </linearGradient>
+    <linearGradient id="silver" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="35%" stop-color="#e8e8e8"/>
+      <stop offset="50%" stop-color="#8a8a8a"/>
+      <stop offset="65%" stop-color="#e8e8e8"/>
+      <stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <g filter="url(#glow)">
+    <text x="50%" y="58%" text-anchor="middle"
+          font-family="Georgia, 'Playfair Display', serif"
+          font-size="220" font-weight="700"
+          fill="url(#silver)" letter-spacing="14">N</text>
+  </g>
+  <text x="50%" y="80%" text-anchor="middle"
+        font-family="'Inter', system-ui, sans-serif"
+        font-size="34" font-weight="600"
+        fill="#c8c8c8" letter-spacing="14">NINA</text>
+</svg>
