@@ -102,14 +102,17 @@ export function DataProvider({ children }) {
   //            tras mutaciones, por si el realtime tarda) ----------
   const fetchAll = useCallback(async () => {
     if (!isSupabaseConfigured) return
-    const [{ data: p }, { data: s }, { data: pr }] = await Promise.all([
+    const [pRes, sRes, prRes] = await Promise.all([
       supabase.from('products').select('*').order('created_at'),
       supabase.from('sales').select('*').order('sold_at', { ascending: false }),
       supabase.from('prizes').select('*').order('threshold'),
     ])
-    if (p) setProducts(p.map(mapProduct))
-    if (s) setSales(s.map(mapSale))
-    if (pr) setPrizes(pr.map(mapPrize))
+    if (pRes.error) console.error('[NINA] products fetch error:', pRes.error)
+    if (sRes.error) console.error('[NINA] sales fetch error:', sRes.error)
+    if (prRes.error) console.error('[NINA] prizes fetch error:', prRes.error)
+    if (pRes.data) setProducts(pRes.data.map(mapProduct))
+    if (sRes.data) setSales(sRes.data.map(mapSale))
+    if (prRes.data) setPrizes(prRes.data.map(mapPrize))
   }, [])
 
   // ---------- Carga inicial + realtime cuando hay Supabase ----------
@@ -147,12 +150,18 @@ export function DataProvider({ children }) {
       // Si nos pasan id válido (uuid existente) → update; si no, upsert por sku
       if (p.id && /^[0-9a-f]{8}-/i.test(p.id)) {
         const { error } = await supabase.from('products').update(row).eq('id', p.id)
-        if (error) throw error
+        if (error) {
+          console.error('[NINA] product update error:', error)
+          throw error
+        }
       } else {
         const { error } = await supabase
           .from('products')
           .upsert(row, { onConflict: 'sku' })
-        if (error) throw error
+        if (error) {
+          console.error('[NINA] product upsert error:', error)
+          throw error
+        }
       }
       await fetchAll()
       return

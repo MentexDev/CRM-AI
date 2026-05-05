@@ -5,8 +5,26 @@ const anon = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 export const isSupabaseConfigured = Boolean(url && anon)
 
+if (typeof window !== 'undefined') {
+  // Marca visible para debug rápido desde DevTools (window.__nina)
+  window.__nina = {
+    supabase: isSupabaseConfigured,
+    url: isSupabaseConfigured ? url : null,
+  }
+  if (isSupabaseConfigured) {
+    console.info('[NINA] Conectado a Supabase:', url)
+  } else {
+    console.warn('[NINA] Modo local — Supabase no configurado')
+  }
+}
+
 export const supabase = isSupabaseConfigured
   ? createClient(url, anon, {
-      auth: { persistSession: true, autoRefreshToken: true },
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      realtime: { params: { eventsPerSecond: 10 } },
     })
   : null
+
+if (supabase && typeof window !== 'undefined') {
+  window.__nina.client = supabase
+}
