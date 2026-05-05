@@ -25,6 +25,21 @@ export const supabase = isSupabaseConfigured
     })
   : null
 
+// Cliente secundario SOLO para registrar vendedoras desde el panel admin.
+// signUp() en el cliente principal autenticaría automáticamente al nuevo
+// usuario, sacando al admin de su sesión. Este cliente no persiste sesión
+// ni autoRefresh, así que el signUp no afecta el localStorage del admin.
+export const supabaseSignup = isSupabaseConfigured
+  ? createClient(url, anon, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        storageKey: 'nina-signup-ephemeral',
+      },
+    })
+  : null
+
 if (supabase && typeof window !== 'undefined') {
   window.__nina.client = supabase
 }

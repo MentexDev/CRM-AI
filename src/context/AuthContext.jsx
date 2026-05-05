@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { isSupabaseConfigured, supabase } from '../lib/supabase'
+import { isSupabaseConfigured, supabase, supabaseSignup } from '../lib/supabase'
 import { seedSellers, buildUsername, DEFAULT_GOAL } from '../lib/seed'
 
 const AuthContext = createContext(null)
@@ -228,7 +228,9 @@ export function AuthProvider({ children }) {
         .maybeSingle()
       if (existing) throw new Error(`El usuario ${username} ya existe`)
 
-      const { data, error } = await supabase.auth.signUp({
+      // Usamos el cliente secundario (sin persistSession) para no sacar al
+      // admin de su sesión cuando se hace signUp.
+      const { data, error } = await supabaseSignup.auth.signUp({
         email,
         password,
         options: {
@@ -242,7 +244,13 @@ export function AuthProvider({ children }) {
       })
       if (error) throw error
 
-      // Asegurar que el goal queda guardado en el profile
+      // Limpiar cualquier sesión que el cliente secundario haya cacheado en memoria
+      try {
+        await supabaseSignup.auth.signOut()
+      } catch {}
+
+      // Asegurar que el goal queda guardado en el profile (esto va por el
+      // cliente principal del admin, que sí tiene RLS de admin)
       if (data.user?.id) {
         await supabase
           .from('profiles')
