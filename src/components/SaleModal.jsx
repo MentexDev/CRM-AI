@@ -17,12 +17,33 @@ const newLine = () => ({
   paymentMethod: 'Efectivo',
 })
 
+// El estado del modal arranca con strings vacíos para que el placeholder
+// se vea como sugerencia. Al confirmar la venta, los campos vacíos se
+// convierten a 'NA' antes de mandarlos al backend (mantiene compatibilidad).
 const emptyCustomer = {
-  name: 'NA',
-  cedula: 'NA',
-  address: 'NA',
-  phone: 'NA',
-  email: 'NA',
+  name: '',
+  cedula: '',
+  address: '',
+  phone: '',
+  email: '',
+}
+
+const NA_FALLBACK = 'NA'
+
+const customerForBackend = (c) => ({
+  name: (c.name || '').trim() || NA_FALLBACK,
+  cedula: (c.cedula || '').trim() || NA_FALLBACK,
+  address: (c.address || '').trim() || NA_FALLBACK,
+  phone: (c.phone || '').trim() || NA_FALLBACK,
+  email: (c.email || '').trim() || NA_FALLBACK,
+})
+
+const CUSTOMER_PLACEHOLDERS = {
+  name: 'Ej. María Pérez',
+  cedula: 'Ej. 1023456789',
+  phone: 'Ej. 3001234567',
+  email: 'Ej. maria@correo.com',
+  address: 'Ej. Cra 12 #34-56, Medellín',
 }
 
 const calcLineTotal = (product, line) => {
@@ -130,7 +151,8 @@ export default function SaleModal({ open, onClose, fixedSellerId }) {
           discountPct: Math.max(0, Math.min(100, Number(it.discountPct) || 0)),
           paymentMethod: it.paymentMethod || 'Efectivo',
         })),
-        customer: showCustomer ? customer : emptyCustomer,
+        // Convertimos los campos vacíos a 'NA' justo antes de mandar
+        customer: showCustomer ? customerForBackend(customer) : customerForBackend({}),
       })
       toast.success(
         result.length === 1
@@ -224,19 +246,21 @@ export default function SaleModal({ open, onClose, fixedSellerId }) {
               >
                 <div className="grid sm:grid-cols-2 gap-3 pt-4">
                   {[
-                    ['name', 'Nombre'],
-                    ['cedula', 'Cédula'],
-                    ['phone', 'Celular'],
-                    ['email', 'Correo'],
-                  ].map(([k, label]) => (
+                    ['name', 'Nombre', 'text'],
+                    ['cedula', 'Cédula', 'text'],
+                    ['phone', 'Celular', 'tel'],
+                    ['email', 'Correo', 'email'],
+                  ].map(([k, label, type]) => (
                     <div key={k}>
                       <label className="label">{label}</label>
                       <input
+                        type={type}
                         className="input"
                         value={customer[k]}
                         onChange={(e) =>
                           setCustomer({ ...customer, [k]: e.target.value })
                         }
+                        placeholder={CUSTOMER_PLACEHOLDERS[k]}
                       />
                     </div>
                   ))}
@@ -248,9 +272,14 @@ export default function SaleModal({ open, onClose, fixedSellerId }) {
                       onChange={(e) =>
                         setCustomer({ ...customer, address: e.target.value })
                       }
+                      placeholder={CUSTOMER_PLACEHOLDERS.address}
                     />
                   </div>
                 </div>
+                <p className="text-[11px] text-nina-mute mt-3">
+                  Los campos vacíos quedarán como{' '}
+                  <span className="font-mono">NA</span> en el registro.
+                </p>
               </motion.div>
             )}
           </AnimatePresence>
