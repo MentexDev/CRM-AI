@@ -1,7 +1,17 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { NavLink, Outlet } from 'react-router-dom'
-import { LayoutDashboard, Package, Users, Receipt, Trophy, Gift } from 'lucide-react'
+import {
+  Gift,
+  LayoutDashboard,
+  Package,
+  Plus,
+  Receipt,
+  Trophy,
+  Users,
+} from 'lucide-react'
 import TopBar from '../../components/TopBar'
+import SaleModal from '../../components/SaleModal'
 
 const tabs = [
   { to: '/admin', icon: LayoutDashboard, label: 'Resumen', end: true },
@@ -13,6 +23,8 @@ const tabs = [
 ]
 
 export default function AdminLayout() {
+  const [saleOpen, setSaleOpen] = useState(false)
+
   return (
     <div className="min-h-screen">
       <TopBar />
@@ -50,9 +62,29 @@ export default function AdminLayout() {
           ))}
         </nav>
       </div>
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-28">
         <Outlet />
       </main>
+
+      {/* FAB siempre visible: registrar venta */}
+      <motion.button
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ delay: 0.2, type: 'spring', stiffness: 260, damping: 20 }}
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        onClick={() => setSaleOpen(true)}
+        className="fixed bottom-6 right-6 z-30 btn-primary !rounded-full !p-4 shadow-glow group"
+        aria-label="Registrar venta"
+        title="Registrar venta"
+      >
+        <Plus className="w-6 h-6" />
+        <span className="hidden md:inline absolute right-full mr-3 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg bg-nina-panel border border-nina-line text-xs text-nina-chrome whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none">
+          Registrar venta
+        </span>
+      </motion.button>
+
+      <SaleModal open={saleOpen} onClose={() => setSaleOpen(false)} />
     </div>
   )
 }
