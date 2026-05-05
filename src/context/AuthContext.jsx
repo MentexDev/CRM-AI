@@ -46,6 +46,40 @@ const avatarFor = (firstName, lastName) =>
 const usernameToEmail = (username) =>
   `${String(username || '').toLowerCase()}@nina.app`
 
+// Llama la Edge Function admin-sellers con la JWT del admin actual.
+// La function valida el role y ejecuta create/delete con service_role.
+const callAdminFn = async (action, payload) => {
+  const supaUrl = import.meta.env.VITE_SUPABASE_URL
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+  const { data: sessionData } = await supabase.auth.getSession()
+  const token = sessionData?.session?.access_token
+  if (!token) throw new Error('Sesión expirada, vuelve a iniciar sesión')
+
+  const res = await fetch(`${supaUrl}/functions/v1/admin-sellers`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: anonKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ action, ...payload }),
+  })
+  const text = await res.text()
+  let data = {}
+  try {
+    data = JSON.parse(text)
+  } catch {
+    data = { error: text }
+  }
+  if (!res.ok) {
+    throw new Error(
+      data.error ||
+        'No se pudo procesar — verifica que la Edge Function admin-sellers esté desplegada en Supabase',
+    )
+  }
+  return data
+}
+
 // ---------- Provider ----------
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
@@ -228,43 +262,18 @@ export function AuthProvider({ children }) {
         .maybeSingle()
       if (existing) throw new Error(`El usuario ${username} ya existe`)
 
-      // En lugar de usar supabase.auth.signUp() (que autenticaría con el nuevo
-      // user en cualquier cliente JS), hacemos fetch directo al endpoint REST.
-      // Esto crea el user en auth.users sin que ningún cliente Supabase JS
-      // reciba el evento SIGNED_IN. La sesión del admin queda intacta.
-      const supaUrl = import.meta.env.VITE_SUPABASE_URL
-      const apikey = import.meta.env.VITE_SUPABASE_ANON_KEY
-      const response = await fetch(`${supaUrl}/auth/v1/signup`, {
-        method: 'POST',
-        headers: {
-          apikey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          password,
-          data: {
-            username,
-            first_name: firstName.trim(),
-            last_name: lastName.trim(),
-            role: 'seller',
-          },
-        }),
+      // Llamamos la Edge Function admin-sellers que usa service_role para
+      // crear el user 100% server-side. Así la sesión del admin no se ve
+      // afectada (el SDK Supabase JS no se entera del nuevo signUp).
+      const result = await callAdminFn('create', {
+        email,
+        password,
+        username,
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
       })
+      const userId = result.id
 
-      if (!response.ok) {
-        let errMsg = 'No se pudo crear la cuenta'
-        try {
-          const err = await response.json()
-          errMsg = err.msg || err.error_description || err.error || errMsg
-        } catch {}
-        throw new Error(errMsg)
-      }
-
-      const result = await response.json().catch(() => ({}))
-      const userId = result.id || result.user?.id
-
-      // Update goal en el profile (el trigger handle_new_user ya creó la fila)
       if (userId) {
         await supabase
           .from('profiles')
@@ -301,10 +310,9 @@ export function AuthProvider({ children }) {
 
   const removeSeller = async (id) => {
     if (isSupabaseConfigured) {
-      // Borra el profile (la fila auth.users sigue existiendo pero pierde acceso al haber RLS).
-      // Para borrar el auth.user requiere service_role; lo dejamos al admin desde el dashboard.
-      const { error } = await supabase.from('profiles').delete().eq('id', id)
-      if (error) throw error
+      // La Edge Function elimina el user de auth.users con service_role.
+      // El profile se elimina en cascade gracias a la FK profiles_id_fkey.
+      await callAdminFn('delete', { user_id: id })
       return
     }
     saveUsersLocal(loadUsersLocal().filter((u) => u.id !== id))
