@@ -280,35 +280,20 @@ export function AuthProvider({ children }) {
     const email = usernameToEmail(username)
 
     if (isSupabaseConfigured) {
-      // Verifica que no exista
-      const { data: existing } = await supabase
-        .from('profiles')
-        .select('id')
-        .ilike('username', username)
-        .maybeSingle()
-      if (existing) throw new Error(`El usuario ${username} ya existe`)
-
-      // Llamamos la Edge Function admin-sellers que usa service_role para
-      // crear el user 100% server-side. Así la sesión del admin no se ve
-      // afectada (el SDK Supabase JS no se entera del nuevo signUp).
+      // Toda la lógica (verificar duplicado, crear user, set goal) ocurre
+      // dentro de la Edge Function con service_role. El cliente principal
+      // del admin NO hace ninguna query, así su token de sesión queda
+      // 100% intacto y no hay race conditions con el SDK.
       const result = await callAdminFn('create', {
         email,
         password,
         username,
         first_name: firstName.trim(),
         last_name: lastName.trim(),
+        goal: Number(goal) || DEFAULT_GOAL,
       })
-      const userId = result.id
-
-      if (userId) {
-        await supabase
-          .from('profiles')
-          .update({ goal: Number(goal) || DEFAULT_GOAL })
-          .eq('id', userId)
-      }
-
       return {
-        id: userId,
+        id: result.id,
         username,
         name: `${firstName.trim()} ${lastName.trim()}`,
       }

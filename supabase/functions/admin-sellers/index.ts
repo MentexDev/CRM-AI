@@ -1,13 +1,13 @@
-// Edge Function: admin-sellers
+// Edge Function: admin-sellers (slug en producción: quick-action)
 //
-// Crea y elimina vendedoras usando la service_role key de Supabase, así la
-// operación es 100% server-side y no afecta la sesión del admin en el navegador.
+// Maneja TODO el flujo de crear/eliminar vendedoras en server-side con
+// service_role para que el cliente del admin no tenga que hacer ninguna
+// operación de DB después del fetch a esta función. Esto evita que la
+// sesión del admin se vea afectada por race conditions del SDK.
 //
-// Verifica que el caller esté autenticado y tenga role='admin' en profiles.
-//
-// Endpoint POST /functions/v1/admin-sellers
+// Endpoint POST /functions/v1/quick-action
 // Body:
-//   { action: 'create', email, password, username, first_name, last_name }
+//   { action: 'create', email, password, username, first_name, last_name, goal? }
 //   { action: 'delete', user_id }
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
@@ -47,26 +47,37 @@ Deno.serve(async (req) => {
     const { data: userData, error: userErr } = await caller.auth.getUser()
     if (userErr || !userData.user) return json({ error: 'Token inválido' }, 401)
 
-    const { data: profile, error: profErr } = await caller
+    // 2) Cliente service_role para todas las operaciones admin (incluida
+    //    la verificación del role para no depender de RLS)
+    const admin = createClient(supabaseUrl, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+
+    const { data: profile } = await admin
       .from('profiles')
       .select('role')
       .eq('id', userData.user.id)
       .single()
-    if (profErr || profile?.role !== 'admin') {
+    if (profile?.role !== 'admin') {
       return json({ error: 'Solo admin' }, 403)
     }
-
-    // 2) Cliente service_role para operaciones admin
-    const admin = createClient(supabaseUrl, serviceKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    })
 
     const body = await req.json()
     const { action } = body || {}
 
     if (action === 'create') {
-      const { email, password, username, first_name, last_name } = body
+      const { email, password, username, first_name, last_name, goal } = body
       if (!email || !password) return json({ error: 'Faltan email/password' }, 400)
+
+      // Verificar duplicado por username (case-insensitive)
+      if (username) {
+        const { data: existing } = await admin
+          .from('profiles')
+          .select('id')
+          .ilike('username', username)
+          .maybeSingle()
+        if (existing) return json({ error: `El usuario ${username} ya existe` }, 400)
+      }
 
       const { data, error } = await admin.auth.admin.createUser({
         email,
@@ -80,14 +91,23 @@ Deno.serve(async (req) => {
         },
       })
       if (error) return json({ error: error.message }, 400)
-      return json({ id: data.user?.id, email: data.user?.email })
+
+      const userId = data.user?.id
+      // Update goal en el profile creado por el trigger
+      if (userId && goal !== undefined && goal !== null) {
+        await admin
+          .from('profiles')
+          .update({ goal: Number(goal) || 3000000 })
+          .eq('id', userId)
+      }
+
+      return json({ id: userId, email: data.user?.email })
     }
 
     if (action === 'delete') {
       const { user_id } = body
       if (!user_id) return json({ error: 'Falta user_id' }, 400)
 
-      // No permitir auto-eliminación
       if (user_id === userData.user.id) {
         return json({ error: 'No puedes eliminar tu propia cuenta' }, 400)
       }
