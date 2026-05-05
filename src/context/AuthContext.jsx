@@ -53,39 +53,80 @@ export function AuthProvider({ children }) {
   // cache local de profiles cuando estamos en Supabase, refrescada por realtime
   const [profilesCache, setProfilesCache] = useState([])
 
+  // Helper: race con timeout — si la promesa no resuelve a tiempo, lanza
+  const withTimeout = (promise, ms, label = 'operación') =>
+    Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout ${label} (${ms}ms)`)), ms),
+      ),
+    ])
+
   const hydrateUserFromProfile = useCallback(async (authUser) => {
     if (!authUser) return null
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', authUser.id)
-      .single()
-    if (!profile) return null
-    return {
-      id: profile.id,
-      username: profile.username,
-      firstName: profile.first_name,
-      lastName: profile.last_name,
-      name: `${profile.first_name} ${profile.last_name}`.trim(),
-      role: profile.role,
-      avatar: profile.avatar,
-      goal: Number(profile.goal) || 0,
+    try {
+      const { data: profile, error } = await withTimeout(
+        supabase.from('profiles').select('*').eq('id', authUser.id).maybeSingle(),
+        4000,
+        'hydrate profile',
+      )
+      if (error) {
+        console.error('[NINA] hydrate profile error:', error)
+        return null
+      }
+      if (!profile) return null
+      return {
+        id: profile.id,
+        username: profile.username,
+        firstName: profile.first_name,
+        lastName: profile.last_name,
+        name: `${profile.first_name} ${profile.last_name}`.trim(),
+        role: profile.role,
+        avatar: profile.avatar,
+        goal: Number(profile.goal) || 0,
+      }
+    } catch (err) {
+      console.error('[NINA] hydrate timeout/exception:', err)
+      return null
     }
   }, [])
 
   // Sesión inicial + suscripción a cambios de auth
   useEffect(() => {
     let active = true
+
     if (isSupabaseConfigured) {
-      supabase.auth.getSession().then(async ({ data }) => {
-        const u = await hydrateUserFromProfile(data.session?.user)
-        if (active) {
+      const init = async () => {
+        try {
+          const { data } = await withTimeout(
+            supabase.auth.getSession(),
+            4000,
+            'getSession',
+          )
+          if (!active) return
+          const u = await hydrateUserFromProfile(data.session?.user)
+          if (!active) return
           setUser(u)
-          setLoading(false)
+        } catch (err) {
+          // Sesión corrupta o red caída: limpiar sesión y mandar a login
+          console.error('[NINA] Auth init error:', err)
+          try {
+            await supabase.auth.signOut()
+          } catch {}
+          if (active) setUser(null)
+        } finally {
+          if (active) setLoading(false)
         }
-      })
-      const { data: sub } = supabase.auth.onAuthStateChange(async (_e, session) => {
-        const u = await hydrateUserFromProfile(session?.user)
+      }
+      init()
+
+      const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
+        // SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED, SIGNED_IN
+        if (event === 'SIGNED_OUT' || !session) {
+          if (active) setUser(null)
+          return
+        }
+        const u = await hydrateUserFromProfile(session.user)
         if (active) setUser(u)
       })
       return () => {
@@ -93,6 +134,7 @@ export function AuthProvider({ children }) {
         sub.subscription.unsubscribe()
       }
     }
+
     // Fallback local
     try {
       const raw = localStorage.getItem(SESSION_KEY)

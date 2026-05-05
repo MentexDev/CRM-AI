@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import Login from './pages/Login'
@@ -12,10 +13,49 @@ import SellerDashboard from './pages/seller/SellerDashboard'
 
 function Protected({ children, role }) {
   const { user, loading } = useAuth()
+  // Si pasan más de 6s en loading, ofrecemos una salida limpia (recargar / login)
+  const [stuck, setStuck] = useState(false)
+  useEffect(() => {
+    if (!loading) return
+    const t = setTimeout(() => setStuck(true), 6000)
+    return () => clearTimeout(t)
+  }, [loading])
+
   if (loading) {
     return (
-      <div className="min-h-screen grid place-items-center">
-        <div className="silver-text font-display text-xl tracking-[0.2em]">CARGANDO…</div>
+      <div className="min-h-screen grid place-items-center px-4">
+        <div className="text-center space-y-4">
+          <div className="silver-text font-display text-xl tracking-[0.2em]">CARGANDO…</div>
+          {stuck && (
+            <div className="space-y-3 max-w-sm">
+              <p className="text-xs text-nina-mute">
+                Está tardando más de lo normal. Puede ser sesión expirada o conexión
+                lenta.
+              </p>
+              <div className="flex gap-2 justify-center">
+                <button
+                  className="btn-ghost text-xs"
+                  onClick={() => window.location.reload()}
+                >
+                  Reintentar
+                </button>
+                <button
+                  className="btn-primary text-xs"
+                  onClick={async () => {
+                    try {
+                      const { supabase } = await import('./lib/supabase')
+                      if (supabase) await supabase.auth.signOut()
+                    } catch {}
+                    localStorage.clear()
+                    window.location.href = '/login'
+                  }}
+                >
+                  Volver al login
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     )
   }

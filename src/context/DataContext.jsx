@@ -102,17 +102,26 @@ export function DataProvider({ children }) {
   //            tras mutaciones, por si el realtime tarda) ----------
   const fetchAll = useCallback(async () => {
     if (!isSupabaseConfigured) return
-    const [pRes, sRes, prRes] = await Promise.all([
-      supabase.from('products').select('*').order('created_at'),
-      supabase.from('sales').select('*').order('sold_at', { ascending: false }),
-      supabase.from('prizes').select('*').order('threshold'),
-    ])
-    if (pRes.error) console.error('[NINA] products fetch error:', pRes.error)
-    if (sRes.error) console.error('[NINA] sales fetch error:', sRes.error)
-    if (prRes.error) console.error('[NINA] prizes fetch error:', prRes.error)
-    if (pRes.data) setProducts(pRes.data.map(mapProduct))
-    if (sRes.data) setSales(sRes.data.map(mapSale))
-    if (prRes.data) setPrizes(prRes.data.map(mapPrize))
+    try {
+      const timeout = (p) =>
+        Promise.race([
+          p,
+          new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout fetch')), 6000)),
+        ])
+      const [pRes, sRes, prRes] = await Promise.all([
+        timeout(supabase.from('products').select('*').order('created_at')),
+        timeout(supabase.from('sales').select('*').order('sold_at', { ascending: false })),
+        timeout(supabase.from('prizes').select('*').order('threshold')),
+      ])
+      if (pRes.error) console.error('[NINA] products fetch error:', pRes.error)
+      if (sRes.error) console.error('[NINA] sales fetch error:', sRes.error)
+      if (prRes.error) console.error('[NINA] prizes fetch error:', prRes.error)
+      if (pRes.data) setProducts(pRes.data.map(mapProduct))
+      if (sRes.data) setSales(sRes.data.map(mapSale))
+      if (prRes.data) setPrizes(prRes.data.map(mapPrize))
+    } catch (err) {
+      console.error('[NINA] fetchAll exception:', err)
+    }
   }, [])
 
   // ---------- Carga inicial + realtime cuando hay Supabase ----------
