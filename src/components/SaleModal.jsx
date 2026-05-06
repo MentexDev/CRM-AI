@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { CheckCircle2, Plus, Trash2, UserRound } from 'lucide-react'
+import { CheckCircle2, Plus, Trash2, UserRound, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Modal from './Modal'
 import { useAuth } from '../context/AuthContext'
@@ -55,11 +55,24 @@ const calcLineTotal = (product, line) => {
   return { subtotal, discount, total: Math.max(0, subtotal - discount) }
 }
 
+function useMobile() {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 768,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const handler = (e) => setIsMobile(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+  return isMobile
+}
+
 export default function SaleModal({ open, onClose, fixedSellerId }) {
   const { user, listSellers } = useAuth()
   const { products, registerOrder } = useData()
+  const isMobile = useMobile()
 
-  // Selector de vendedora: incluye al admin (puede vender él mismo) + las vendedoras
   const sellerOptions = useMemo(() => {
     const real = listSellers().filter((s) => s.role === 'seller')
     if (user?.role === 'admin') {
@@ -74,7 +87,6 @@ export default function SaleModal({ open, onClose, fixedSellerId }) {
   const [customer, setCustomer] = useState(emptyCustomer)
   const [busy, setBusy] = useState(false)
 
-  // Cuando se abre el modal, reseteamos el estado
   useEffect(() => {
     if (open) {
       setSellerId(fixedSellerId || user?.id || '')
@@ -86,7 +98,6 @@ export default function SaleModal({ open, onClose, fixedSellerId }) {
 
   const addLine = () =>
     setItems((p) => {
-      // hereda método de pago de la línea anterior por comodidad
       const last = p[p.length - 1]
       const fresh = newLine()
       if (last) fresh.paymentMethod = last.paymentMethod
@@ -151,7 +162,6 @@ export default function SaleModal({ open, onClose, fixedSellerId }) {
           discountPct: Math.max(0, Math.min(100, Number(it.discountPct) || 0)),
           paymentMethod: it.paymentMethod || 'Efectivo',
         })),
-        // Convertimos los campos vacíos a 'NA' justo antes de mandar
         customer: showCustomer ? customerForBackend(customer) : customerForBackend({}),
       })
       toast.success(
@@ -167,155 +177,219 @@ export default function SaleModal({ open, onClose, fixedSellerId }) {
     }
   }
 
-  return (
-    <Modal open={open} onClose={onClose} title="Registrar venta" maxWidth="max-w-3xl">
-      <div className="space-y-5">
-        {/* Vendedora (solo si admin) */}
-        {!fixedSellerId && (
-          <div>
-            <label className="label">Vendedora</label>
-            <select
-              className="input"
-              value={sellerId}
-              onChange={(e) => setSellerId(e.target.value)}
-            >
-              {sellerOptions.length === 0 && <option value="">Selecciona…</option>}
-              {sellerOptions.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Líneas de venta */}
-        <div className="space-y-2">
-          <div className="flex items-baseline justify-between">
-            <span className="label mb-0">Productos del pedido</span>
-            <span className="text-[11px] text-nina-mute">
-              {items.length} {items.length === 1 ? 'línea' : 'líneas'} ·{' '}
-              {totals.units} {totals.units === 1 ? 'unidad' : 'unidades'}
-            </span>
-          </div>
-          <AnimatePresence initial={false}>
-            {items.map((it, idx) => (
-              <SaleLine
-                key={it.id}
-                index={idx}
-                line={it}
-                products={products}
-                allItems={items}
-                onChange={(patch) => updateLine(it.id, patch)}
-                onRemove={() => removeLine(it.id)}
-                canRemove={items.length > 1}
-              />
+  const formBody = (
+    <div className="space-y-5">
+      {/* Vendedora (solo si admin) */}
+      {!fixedSellerId && (
+        <div>
+          <label className="label">Vendedora</label>
+          <select
+            className="input"
+            value={sellerId}
+            onChange={(e) => setSellerId(e.target.value)}
+          >
+            {sellerOptions.length === 0 && <option value="">Selecciona…</option>}
+            {sellerOptions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
             ))}
-          </AnimatePresence>
-          <button
-            type="button"
-            onClick={addLine}
-            className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-nina-line text-nina-mute hover:text-nina-chrome hover:border-nina-silver/40 transition text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            Añadir otra venta
-          </button>
+          </select>
         </div>
+      )}
 
-        {/* Datos del cliente (colapsable) */}
-        <div className="border-t border-nina-line pt-4">
-          <button
-            type="button"
-            onClick={() => setShowCustomer((v) => !v)}
-            className="flex items-center gap-2 text-sm text-nina-chrome hover:text-white transition"
-          >
-            <UserRound className="w-4 h-4" />
-            <span>Datos del cliente (opcional)</span>
-            <span className="text-[11px] text-nina-mute">
-              {showCustomer ? '— ocultar' : '— click para agregar'}
-            </span>
-          </button>
+      {/* Líneas de venta */}
+      <div className="space-y-2">
+        <div className="flex items-baseline justify-between">
+          <span className="label mb-0">Productos del pedido</span>
+          <span className="text-[11px] text-nina-mute">
+            {items.length} {items.length === 1 ? 'línea' : 'líneas'} ·{' '}
+            {totals.units} {totals.units === 1 ? 'unidad' : 'unidades'}
+          </span>
+        </div>
+        <AnimatePresence initial={false}>
+          {items.map((it, idx) => (
+            <SaleLine
+              key={it.id}
+              index={idx}
+              line={it}
+              products={products}
+              allItems={items}
+              onChange={(patch) => updateLine(it.id, patch)}
+              onRemove={() => removeLine(it.id)}
+              canRemove={items.length > 1}
+            />
+          ))}
+        </AnimatePresence>
+        <button
+          type="button"
+          onClick={addLine}
+          className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-nina-line text-nina-mute hover:text-nina-chrome hover:border-nina-silver/40 transition text-sm"
+        >
+          <Plus className="w-4 h-4" />
+          Añadir otra venta
+        </button>
+      </div>
 
-          <AnimatePresence>
-            {showCustomer && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden"
-              >
-                <div className="grid sm:grid-cols-2 gap-3 pt-4">
-                  {[
-                    ['name', 'Nombre', 'text'],
-                    ['cedula', 'Cédula', 'text'],
-                    ['phone', 'Celular', 'tel'],
-                    ['email', 'Correo', 'email'],
-                  ].map(([k, label, type]) => (
-                    <div key={k}>
-                      <label className="label">{label}</label>
-                      <input
-                        type={type}
-                        className="input"
-                        value={customer[k]}
-                        onChange={(e) =>
-                          setCustomer({ ...customer, [k]: e.target.value })
-                        }
-                        placeholder={CUSTOMER_PLACEHOLDERS[k]}
-                      />
-                    </div>
-                  ))}
-                  <div className="sm:col-span-2">
-                    <label className="label">Dirección</label>
+      {/* Datos del cliente (colapsable) */}
+      <div className="border-t border-nina-line pt-4">
+        <button
+          type="button"
+          onClick={() => setShowCustomer((v) => !v)}
+          className="flex items-center gap-2 text-sm text-nina-chrome hover:text-white transition"
+        >
+          <UserRound className="w-4 h-4" />
+          <span>Datos del cliente (opcional)</span>
+          <span className="text-[11px] text-nina-mute">
+            {showCustomer ? '— ocultar' : '— click para agregar'}
+          </span>
+        </button>
+
+        <AnimatePresence>
+          {showCustomer && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="grid sm:grid-cols-2 gap-3 pt-4">
+                {[
+                  ['name', 'Nombre', 'text'],
+                  ['cedula', 'Cédula', 'text'],
+                  ['phone', 'Celular', 'tel'],
+                  ['email', 'Correo', 'email'],
+                ].map(([k, label, type]) => (
+                  <div key={k}>
+                    <label className="label">{label}</label>
                     <input
+                      type={type}
                       className="input"
-                      value={customer.address}
+                      value={customer[k]}
                       onChange={(e) =>
-                        setCustomer({ ...customer, address: e.target.value })
+                        setCustomer({ ...customer, [k]: e.target.value })
                       }
-                      placeholder={CUSTOMER_PLACEHOLDERS.address}
+                      placeholder={CUSTOMER_PLACEHOLDERS[k]}
                     />
                   </div>
+                ))}
+                <div className="sm:col-span-2">
+                  <label className="label">Dirección</label>
+                  <input
+                    className="input"
+                    value={customer.address}
+                    onChange={(e) =>
+                      setCustomer({ ...customer, address: e.target.value })
+                    }
+                    placeholder={CUSTOMER_PLACEHOLDERS.address}
+                  />
                 </div>
-                <p className="text-[11px] text-nina-mute mt-3">
-                  Los campos vacíos quedarán como{' '}
-                  <span className="font-mono">NA</span> en el registro.
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* Resumen total */}
-        <div className="rounded-xl bg-nina-ink border border-nina-line p-4 space-y-1">
-          <div className="flex justify-between text-sm text-nina-mute">
-            <span>Subtotal</span>
-            <span>{fmtCOP(totals.subtotal)}</span>
-          </div>
-          {totals.discount > 0 && (
-            <div className="flex justify-between text-sm text-amber-300/80">
-              <span>Descuentos</span>
-              <span>− {fmtCOP(totals.discount)}</span>
-            </div>
+              </div>
+              <p className="text-[11px] text-nina-mute mt-3">
+                Los campos vacíos quedarán como{' '}
+                <span className="font-mono">NA</span> en el registro.
+              </p>
+            </motion.div>
           )}
-          <div className="flex justify-between items-baseline pt-2 border-t border-nina-line">
-            <span className="text-[11px] uppercase tracking-[0.2em] text-nina-mute">
-              Total a cobrar
-            </span>
-            <span className="silver-text font-display text-2xl font-bold">
-              {fmtCOP(totals.total)}
-            </span>
-          </div>
-        </div>
+        </AnimatePresence>
+      </div>
 
-        <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="btn-ghost" disabled={busy}>
-            Cancelar
-          </button>
-          <button onClick={submit} className="btn-primary" disabled={busy}>
-            <CheckCircle2 className="w-4 h-4" />
-            {busy ? 'Registrando…' : 'Confirmar venta'}
-          </button>
+      {/* Resumen total */}
+      <div className="rounded-xl bg-nina-ink border border-nina-line p-4 space-y-1">
+        <div className="flex justify-between text-sm text-nina-mute">
+          <span>Subtotal</span>
+          <span>{fmtCOP(totals.subtotal)}</span>
         </div>
+        {totals.discount > 0 && (
+          <div className="flex justify-between text-sm text-amber-300/80">
+            <span>Descuentos</span>
+            <span>− {fmtCOP(totals.discount)}</span>
+          </div>
+        )}
+        <div className="flex justify-between items-baseline pt-2 border-t border-nina-line">
+          <span className="text-[11px] uppercase tracking-[0.2em] text-nina-mute">
+            Total a cobrar
+          </span>
+          <span className="silver-text font-display text-2xl font-bold">
+            {fmtCOP(totals.total)}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+
+  /* ── Mobile: bottom drawer ── */
+  if (isMobile) {
+    return (
+      <AnimatePresence>
+        {open && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={onClose}
+            />
+
+            {/* Drawer */}
+            <motion.div
+              className="fixed inset-x-0 bottom-0 z-50 panel rounded-t-2xl rounded-b-none flex flex-col overflow-hidden"
+              style={{ maxHeight: '92dvh' }}
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            >
+              {/* Drag handle */}
+              <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+                <div className="w-10 h-1 rounded-full bg-nina-line" />
+              </div>
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 pt-1 pb-3 border-b border-nina-line flex-shrink-0">
+                <h3 className="font-display text-xl silver-text">Registrar venta</h3>
+                <button onClick={onClose} className="btn-ghost !p-2">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Scrollable content */}
+              <div className="flex-1 overflow-y-auto px-5 py-5">
+                {formBody}
+              </div>
+
+              {/* Sticky confirm button */}
+              <div className="flex-shrink-0 px-5 py-4 border-t border-nina-line">
+                <button
+                  onClick={submit}
+                  className="btn-primary w-full justify-center"
+                  disabled={busy}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  {busy ? 'Registrando…' : 'Confirmar venta'}
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    )
+  }
+
+  /* ── Desktop: modal normal ── */
+  return (
+    <Modal open={open} onClose={onClose} title="Registrar venta" maxWidth="max-w-3xl">
+      {formBody}
+      <div className="flex justify-end gap-2 mt-5">
+        <button onClick={onClose} className="btn-ghost" disabled={busy}>
+          Cancelar
+        </button>
+        <button onClick={submit} className="btn-primary" disabled={busy}>
+          <CheckCircle2 className="w-4 h-4" />
+          {busy ? 'Registrando…' : 'Confirmar venta'}
+        </button>
       </div>
     </Modal>
   )
@@ -326,7 +400,6 @@ function SaleLine({ index, line, products, allItems, onChange, onRemove, canRemo
   const { subtotal, discount, total } = calcLineTotal(product, line)
   const pct = Math.max(0, Math.min(100, Number(line.discountPct) || 0))
 
-  // Cantidad ya reservada para este producto+talla en OTRAS líneas del pedido
   const reservedInOtherLines = (size) =>
     (allItems || [])
       .filter(
@@ -337,7 +410,6 @@ function SaleLine({ index, line, products, allItems, onChange, onRemove, canRemo
       )
       .reduce((a, it) => a + (Number(it.quantity) || 0), 0)
 
-  // Stock disponible para esta línea = stock real - lo ya reservado en otras líneas
   const availableForSize = (size) => {
     if (!product) return 0
     const stock = Number(product.sizes?.[size] || 0)
