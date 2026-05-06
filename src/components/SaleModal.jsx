@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { CheckCircle2, Plus, Trash2, UserRound, X } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -395,6 +395,91 @@ export default function SaleModal({ open, onClose, fixedSellerId }) {
   )
 }
 
+function ProductCombobox({ value, products, onChange }) {
+  const selected = products.find((p) => p.id === value)
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef(null)
+
+  const filtered = query.trim()
+    ? products.filter(
+        (p) =>
+          p.name.toLowerCase().includes(query.toLowerCase()) ||
+          String(p.sku).toLowerCase().includes(query.toLowerCase()) ||
+          p.category?.toLowerCase().includes(query.toLowerCase()),
+      )
+    : products
+
+  const select = (p) => {
+    onChange(p.id)
+    setQuery('')
+    setOpen(false)
+  }
+
+  const clear = () => {
+    onChange('')
+    setQuery('')
+  }
+
+  // Cierra al hacer clic fuera
+  useEffect(() => {
+    if (!open) return
+    const handler = (e) => {
+      if (!containerRef.current?.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div ref={containerRef} className="relative mt-1">
+      <input
+        type="text"
+        className="input pr-8"
+        placeholder="Buscar por ref. o nombre…"
+        value={open ? query : selected ? `${selected.sku} · ${selected.name}` : ''}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+      />
+      {/* Botón limpiar selección */}
+      {value && !open && (
+        <button
+          type="button"
+          onMouseDown={(e) => { e.preventDefault(); clear() }}
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-nina-mute hover:text-nina-chrome transition"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
+
+      {open && (
+        <div className="absolute z-20 top-full left-0 right-0 mt-1 panel border border-nina-line rounded-xl overflow-hidden shadow-xl"
+          style={{ maxHeight: '13rem', overflowY: 'auto' }}
+        >
+          {filtered.length === 0 ? (
+            <p className="px-3 py-3 text-sm text-nina-mute">Sin resultados</p>
+          ) : (
+            filtered.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => select(p)}
+                className={`w-full text-left px-3 py-2.5 text-sm transition hover:bg-nina-line/30 flex items-baseline gap-2 ${
+                  p.id === value ? 'bg-nina-line/40' : ''
+                }`}
+              >
+                <span className="font-mono text-xs text-nina-silver shrink-0">{p.sku}</span>
+                <span className="text-nina-chrome truncate">{p.name}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SaleLine({ index, line, products, allItems, onChange, onRemove, canRemove }) {
   const product = products.find((p) => p.id === line.productId)
   const { subtotal, discount, total } = calcLineTotal(product, line)
@@ -430,18 +515,11 @@ function SaleLine({ index, line, products, allItems, onChange, onRemove, canRemo
           <label className="text-[10px] uppercase tracking-[0.18em] text-nina-mute">
             #{index + 1} · Referencia
           </label>
-          <select
-            className="input mt-1"
+          <ProductCombobox
             value={line.productId}
-            onChange={(e) => onChange({ productId: e.target.value })}
-          >
-            <option value="">Selecciona producto…</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.sku} · {p.name}
-              </option>
-            ))}
-          </select>
+            products={products}
+            onChange={(productId) => onChange({ productId })}
+          />
         </div>
 
         <div className="col-span-5 sm:col-span-3">
