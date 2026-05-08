@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { withAuthRetry } from '../lib/supabaseQuery'
 
 const FETCH_TIMEOUT = 8000
 
@@ -24,14 +25,16 @@ export function useAgentMessages(agentId, limit = 100) {
     const load = async () => {
       try {
         const result = await Promise.race([
-          supabase
-            .from('messages')
-            .select(
-              'id, role, content, tool_call_id, tool_calls, task_id, metadata, created_at',
-            )
-            .eq('agent_id', agentId)
-            .order('created_at', { ascending: false })
-            .limit(limit),
+          withAuthRetry(() =>
+            supabase
+              .from('messages')
+              .select(
+                'id, role, content, tool_call_id, tool_calls, task_id, metadata, created_at',
+              )
+              .eq('agent_id', agentId)
+              .order('created_at', { ascending: false })
+              .limit(limit),
+          ),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Timeout cargando mensajes')), FETCH_TIMEOUT),
           ),

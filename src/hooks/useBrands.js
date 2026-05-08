@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { withAuthRetry } from '../lib/supabaseQuery'
 
 const FETCH_TIMEOUT = 8000
 
@@ -17,10 +18,9 @@ export function useBrands() {
     const load = async () => {
       try {
         const result = await Promise.race([
-          supabase
-            .from('brands')
-            .select('id, slug, name, status')
-            .order('name', { ascending: true }),
+          withAuthRetry(() =>
+            supabase.from('brands').select('id, slug, name, status').order('name', { ascending: true }),
+          ),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Timeout cargando marcas')), FETCH_TIMEOUT),
           ),

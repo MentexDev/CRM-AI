@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Package,
   Pencil,
+  Play,
   Plus,
   Settings as SettingsIcon,
   Sparkles,
@@ -310,6 +311,7 @@ const AGENT_TABS = [
 function AgentChat({ agent, isJunta, onBack, onNewTask, onEdit }) {
   const Icon = agentIcon(agent)
   const [tab, setTab] = useState('messages')
+  const [running, setRunning] = useState(false)
   const { tasks } = useAgentTasks(agent.id)
 
   // Reset al cambiar de agente
@@ -318,6 +320,35 @@ function AgentChat({ agent, isJunta, onBack, onNewTask, onEdit }) {
   }, [agent.id])
 
   const activeTasks = tasks.filter((t) => t.status === 'to_do' || t.status === 'in_progress')
+
+  // Dispara un tick manual del agente sin esperar al cron de cada minuto.
+  // Llama la Edge Function run-agent-step con el JWT del usuario actual.
+  const handleRunTick = async () => {
+    if (running) return
+    setRunning(true)
+    const t = toast.loading(`Ejecutando tick de ${agent.name}…`)
+    try {
+      const { data, error } = await supabase.functions.invoke('run-agent-step', {
+        body: { agent_slug: agent.slug },
+      })
+      if (error) throw error
+      const finished = data?.finished
+      const iterations = data?.iterations ?? 0
+      const reason = data?.reason
+      toast.success(
+        finished
+          ? reason === 'no active tasks'
+            ? 'Sin tareas activas para ejecutar'
+            : `Tick completado · ${iterations} iter${iterations === 1 ? '' : 's'}`
+          : `Tick parcial · ${iterations} iters`,
+        { id: t },
+      )
+    } catch (e) {
+      toast.error(e?.message || 'No se pudo ejecutar', { id: t })
+    } finally {
+      setRunning(false)
+    }
+  }
 
   return (
     <div className="panel h-full overflow-hidden flex flex-col">
@@ -350,6 +381,19 @@ function AgentChat({ agent, isJunta, onBack, onNewTask, onEdit }) {
             )}
           </div>
         </div>
+        <button
+          onClick={handleRunTick}
+          disabled={running}
+          className="btn-ghost !py-1.5 !px-3 text-xs flex items-center gap-1"
+          title="Ejecutar un tick ahora (sin esperar al cron)"
+        >
+          {running ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Play className="w-3.5 h-3.5" />
+          )}
+          <span className="hidden sm:inline">{running ? 'Ejecutando…' : 'Ejecutar tick'}</span>
+        </button>
         <button onClick={onNewTask} className="btn-ghost !py-1.5 !px-3 text-xs flex items-center gap-1">
           <Plus className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Nueva tarea</span>

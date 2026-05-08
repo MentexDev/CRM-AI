@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { withAuthRetry } from '../lib/supabaseQuery'
 
 const FETCH_TIMEOUT = 8000
 
@@ -22,13 +23,15 @@ export function useAgents() {
     const load = async () => {
       try {
         const result = await Promise.race([
-          supabase
-            .from('agents')
-            .select(
-              'id, slug, name, role, specialty, brand_id, parent_agent_id, status, model, last_heartbeat_at',
-            )
-            .order('role', { ascending: true })
-            .order('name', { ascending: true }),
+          withAuthRetry(() =>
+            supabase
+              .from('agents')
+              .select(
+                'id, slug, name, role, specialty, brand_id, parent_agent_id, status, model, last_heartbeat_at',
+              )
+              .order('role', { ascending: true })
+              .order('name', { ascending: true }),
+          ),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Timeout cargando agentes')), FETCH_TIMEOUT),
           ),

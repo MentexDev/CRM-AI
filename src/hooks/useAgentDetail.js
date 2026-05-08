@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { withAuthRetry } from '../lib/supabaseQuery'
 
 const FETCH_TIMEOUT = 8000
 
@@ -25,7 +26,7 @@ export function useAgentDetail(agentId) {
     const load = async () => {
       try {
         const result = await Promise.race([
-          supabase.from('agents').select('*').eq('id', agentId).maybeSingle(),
+          withAuthRetry(() => supabase.from('agents').select('*').eq('id', agentId).maybeSingle()),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Timeout cargando agente')), FETCH_TIMEOUT),
           ),

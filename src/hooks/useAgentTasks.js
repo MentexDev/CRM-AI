@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { withAuthRetry } from '../lib/supabaseQuery'
 
 const FETCH_TIMEOUT = 8000
 
@@ -23,14 +24,16 @@ export function useAgentTasks(agentId) {
     const load = async () => {
       try {
         const result = await Promise.race([
-          supabase
-            .from('tasks')
-            .select(
-              'id, title, status, priority, due_at, parent_task_id, created_at, updated_at, result',
-            )
-            .eq('agent_id', agentId)
-            .order('priority', { ascending: true })
-            .order('created_at', { ascending: false }),
+          withAuthRetry(() =>
+            supabase
+              .from('tasks')
+              .select(
+                'id, title, status, priority, due_at, parent_task_id, created_at, updated_at, result',
+              )
+              .eq('agent_id', agentId)
+              .order('priority', { ascending: true })
+              .order('created_at', { ascending: false }),
+          ),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Timeout cargando tareas')), FETCH_TIMEOUT),
           ),
