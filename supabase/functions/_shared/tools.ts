@@ -6,6 +6,7 @@ import type { SupabaseClient } from 'jsr:@supabase/supabase-js@^2'
 import type { ToolCallRequest, ToolDefinition } from './llm.ts'
 import { adminDb } from './db.ts'
 import { shopifyGraphQL, stripGid } from './shopify.ts'
+import { higgsfieldGenerateImage } from './higgsfield.ts'
 
 export interface ToolDescriptor {
   name: string
@@ -553,6 +554,32 @@ async function shopifySearchCustomers(
   }
 }
 
+// =====================================================================
+// Higgsfield · generación de imágenes (text-to-image)
+// =====================================================================
+async function generateImage(
+  _ctx: ToolContext,
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
+  const prompt = (args.prompt as string)?.trim()
+  const aspectRatio = (args.aspect_ratio as string) || '1:1'
+  const styleHint = args.style_hint as string | undefined
+  if (!prompt) return { ok: false, error: 'Falta prompt' }
+  try {
+    const images = await higgsfieldGenerateImage(prompt, aspectRatio, styleHint)
+    return {
+      ok: true,
+      data: {
+        images: images.map((url) => ({ url })),
+        prompt,
+        aspect_ratio: aspectRatio,
+      },
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 async function shopifyShopSummary(
   _ctx: ToolContext,
   _args: Record<string, unknown>,
@@ -614,4 +641,5 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   shopify_recent_orders: shopifyRecentOrders,
   shopify_search_customers: shopifySearchCustomers,
   shopify_shop_summary: shopifyShopSummary,
+  generate_image: generateImage,
 }

@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Clock,
   Database,
+  ImageIcon,
   Package,
   ShoppingBag,
   Store,
@@ -51,6 +52,26 @@ export default function ToolResultBubble({ message }) {
   }
 
   const data = parsed.data ?? {}
+
+  // Imágenes generadas (Higgsfield)
+  if (Array.isArray(data.images) && data.images.length > 0 && (data.images[0]?.url || typeof data.images[0] === 'string')) {
+    return (
+      <Wrap kind="ok">
+        <Header
+          icon={<ImageIcon className="w-3.5 h-3.5" />}
+          title={`${data.images.length} imagen${data.images.length === 1 ? '' : 'es'} generada${data.images.length === 1 ? '' : 's'}`}
+          subtitle={data.aspect_ratio ? `aspect ${data.aspect_ratio}` : null}
+        />
+        <ImageGrid images={data.images} />
+        {data.prompt && (
+          <div className="text-[11px] opacity-70 italic border-l border-emerald-500/30 pl-2">
+            “{truncate(data.prompt, 200)}”
+          </div>
+        )}
+        <RawJson data={data} />
+      </Wrap>
+    )
+  }
 
   // Productos de Shopify
   if (Array.isArray(data.products)) {
@@ -323,6 +344,38 @@ function OrderList({ orders }) {
             {fmtMoney(o.total, o.currency)}
           </div>
         </div>
+      ))}
+    </div>
+  )
+}
+
+function ImageGrid({ images }) {
+  // Acepta tanto Array<{url}> como Array<string>
+  const urls = images.map((img) => (typeof img === 'string' ? img : img?.url)).filter(Boolean)
+  const cols = urls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
+  return (
+    <div className={`grid ${cols} gap-2`}>
+      {urls.map((url, i) => (
+        <a
+          key={i}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group block relative rounded-lg overflow-hidden border border-emerald-500/20 bg-nina-black/40 hover:border-emerald-400/60 transition"
+          title="Abrir imagen original"
+        >
+          <img
+            src={url}
+            alt={`Generación ${i + 1}`}
+            loading="lazy"
+            className="w-full h-auto aspect-square object-cover"
+          />
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition flex items-end justify-end p-2 opacity-0 group-hover:opacity-100">
+            <span className="text-[10px] uppercase tracking-[0.18em] bg-black/70 text-emerald-200 px-2 py-1 rounded-full">
+              abrir ↗
+            </span>
+          </div>
+        </a>
       ))}
     </div>
   )
