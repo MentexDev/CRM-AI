@@ -6,15 +6,15 @@ const anon = import.meta.env.VITE_SUPABASE_ANON_KEY
 export const isSupabaseConfigured = Boolean(url && anon)
 
 if (typeof window !== 'undefined') {
-  // Marca visible para debug rápido desde DevTools (window.__nina)
-  window.__nina = {
+  // Marca visible para debug rápido desde DevTools (window.__crm)
+  window.__crm = {
     supabase: isSupabaseConfigured,
     url: isSupabaseConfigured ? url : null,
   }
   if (isSupabaseConfigured) {
-    console.info('[NINA] Conectado a Supabase:', url)
+    console.info('[CRM-AI] Conectado a Supabase:', url)
   } else {
-    console.warn('[NINA] Modo local — Supabase no configurado')
+    console.warn('[CRM-AI] Modo local — Supabase no configurado')
   }
 }
 
@@ -26,5 +26,5 @@ export const supabase = isSupabaseConfigured
   : null
 
 if (supabase && typeof window !== 'undefined') {
-  window.__nina.client = supabase
+  window.__crm.client = supabase
 }
