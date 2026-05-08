@@ -2,18 +2,33 @@
 //
 // Ejecuta un solo "tick" de un agente. Útil para:
 //   - Disparar manualmente desde el dashboard / curl para debug
+//   - Disparar manualmente desde el front (botón "Ejecutar tick")
 //   - Ser invocada por la función `heartbeat` para cada agente activo
 //
-// Auth: requiere header `Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>`.
-// Por simplicidad usamos el verify_jwt nativo de Supabase Edge Functions.
+// Auth: requiere header `Authorization: Bearer <JWT>`. Acepta tanto el JWT
+// del usuario logueado en el front como el service_role key.
 //
 // Body acepta `{ agent_id: <uuid> }` o `{ agent_slug: <slug> }`.
 import { runAgentStep } from '../_shared/agent_step.ts'
 import { adminDb } from '../_shared/db.ts'
 
+// Cuando el browser invoca la function (vía supabase.functions.invoke),
+// hace un preflight OPTIONS antes del POST. Si no respondemos con estos
+// headers el preflight falla y el POST nunca se manda.
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Max-Age': '86400',
+}
+
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: CORS_HEADERS })
+  }
   if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 })
+    return new Response('Method not allowed', { status: 405, headers: CORS_HEADERS })
   }
 
   let body: { agent_id?: string; agent_slug?: string }
@@ -49,6 +64,6 @@ Deno.serve(async (req) => {
 function json(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    headers: { ...CORS_HEADERS, 'content-type': 'application/json; charset=utf-8' },
   })
 }

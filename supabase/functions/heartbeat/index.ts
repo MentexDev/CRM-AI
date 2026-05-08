@@ -12,16 +12,25 @@ import { runAgentStep } from '../_shared/agent_step.ts'
 const MAX_CONCURRENCY = 3
 const MAX_AGENTS_PER_TICK = 10
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Max-Age': '86400',
+}
+
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: CORS_HEADERS })
+  }
   if (req.method !== 'POST' && req.method !== 'GET') {
-    return new Response('Method not allowed', { status: 405 })
+    return new Response('Method not allowed', { status: 405, headers: CORS_HEADERS })
   }
 
   const startedAt = Date.now()
   const db = adminDb()
 
-  // Encontrar agentes únicos con tareas activas, descartando los disabled
-  // y los que ya están en running (otro tick en vuelo).
   const { data: rows, error } = await db
     .from('tasks')
     .select('agent_id, agents!inner(id, slug, status)')
@@ -32,7 +41,7 @@ Deno.serve(async (req) => {
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
-      headers: { 'content-type': 'application/json' },
+      headers: { ...CORS_HEADERS, 'content-type': 'application/json' },
     })
   }
 
@@ -69,6 +78,6 @@ Deno.serve(async (req) => {
       duration_ms: Date.now() - startedAt,
       results,
     }),
-    { headers: { 'content-type': 'application/json' } },
+    { headers: { ...CORS_HEADERS, 'content-type': 'application/json' } },
   )
 })
