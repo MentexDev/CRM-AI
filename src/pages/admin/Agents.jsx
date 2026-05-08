@@ -22,9 +22,11 @@ import { useAgents } from '../../hooks/useAgents'
 import { useAgentMessages } from '../../hooks/useAgentMessages'
 import { useAgentTasks } from '../../hooks/useAgentTasks'
 import { useAuth } from '../../context/AuthContext'
+import { useConfirm } from '../../components/ConfirmDialog'
 import EmptyState from '../../components/EmptyState'
 import Modal from '../../components/Modal'
 import NewAgentModal from '../../components/NewAgentModal'
+import AgentActionsMenu from '../../components/AgentActionsMenu'
 import { supabase } from '../../lib/supabase'
 
 const STATUS_DOT = {
@@ -68,9 +70,42 @@ export default function Agents() {
   const navigate = useNavigate()
   const { agents, loading } = useAgents()
   const { isJunta } = useAuth()
+  const confirm = useConfirm()
   const activeAgent = useMemo(() => agents.find((a) => a.slug === slug), [agents, slug])
   const [taskOpen, setTaskOpen] = useState(false)
-  const [newAgentOpen, setNewAgentOpen] = useState(false)
+  const [agentModal, setAgentModal] = useState({ open: false, agentId: null })
+
+  const closeAgentModal = () => setAgentModal({ open: false, agentId: null })
+
+  const handleEdit = (agent) => setAgentModal({ open: true, agentId: agent.id })
+
+  const handleTogglePause = async (agent) => {
+    const next = agent.status === 'disabled' ? 'idle' : 'disabled'
+    const { error } = await supabase.from('agents').update({ status: next }).eq('id', agent.id)
+    if (error) {
+      toast.error(error.message || 'No se pudo actualizar')
+      return
+    }
+    toast.success(next === 'disabled' ? `${agent.name} en pausa` : `${agent.name} reactivado`)
+  }
+
+  const handleDelete = async (agent) => {
+    const ok = await confirm({
+      title: `¿Eliminar ${agent.name}?`,
+      description:
+        'Se borran su historial de mensajes, sus tool_calls y la memoria de largo plazo. Las tareas que tenía asignadas quedan sin agente. Esta acción no se puede deshacer.',
+      confirmText: 'Eliminar',
+      variant: 'danger',
+    })
+    if (!ok) return
+    const { error } = await supabase.from('agents').delete().eq('id', agent.id)
+    if (error) {
+      toast.error(error.message || 'No se pudo eliminar')
+      return
+    }
+    toast.success(`${agent.name} eliminado`)
+    if (slug === agent.slug) navigate('/admin/agentes', { replace: true })
+  }
 
   // En lg+ siempre seleccionamos el primero por default si no hay slug.
   useEffect(() => {
@@ -97,14 +132,21 @@ export default function Agents() {
           description="Crea tu primer agente para que arranque a trabajar."
           actions={
             isJunta ? (
-              <button onClick={() => setNewAgentOpen(true)} className="btn-primary text-sm">
+              <button
+                onClick={() => setAgentModal({ open: true, agentId: null })}
+                className="btn-primary text-sm"
+              >
                 <UserPlus className="w-4 h-4" />
                 Crear agente
               </button>
             ) : null
           }
         />
-        <NewAgentModal open={newAgentOpen} onClose={() => setNewAgentOpen(false)} />
+        <NewAgentModal
+          open={agentModal.open}
+          agentId={agentModal.agentId}
+          onClose={closeAgentModal}
+        />
       </>
     )
   }
@@ -118,8 +160,12 @@ export default function Agents() {
         <AgentList
           agents={agents}
           activeSlug={slug}
+          isJunta={isJunta}
           onSelect={(s) => navigate(`/admin/agentes/${s}`)}
-          onNewAgent={isJunta ? () => setNewAgentOpen(true) : null}
+          onNewAgent={isJunta ? () => setAgentModal({ open: true, agentId: null }) : null}
+          onEdit={handleEdit}
+          onTogglePause={handleTogglePause}
+          onDelete={handleDelete}
         />
       </div>
       <div className={slug ? 'block min-h-0' : 'hidden lg:block min-h-0'}>
@@ -144,7 +190,11 @@ export default function Agents() {
         />
       )}
 
-      <NewAgentModal open={newAgentOpen} onClose={() => setNewAgentOpen(false)} />
+      <NewAgentModal
+        open={agentModal.open}
+        agentId={agentModal.agentId}
+        onClose={closeAgentModal}
+      />
     </div>
   )
 }
@@ -152,7 +202,16 @@ export default function Agents() {
 // =====================================================================
 // Lista de agentes — sidebar izquierdo
 // =====================================================================
-function AgentList({ agents, activeSlug, onSelect, onNewAgent }) {
+function AgentList({
+  agents,
+  activeSlug,
+  isJunta,
+  onSelect,
+  onNewAgent,
+  onEdit,
+  onTogglePause,
+  onDelete,
+}) {
   return (
     <div className="panel h-full overflow-hidden flex flex-col">
       <div className="px-4 py-3 border-b border-nina-line flex items-center justify-between gap-2">
@@ -177,11 +236,21 @@ function AgentList({ agents, activeSlug, onSelect, onNewAgent }) {
         {agents.map((a) => {
           const Icon = agentIcon(a)
           const isActive = a.slug === activeSlug
+          // Item es un <div role="button"> en vez de <button> para poder anidar
+          // el menú de acciones (que es otro botón) sin chocar con HTML válido.
           return (
-            <button
+            <div
               key={a.id}
+              role="button"
+              tabIndex={0}
               onClick={() => onSelect(a.slug)}
-              className={`w-full px-4 py-3 flex items-center gap-3 text-left transition border-b border-nina-line/50 last:border-b-0 ${
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onSelect(a.slug)
+                }
+              }}
+              className={`px-4 py-3 flex items-center gap-3 text-left cursor-pointer transition border-b border-nina-line/50 last:border-b-0 outline-none focus-visible:bg-nina-line/30 ${
                 isActive ? 'bg-nina-line/40' : 'hover:bg-nina-line/20'
               }`}
             >
@@ -200,8 +269,17 @@ function AgentList({ agents, activeSlug, onSelect, onNewAgent }) {
                   {a.last_heartbeat_at ? ` · ${fmtTime(a.last_heartbeat_at)}` : ''}
                 </div>
               </div>
-              <ChevronRight className="w-4 h-4 text-nina-mute" />
-            </button>
+              {isJunta ? (
+                <AgentActionsMenu
+                  agent={a}
+                  onEdit={() => onEdit(a)}
+                  onTogglePause={() => onTogglePause(a)}
+                  onDelete={() => onDelete(a)}
+                />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-nina-mute" />
+              )}
+            </div>
           )
         })}
       </div>

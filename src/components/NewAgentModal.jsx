@@ -35,50 +35,123 @@ const slugify = (s) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
 
-export default function NewAgentModal({ open, onClose }) {
-  const [step, setStep] = useState('template') // 'template' | 'details'
+const DEFAULT_FORM = (overrides = {}) => ({
+  slug: '',
+  name: '',
+  role: 'specialist',
+  specialty: '',
+  brand_id: '',
+  parent_agent_id: '',
+  system_prompt: '',
+  model: 'llama-3.3-70b-versatile',
+  provider: 'groq',
+  temperature: 0.4,
+  max_tokens: 1500,
+  allowed_tools: [],
+  ...overrides,
+})
+
+/**
+ * Modal para crear o editar un agente.
+ * - sin `agentId` → modo crear (paso 1: plantilla, paso 2: detalles)
+ * - con `agentId` → modo editar (carga el agente y va directo a detalles)
+ */
+export default function NewAgentModal({ open, onClose, agentId = null }) {
+  const isEdit = Boolean(agentId)
+  const [step, setStep] = useState('template')
   const [tplId, setTplId] = useState('')
   const [form, setForm] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [loadingEdit, setLoadingEdit] = useState(false)
 
-  // Reset al abrir
   useEffect(() => {
     if (!open) return
-    setStep('template')
-    setTplId('')
-    setForm(null)
-  }, [open])
+
+    if (!isEdit) {
+      setStep('template')
+      setTplId('')
+      setForm(null)
+      return
+    }
+
+    // Edit: cargar datos del agente y saltar a detalles.
+    let active = true
+    setLoadingEdit(true)
+    setStep('details')
+    setTplId('blank')
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('agents')
+        .select('*')
+        .eq('id', agentId)
+        .maybeSingle()
+      if (!active) return
+      if (error || !data) {
+        toast.error('No se pudo cargar el agente')
+        onClose()
+        return
+      }
+      setForm(
+        DEFAULT_FORM({
+          slug: data.slug,
+          name: data.name,
+          role: data.role,
+          specialty: data.specialty || '',
+          brand_id: data.brand_id || '',
+          parent_agent_id: data.parent_agent_id || '',
+          system_prompt: data.system_prompt,
+          model: data.model,
+          provider: data.provider || 'groq',
+          temperature: data.config?.temperature ?? 0.4,
+          max_tokens: data.config?.max_tokens ?? 1500,
+          allowed_tools: data.allowed_tools || [],
+        }),
+      )
+      setLoadingEdit(false)
+    })()
+
+    return () => {
+      active = false
+    }
+  }, [open, isEdit, agentId, onClose])
 
   const pickTemplate = (id) => {
     const tpl = AGENT_TEMPLATES[id]
     setTplId(id)
-    setForm({
-      slug: tpl.suggestedSlug,
-      name: tpl.suggestedName,
-      role: tpl.role,
-      specialty: tpl.specialty,
-      brand_id: '',
-      parent_agent_id: '',
-      system_prompt: tpl.systemPrompt,
-      model: tpl.model,
-      provider: 'groq',
-      temperature: tpl.temperature,
-      max_tokens: tpl.maxTokens,
-      allowed_tools: [...tpl.allowedTools],
-    })
+    setForm(
+      DEFAULT_FORM({
+        slug: tpl.suggestedSlug,
+        name: tpl.suggestedName,
+        role: tpl.role,
+        specialty: tpl.specialty,
+        system_prompt: tpl.systemPrompt,
+        model: tpl.model,
+        temperature: tpl.temperature,
+        max_tokens: tpl.maxTokens,
+        allowed_tools: [...tpl.allowedTools],
+      }),
+    )
     setStep('details')
   }
 
+  const title = isEdit ? 'Editar agente' : 'Nuevo agente'
+
   return (
-    <Modal open={open} onClose={onClose} title="Nuevo agente" maxWidth="max-w-3xl">
-      {step === 'template' ? (
+    <Modal open={open} onClose={onClose} title={title} maxWidth="max-w-3xl">
+      {loadingEdit ? (
+        <div className="grid place-items-center py-10 text-nina-mute">
+          <Loader2 className="w-5 h-5 animate-spin" />
+        </div>
+      ) : step === 'template' ? (
         <TemplateStep onPick={pickTemplate} onCancel={onClose} />
       ) : (
         <DetailsStep
           form={form}
           setForm={setForm}
           tplId={tplId}
-          onBack={() => setStep('template')}
+          isEdit={isEdit}
+          agentId={agentId}
+          onBack={isEdit ? null : () => setStep('template')}
           onClose={onClose}
           busy={busy}
           setBusy={setBusy}
@@ -89,7 +162,7 @@ export default function NewAgentModal({ open, onClose }) {
 }
 
 // =====================================================================
-// Step 1 · elegir plantilla
+// Step 1 · elegir plantilla (solo modo crear)
 // =====================================================================
 function TemplateStep({ onPick, onCancel }) {
   return (
@@ -136,7 +209,7 @@ function TemplateStep({ onPick, onCancel }) {
 // =====================================================================
 // Step 2 · detalles del agente (editable)
 // =====================================================================
-function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
+function DetailsStep({ form, setForm, tplId, isEdit, agentId, onBack, onClose, busy, setBusy }) {
   const { agents } = useAgents()
   const { brands } = useBrands()
   const { tools } = useTools()
@@ -144,55 +217,48 @@ function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
   const tpl = AGENT_TEMPLATES[tplId]
   const Icon = ICON_MAP[tpl?.icon] ?? Bot
 
-  // Auto-actualizar slug mientras nombre cambia y el slug actual sea derivado del nombre previo.
-  // Heurística simple: si el slug coincide con slugify(prevName) lo regeneramos. Si el user lo
-  // editó manual, lo dejamos quieto.
-  const [autoSlug, setAutoSlug] = useState(true)
+  // Auto-actualizar slug mientras nombre cambia (sólo si user no editó manualmente).
+  // En edit mode dejamos autoSlug=false desde el principio para no pisar el slug existente.
+  const [autoSlug, setAutoSlug] = useState(!isEdit)
   useEffect(() => {
     if (autoSlug) setForm((f) => ({ ...f, slug: slugify(f.name) }))
   }, [form?.name, autoSlug, setForm])
 
   const possibleParents = useMemo(() => {
-    // ceo_global no tiene padre.
-    // brand_manager solo puede tener un ceo como padre.
-    // specialist puede tener brand_manager o ceo como padre.
     if (form?.role === 'ceo_global') return []
     if (form?.role === 'brand_manager') return agents.filter((a) => a.role === 'ceo_global')
-    return agents.filter((a) => a.role === 'brand_manager' || a.role === 'ceo_global')
-  }, [agents, form?.role])
+    // specialist puede tener brand_manager o ceo. Excluímos al propio agente
+    // en edit mode para que no pueda ser su propio padre.
+    return agents
+      .filter((a) => a.role === 'brand_manager' || a.role === 'ceo_global')
+      .filter((a) => !isEdit || a.id !== agentId)
+  }, [agents, form?.role, isEdit, agentId])
 
   // Auto-seleccionar el padre más razonable cuando aún no se haya elegido uno.
-  // Reglas:
-  //  - specialist + marca elegida → BM de esa marca; si no hay, primer BM disponible
-  //  - specialist sin marca → primer BM disponible o el CEO
-  //  - brand_manager → CEO global
-  //  - ceo_global → ninguno
   useEffect(() => {
     if (!form) return
     if (form.role === 'ceo_global') {
       if (form.parent_agent_id) setForm((f) => ({ ...f, parent_agent_id: '' }))
       return
     }
-    if (form.parent_agent_id) return // ya seleccionó manualmente, no tocamos
+    if (form.parent_agent_id) return
 
     let candidate = null
     if (form.role === 'brand_manager') {
-      candidate = possibleParents[0] // CEO
+      candidate = possibleParents[0]
     } else {
-      // specialist
       if (form.brand_id) {
         candidate = possibleParents.find(
           (p) => p.role === 'brand_manager' && p.brand_id === form.brand_id,
         )
       }
-      candidate = candidate
+      candidate =
+        candidate
         ?? possibleParents.find((p) => p.role === 'brand_manager')
         ?? possibleParents.find((p) => p.role === 'ceo_global')
     }
-    if (candidate) {
-      setForm((f) => ({ ...f, parent_agent_id: candidate.id }))
-    }
-  }, [form?.role, form?.brand_id, possibleParents, setForm])
+    if (candidate) setForm((f) => ({ ...f, parent_agent_id: candidate.id }))
+  }, [form?.role, form?.brand_id, possibleParents, setForm, form])
 
   const toggleTool = (name) => {
     setForm((f) => {
@@ -216,7 +282,7 @@ function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
 
     setBusy(true)
     try {
-      const { error } = await supabase.from('agents').insert({
+      const payload = {
         slug: form.slug.trim(),
         name: form.name.trim(),
         role: form.role,
@@ -227,19 +293,29 @@ function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
         model: form.model,
         provider: form.provider,
         allowed_tools: form.allowed_tools,
-        status: 'idle',
         config: { temperature: form.temperature, max_tokens: form.max_tokens },
-      })
-      if (error) {
-        if (error.code === '23505') {
-          throw new Error(`Ya existe un agente con el slug "${form.slug}"`)
-        }
-        throw error
       }
-      toast.success(`${form.name} listo. Aparecerá en la lista de agentes.`)
+
+      if (isEdit) {
+        const { error } = await supabase.from('agents').update(payload).eq('id', agentId)
+        if (error) {
+          if (error.code === '23505')
+            throw new Error(`Ya existe otro agente con el slug "${form.slug}"`)
+          throw error
+        }
+        toast.success(`${form.name} actualizado`)
+      } else {
+        const { error } = await supabase.from('agents').insert({ ...payload, status: 'idle' })
+        if (error) {
+          if (error.code === '23505')
+            throw new Error(`Ya existe un agente con el slug "${form.slug}"`)
+          throw error
+        }
+        toast.success(`${form.name} listo. Aparecerá en la lista.`)
+      }
       onClose()
     } catch (err) {
-      toast.error(err.message || 'No se pudo crear el agente')
+      toast.error(err.message || 'No se pudo guardar el agente')
     } finally {
       setBusy(false)
     }
@@ -250,31 +326,34 @@ function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
   return (
     <form onSubmit={submit} className="space-y-5">
       <div className="flex items-center gap-3 pb-3 border-b border-nina-line">
-        <button
-          type="button"
-          onClick={onBack}
-          className="btn-ghost !p-2"
-          aria-label="Volver a plantillas"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="btn-ghost !p-2"
+            aria-label="Volver a plantillas"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        )}
         <div className="w-10 h-10 rounded-full grid place-items-center bg-silver-gradient text-nina-black shadow-chrome">
           <Icon className="w-5 h-5" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-[10px] uppercase tracking-[0.2em] text-nina-mute">
-            Plantilla base
+            {isEdit ? 'Editando' : 'Plantilla base'}
           </div>
-          <div className="text-sm font-medium text-nina-chrome">{tpl?.name ?? 'En blanco'}</div>
+          <div className="text-sm font-medium text-nina-chrome">
+            {isEdit ? form.name : tpl?.name ?? 'En blanco'}
+          </div>
         </div>
       </div>
 
-      {/* Identidad */}
       <section className="space-y-3">
         <h4 className="text-xs uppercase tracking-[0.2em] text-nina-mute">Identidad</h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="label">Nombre visible</label>
+            <label className="label">Nombre visible *</label>
             <input
               className="input"
               value={form.name}
@@ -283,7 +362,7 @@ function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
             />
           </div>
           <div>
-            <label className="label">Slug único</label>
+            <label className="label">Slug único *</label>
             <input
               className="input font-mono text-[13px]"
               value={form.slug}
@@ -322,7 +401,6 @@ function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
         </div>
       </section>
 
-      {/* Pertenencia */}
       <section className="space-y-3">
         <h4 className="text-xs uppercase tracking-[0.2em] text-nina-mute">Pertenencia</h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -342,7 +420,9 @@ function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
             </select>
           </div>
           <div>
-            <label className="label">Reporta a (padre)</label>
+            <label className="label">
+              Reporta a (padre){form.role !== 'ceo_global' && ' *'}
+            </label>
             <select
               className="input"
               value={form.parent_agent_id}
@@ -362,7 +442,6 @@ function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
         </div>
       </section>
 
-      {/* System prompt */}
       <section className="space-y-3">
         <h4 className="text-xs uppercase tracking-[0.2em] text-nina-mute">Perfil del agente</h4>
         <textarea
@@ -377,7 +456,6 @@ function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
         </p>
       </section>
 
-      {/* Modelo y configuración */}
       <section className="space-y-3">
         <h4 className="text-xs uppercase tracking-[0.2em] text-nina-mute">Modelo y configuración</h4>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -433,9 +511,8 @@ function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
         </div>
       </section>
 
-      {/* Tools */}
       <section className="space-y-3">
-        <h4 className="text-xs uppercase tracking-[0.2em] text-nina-mute">Tools permitidas</h4>
+        <h4 className="text-xs uppercase tracking-[0.2em] text-nina-mute">Tools permitidas *</h4>
         {tools.length === 0 ? (
           <div className="text-[11px] text-nina-mute italic">Cargando tools…</div>
         ) : (
@@ -475,13 +552,8 @@ function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
             })}
           </div>
         )}
-        <p className="text-[11px] text-nina-mute">
-          Sólo las tools marcadas estarán disponibles para este agente. Tools que aún no existan
-          en el runtime aparecerán como llamadas fallidas hasta que se implementen.
-        </p>
       </section>
 
-      {/* Footer */}
       <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-4 border-t border-nina-line">
         <button type="button" onClick={onClose} className="btn-ghost" disabled={busy}>
           Cancelar
@@ -490,8 +562,10 @@ function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
           {busy ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              Creando…
+              {isEdit ? 'Guardando…' : 'Creando…'}
             </>
+          ) : isEdit ? (
+            'Guardar cambios'
           ) : (
             'Crear agente'
           )}
