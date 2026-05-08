@@ -3,18 +3,14 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import Login from './pages/Login'
 import AdminLayout from './pages/admin/AdminLayout'
-import Overview from './pages/admin/Overview'
-import Inventory from './pages/admin/Inventory'
-import Sellers from './pages/admin/Sellers'
-import Sales from './pages/admin/Sales'
-import Ranking from './pages/admin/Ranking'
-import Prizes from './pages/admin/Prizes'
-import Customers from './pages/admin/Customers'
-import SellerDashboard from './pages/seller/SellerDashboard'
+import Agents from './pages/admin/Agents'
+import Tasks from './pages/admin/Tasks'
+import Approvals from './pages/admin/Approvals'
+import Brands from './pages/admin/Brands'
+import Team from './pages/admin/Team'
 
-function Protected({ children, role }) {
+function Protected({ children }) {
   const { user, loading } = useAuth()
-  // Si pasan más de 6s en loading, ofrecemos una salida limpia (recargar / login)
   const [stuck, setStuck] = useState(false)
   useEffect(() => {
     if (!loading) return
@@ -30,14 +26,10 @@ function Protected({ children, role }) {
           {stuck && (
             <div className="space-y-3 max-w-sm">
               <p className="text-xs text-nina-mute">
-                Está tardando más de lo normal. Puede ser sesión expirada o conexión
-                lenta.
+                Está tardando más de lo normal. Puede ser sesión expirada o conexión lenta.
               </p>
               <div className="flex gap-2 justify-center">
-                <button
-                  className="btn-ghost text-xs"
-                  onClick={() => window.location.reload()}
-                >
+                <button className="btn-ghost text-xs" onClick={() => window.location.reload()}>
                   Reintentar
                 </button>
                 <button
@@ -61,9 +53,6 @@ function Protected({ children, role }) {
     )
   }
   if (!user) return <Navigate to="/login" replace />
-  if (role && user.role !== role) {
-    return <Navigate to={user.role === 'admin' ? '/admin' : '/vendedora'} replace />
-  }
   return children
 }
 
@@ -74,27 +63,19 @@ export default function App() {
       <Route
         path="/admin"
         element={
-          <Protected role="admin">
+          <Protected>
             <AdminLayout />
           </Protected>
         }
       >
-        <Route index element={<Overview />} />
-        <Route path="inventario" element={<Inventory />} />
-        <Route path="vendedoras" element={<Sellers />} />
-        <Route path="ventas" element={<Sales />} />
-        <Route path="ranking" element={<Ranking />} />
-        <Route path="premios" element={<Prizes />} />
-        <Route path="clientes" element={<Customers />} />
+        <Route index element={<Navigate to="agentes" replace />} />
+        <Route path="agentes" element={<Agents />} />
+        <Route path="agentes/:slug" element={<Agents />} />
+        <Route path="tareas" element={<Tasks />} />
+        <Route path="aprobaciones" element={<Approvals />} />
+        <Route path="marcas" element={<Brands />} />
+        <Route path="equipo" element={<Team />} />
       </Route>
-      <Route
-        path="/vendedora"
-        element={
-          <Protected role="seller">
-            <SellerDashboard />
-          </Protected>
-        }
-      />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   )

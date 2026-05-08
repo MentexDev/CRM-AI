@@ -4,7 +4,6 @@ import { BrowserRouter } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import App from './App.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
-import { DataProvider } from './context/DataContext.jsx'
 import { ConfirmProvider } from './components/ConfirmDialog.jsx'
 import './index.css'
 
@@ -12,22 +11,20 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <DataProvider>
-          <ConfirmProvider>
-            <App />
-          </ConfirmProvider>
-          <Toaster
-            position="top-right"
-            toastOptions={{
-              style: {
-                background: '#141414',
-                color: '#e8e8e8',
-                border: '1px solid #262626',
-                fontSize: '14px',
-              },
-            }}
-          />
-        </DataProvider>
+        <ConfirmProvider>
+          <App />
+        </ConfirmProvider>
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: '#141414',
+              color: '#e8e8e8',
+              border: '1px solid #262626',
+              fontSize: '14px',
+            },
+          }}
+        />
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>,

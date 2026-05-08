@@ -10,7 +10,6 @@ export default function TopBar() {
   const nav = useNavigate()
 
   // Estado de conexión: idle | online | offline | local
-  // Si hay user (al menos del cache) asumimos online optimista hasta que un ping falle.
   const [conn, setConn] = useState(() => {
     if (!isSupabaseConfigured) return 'local'
     return user ? 'online' : 'idle'
@@ -30,7 +29,6 @@ export default function TopBar() {
         if (!alive) return
         if (error) {
           consecutiveFailures += 1
-          // Solo marcamos offline tras 2 fallos seguidos para no parpadear con blips
           if (consecutiveFailures >= 2) setConn('offline')
         } else {
           consecutiveFailures = 0
@@ -85,27 +83,24 @@ export default function TopBar() {
         <Logo size="sm" subtitle={false} />
         <div className="flex items-center gap-3">
           <div className="hidden sm:flex flex-col items-end leading-tight">
-            <span className="text-sm font-medium text-nina-chrome">{user?.name}</span>
+            <span className="text-sm font-medium text-nina-chrome">{user?.fullName}</span>
             <span className="text-[10px] uppercase tracking-[0.2em] text-nina-mute">
-              {user?.role === 'admin' ? 'Administrador' : 'Vendedora'}
+              {user?.roleLabel}
             </span>
             <span
               className="flex items-center gap-1 text-[9px] uppercase tracking-[0.18em] text-nina-mute mt-0.5"
               title={`Estado: ${indicator.label}`}
             >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${indicator.dot} ${indicator.shadow}`}
-              />
+              <span className={`w-1.5 h-1.5 rounded-full ${indicator.dot} ${indicator.shadow}`} />
               {indicator.label}
             </span>
           </div>
-          {/* En móvil: solo el punto de estado al lado del avatar */}
           <span
             className={`sm:hidden w-2 h-2 rounded-full ${indicator.dot} ${indicator.shadow}`}
             title={indicator.label}
           />
           <div className="w-10 h-10 rounded-full grid place-items-center bg-silver-gradient text-nina-black font-bold text-sm shadow-chrome">
-            {user?.avatar || user?.name?.[0]}
+            {user?.avatarText}
           </div>
           <button onClick={handleLogout} className="btn-ghost !p-2.5" title="Cerrar sesión">
             <LogOut className="w-4 h-4" />

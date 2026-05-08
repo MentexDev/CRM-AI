@@ -13,10 +13,10 @@ export default defineConfig({
         'pwa-icon.svg',
       ],
       manifest: {
-        name: 'WEIN · NINA Inventary',
-        short_name: 'NINA',
+        name: 'CRM · AI — Mentex Holding',
+        short_name: 'CRM·AI',
         description:
-          'Inventario y ventas para la marca NINA durante la feria WEIN en Medellín',
+          'Orquestador multi-agente para la gestión de marcas de Mentex Holding',
         theme_color: '#0a0a0a',
         background_color: '#0a0a0a',
         display: 'standalone',
@@ -89,7 +89,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          xlsx: ['xlsx'],
           motion: ['framer-motion'],
           icons: ['lucide-react'],
           supabase: ['@supabase/supabase-js'],

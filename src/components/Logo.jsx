@@ -16,7 +16,7 @@ export default function Logo({ size = 'md', subtitle = true }) {
         transition={{ duration: 0.6, ease: 'easeOut' }}
         className={`silver-text font-display font-bold tracking-[0.18em] ${sz.w}`}
       >
-        WEIN · NINA
+        CRM · AI
       </motion.div>
       {subtitle && (
         <motion.span
@@ -25,7 +25,7 @@ export default function Logo({ size = 'md', subtitle = true }) {
           transition={{ delay: 0.2, duration: 0.6 }}
           className={`text-nina-mute uppercase tracking-[0.45em] mt-1 ${sz.s}`}
         >
-          Inventary
+          Mentex Holding
         </motion.span>
       )}
     </div>
