@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, Sparkles } from 'lucide-react'
 import EmptyState from '../../components/EmptyState'
@@ -13,6 +13,7 @@ const STATUS_BADGE = {
 export default function Brands() {
   const [brands, setBrands] = useState([])
   const [loading, setLoading] = useState(true)
+  const channelId = useId()
 
   useEffect(() => {
     let active = true
@@ -29,7 +30,7 @@ export default function Brands() {
     load()
 
     const channel = supabase
-      .channel('brands-all')
+      .channel(`brands-all-${channelId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'brands' }, load)
       .subscribe()
 
@@ -37,7 +38,7 @@ export default function Brands() {
       active = false
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [channelId])
 
   if (loading) {
     return (

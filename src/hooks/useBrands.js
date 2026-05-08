@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 export function useBrands() {
   const [brands, setBrands] = useState([])
   const [loading, setLoading] = useState(true)
+  const channelId = useId()
 
   useEffect(() => {
     let active = true
@@ -20,7 +21,7 @@ export function useBrands() {
     load()
 
     const channel = supabase
-      .channel('brands-list')
+      .channel(`brands-${channelId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'brands' }, load)
       .subscribe()
 
@@ -28,7 +29,7 @@ export function useBrands() {
       active = false
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [channelId])
 
   return { brands, loading }
 }

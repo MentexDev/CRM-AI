@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Check, CheckCircle2, Loader2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -21,6 +21,7 @@ export default function Approvals() {
   const [agentsById, setAgentsById] = useState({})
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState(null)
+  const channelId = useId()
 
   useEffect(() => {
     let active = true
@@ -44,7 +45,7 @@ export default function Approvals() {
     load()
 
     const channel = supabase
-      .channel('approvals-all')
+      .channel(`approvals-all-${channelId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'approvals' }, load)
       .subscribe()
 
@@ -52,7 +53,7 @@ export default function Approvals() {
       active = false
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [channelId])
 
   const decide = async (item, decision) => {
     if (!isJunta) {

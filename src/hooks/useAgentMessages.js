@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 // Devuelve los últimos N mensajes de un agente, ordenados ascendente,
@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 export function useAgentMessages(agentId, limit = 100) {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(Boolean(agentId))
+  const channelId = useId()
 
   useEffect(() => {
     if (!agentId) {
@@ -35,7 +36,7 @@ export function useAgentMessages(agentId, limit = 100) {
     load()
 
     const channel = supabase
-      .channel(`messages-agent-${agentId}`)
+      .channel(`messages-${agentId}-${channelId}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `agent_id=eq.${agentId}` },
@@ -54,7 +55,7 @@ export function useAgentMessages(agentId, limit = 100) {
       active = false
       supabase.removeChannel(channel)
     }
-  }, [agentId, limit])
+  }, [agentId, limit, channelId])
 
   return { messages, loading }
 }

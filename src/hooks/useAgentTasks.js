@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 // Tareas de un agente — todas (kanban). Realtime para refrescar en cambios.
 export function useAgentTasks(agentId) {
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(Boolean(agentId))
+  const channelId = useId()
 
   useEffect(() => {
     if (!agentId) {
@@ -30,7 +31,7 @@ export function useAgentTasks(agentId) {
     load()
 
     const channel = supabase
-      .channel(`tasks-agent-${agentId}`)
+      .channel(`tasks-${agentId}-${channelId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks', filter: `agent_id=eq.${agentId}` },
@@ -42,7 +43,7 @@ export function useAgentTasks(agentId) {
       active = false
       supabase.removeChannel(channel)
     }
-  }, [agentId])
+  }, [agentId, channelId])
 
   return { tasks, loading }
 }

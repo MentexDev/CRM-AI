@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, ListTodo } from 'lucide-react'
 import EmptyState from '../../components/EmptyState'
@@ -26,6 +26,7 @@ export default function Tasks() {
   const [tasks, setTasks] = useState([])
   const [agentsById, setAgentsById] = useState({})
   const [loading, setLoading] = useState(true)
+  const channelId = useId()
 
   useEffect(() => {
     let active = true
@@ -50,7 +51,7 @@ export default function Tasks() {
     load()
 
     const channel = supabase
-      .channel('tasks-all')
+      .channel(`tasks-all-${channelId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, load)
       .subscribe()
 
@@ -58,7 +59,7 @@ export default function Tasks() {
       active = false
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [channelId])
 
   const grouped = useMemo(() => {
     const out = Object.fromEntries(COLUMNS.map((c) => [c.key, []]))

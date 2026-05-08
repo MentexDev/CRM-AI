@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 // Lista los agentes visibles para el usuario actual (RLS filtra por marca).
@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 export function useAgents() {
   const [agents, setAgents] = useState([])
   const [loading, setLoading] = useState(true)
+  const channelId = useId() // único por instancia → evita colisión cuando dos componentes usan el hook al tiempo
 
   useEffect(() => {
     let active = true
@@ -23,7 +24,7 @@ export function useAgents() {
     load()
 
     const channel = supabase
-      .channel('agents-changes')
+      .channel(`agents-${channelId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'agents' }, load)
       .subscribe()
 
@@ -31,7 +32,7 @@ export function useAgents() {
       active = false
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [channelId])
 
   return { agents, loading }
 }

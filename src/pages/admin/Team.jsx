@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, Users } from 'lucide-react'
 import EmptyState from '../../components/EmptyState'
@@ -29,6 +29,7 @@ const initials = (name = '') =>
 export default function Team() {
   const [profiles, setProfiles] = useState([])
   const [loading, setLoading] = useState(true)
+  const channelId = useId()
 
   useEffect(() => {
     let active = true
@@ -45,7 +46,7 @@ export default function Team() {
     load()
 
     const channel = supabase
-      .channel('profiles-all')
+      .channel(`profiles-all-${channelId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, load)
       .subscribe()
 
@@ -53,7 +54,7 @@ export default function Team() {
       active = false
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [channelId])
 
   if (loading) {
     return (
