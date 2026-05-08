@@ -76,17 +76,15 @@ export async function generateImage(
       const urls = await higgsfieldGenerateImage(prompt, aspectRatio, styleHint)
       return { provider: 'higgsfield', urls }
     } catch (e) {
-      // Si Higgsfield falla por créditos, hacemos fallback automático a
-      // Pollinations para que la tarea siga adelante (con calidad menor)
-      // en lugar de bloquearse. Esto sólo aplica para errores de saldo,
-      // no para errores reales del prompt o del modelo.
+      // Cualquier fallo de Higgsfield (créditos, auth, timeout, NSFW del
+      // moderador, endpoint cambiado, etc.) cae a Pollinations para que
+      // la tarea no se bloquee. Sólo NSFW se propaga porque indica que
+      // el prompt es problemático y Pollinations también lo va a rechazar.
       const msg = e instanceof Error ? e.message : String(e)
-      if (msg.includes('sin créditos') || msg.includes('not_enough_credits')) {
-        console.warn('[imageGen] Higgsfield sin créditos, fallback a Pollinations')
-        const urls = await pollinationsGenerate(prompt, aspectRatio, styleHint)
-        return { provider: 'pollinations (fallback)', urls }
-      }
-      throw e
+      if (msg.includes('NSFW')) throw e
+      console.warn(`[imageGen] Higgsfield falló (${msg}), fallback a Pollinations`)
+      const urls = await pollinationsGenerate(prompt, aspectRatio, styleHint)
+      return { provider: `pollinations (fallback: ${msg.slice(0, 80)})`, urls }
     }
   }
 
