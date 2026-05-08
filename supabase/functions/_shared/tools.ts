@@ -5,6 +5,7 @@
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@^2'
 import type { ToolCallRequest, ToolDefinition } from './llm.ts'
 import { adminDb } from './db.ts'
+import { shopifyGraphQL, stripGid } from './shopify.ts'
 
 export interface ToolDescriptor {
   name: string
@@ -300,6 +301,271 @@ async function readKpis(ctx: ToolContext, args: Record<string, unknown>): Promis
   }
 }
 
+// =====================================================================
+// Shopify · lectura (sin aprobación)
+// =====================================================================
+
+async function shopifySearchProducts(
+  _ctx: ToolContext,
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
+  const query = (args.query as string) || ''
+  const limit = Math.min((args.limit as number) || 10, 50)
+  try {
+    const data = await shopifyGraphQL<{
+      products: { edges: Array<{ node: Record<string, unknown> }> }
+    }>(
+      `query Products($q: String, $first: Int!) {
+        products(first: $first, query: $q, sortKey: UPDATED_AT, reverse: true) {
+          edges {
+            node {
+              id
+              title
+              handle
+              status
+              vendor
+              productType
+              tags
+              totalInventory
+              updatedAt
+              priceRangeV2 {
+                minVariantPrice { amount currencyCode }
+                maxVariantPrice { amount currencyCode }
+              }
+            }
+          }
+        }
+      }`,
+      { q: query, first: limit },
+    )
+    const products = data.products.edges.map(({ node }) => {
+      const n = node as {
+        id: string
+        title: string
+        handle: string
+        status: string
+        vendor: string
+        productType: string
+        tags: string[]
+        totalInventory: number
+        updatedAt: string
+        priceRangeV2: {
+          minVariantPrice: { amount: string; currencyCode: string }
+          maxVariantPrice: { amount: string; currencyCode: string }
+        }
+      }
+      return {
+        id: stripGid(n.id),
+        title: n.title,
+        handle: n.handle,
+        status: n.status,
+        vendor: n.vendor,
+        product_type: n.productType,
+        tags: n.tags,
+        total_inventory: n.totalInventory,
+        price_min: Number(n.priceRangeV2.minVariantPrice.amount),
+        price_max: Number(n.priceRangeV2.maxVariantPrice.amount),
+        currency: n.priceRangeV2.minVariantPrice.currencyCode,
+        updated_at: n.updatedAt,
+      }
+    })
+    return {
+      ok: true,
+      data: { products, count: products.length, query },
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+async function shopifyRecentOrders(
+  _ctx: ToolContext,
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
+  const limit = Math.min((args.limit as number) || 20, 50)
+  const status = (args.status as string) || ''
+  // Query Shopify uses syntax like "financial_status:paid created_at:>2024-01-01"
+  let q = ''
+  if (status) q += `financial_status:${status} `
+  if (args.since) q += `created_at:>='${args.since}' `
+
+  try {
+    const data = await shopifyGraphQL<{
+      orders: { edges: Array<{ node: Record<string, unknown> }> }
+    }>(
+      `query Orders($q: String, $first: Int!) {
+        orders(first: $first, query: $q, sortKey: CREATED_AT, reverse: true) {
+          edges {
+            node {
+              id
+              name
+              createdAt
+              displayFinancialStatus
+              displayFulfillmentStatus
+              totalPriceSet { shopMoney { amount currencyCode } }
+              subtotalPriceSet { shopMoney { amount } }
+              totalDiscountsSet { shopMoney { amount } }
+              customer { displayName email }
+              lineItems(first: 10) {
+                edges {
+                  node {
+                    title
+                    quantity
+                    sku
+                  }
+                }
+              }
+            }
+          }
+        }
+      }`,
+      { q: q.trim(), first: limit },
+    )
+    const orders = data.orders.edges.map(({ node }) => {
+      const n = node as Record<string, unknown> & {
+        customer?: { displayName?: string; email?: string }
+        lineItems: { edges: Array<{ node: { title: string; quantity: number; sku: string } }> }
+        totalPriceSet: { shopMoney: { amount: string; currencyCode: string } }
+        subtotalPriceSet: { shopMoney: { amount: string } }
+        totalDiscountsSet: { shopMoney: { amount: string } }
+      }
+      return {
+        id: stripGid(n.id as string),
+        name: n.name as string,
+        created_at: n.createdAt as string,
+        financial_status: n.displayFinancialStatus as string,
+        fulfillment_status: n.displayFulfillmentStatus as string,
+        total: Number(n.totalPriceSet.shopMoney.amount),
+        subtotal: Number(n.subtotalPriceSet.shopMoney.amount),
+        discount: Number(n.totalDiscountsSet.shopMoney.amount),
+        currency: n.totalPriceSet.shopMoney.currencyCode,
+        customer_name: n.customer?.displayName ?? null,
+        customer_email: n.customer?.email ?? null,
+        items: n.lineItems.edges.map(({ node: li }) => ({
+          title: li.title,
+          quantity: li.quantity,
+          sku: li.sku,
+        })),
+      }
+    })
+    return {
+      ok: true,
+      data: { orders, count: orders.length, filters: { status, since: args.since ?? null } },
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+async function shopifySearchCustomers(
+  _ctx: ToolContext,
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
+  const query = (args.query as string) || ''
+  const limit = Math.min((args.limit as number) || 10, 50)
+  try {
+    const data = await shopifyGraphQL<{
+      customers: { edges: Array<{ node: Record<string, unknown> }> }
+    }>(
+      `query Customers($q: String, $first: Int!) {
+        customers(first: $first, query: $q, sortKey: UPDATED_AT, reverse: true) {
+          edges {
+            node {
+              id
+              displayName
+              email
+              phone
+              createdAt
+              numberOfOrders
+              amountSpent { amount currencyCode }
+              tags
+            }
+          }
+        }
+      }`,
+      { q: query, first: limit },
+    )
+    const customers = data.customers.edges.map(({ node }) => {
+      const n = node as {
+        id: string
+        displayName: string
+        email: string
+        phone: string | null
+        createdAt: string
+        numberOfOrders: string
+        amountSpent: { amount: string; currencyCode: string }
+        tags: string[]
+      }
+      return {
+        id: stripGid(n.id),
+        name: n.displayName,
+        email: n.email,
+        phone: n.phone,
+        created_at: n.createdAt,
+        orders_count: Number(n.numberOfOrders),
+        total_spent: Number(n.amountSpent.amount),
+        currency: n.amountSpent.currencyCode,
+        tags: n.tags,
+      }
+    })
+    return {
+      ok: true,
+      data: { customers, count: customers.length, query },
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+async function shopifyShopSummary(
+  _ctx: ToolContext,
+  _args: Record<string, unknown>,
+): Promise<ToolResult> {
+  try {
+    const data = await shopifyGraphQL<{
+      shop: Record<string, unknown>
+    }>(
+      `query Shop {
+        shop {
+          name
+          email
+          myshopifyDomain
+          primaryDomain { url }
+          currencyCode
+          ianaTimezone
+          billingAddress { country }
+          plan { displayName }
+        }
+      }`,
+    )
+    const s = data.shop as {
+      name: string
+      email: string
+      myshopifyDomain: string
+      primaryDomain: { url: string }
+      currencyCode: string
+      ianaTimezone: string
+      billingAddress: { country: string }
+      plan: { displayName: string }
+    }
+    return {
+      ok: true,
+      data: {
+        name: s.name,
+        email: s.email,
+        myshopify_domain: s.myshopifyDomain,
+        primary_url: s.primaryDomain?.url,
+        currency: s.currencyCode,
+        timezone: s.ianaTimezone,
+        country: s.billingAddress?.country,
+        plan: s.plan?.displayName,
+      },
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>) => Promise<ToolResult>> = {
   delegate_task: delegateTask,
   request_approval: requestApproval,
@@ -308,4 +574,8 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   finish_task: finishTask,
   escalate_to_ceo: escalateToCeo,
   read_kpis: readKpis,
+  shopify_search_products: shopifySearchProducts,
+  shopify_recent_orders: shopifyRecentOrders,
+  shopify_search_customers: shopifySearchCustomers,
+  shopify_shop_summary: shopifyShopSummary,
 }

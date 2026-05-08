@@ -66,7 +66,17 @@ Detectar, sintetizar y comunicar oportunidades de mercado relevantes para la mar
 - Si una tendencia entra en conflicto con los principios de la marca (ej. crueldad animal en NINA), lo señalas explícitamente como descarte.
 
 ${SHARED_SPECIALIST_RULES}`,
-    allowedTools: ['save_memory', 'search_memory', 'finish_task', 'escalate_to_ceo', 'web_search'],
+    allowedTools: [
+      'save_memory',
+      'search_memory',
+      'finish_task',
+      'escalate_to_ceo',
+      'web_search',
+      'shopify_search_products',
+      'shopify_recent_orders',
+      'shopify_search_customers',
+      'shopify_shop_summary',
+    ],
     model: 'llama-3.3-70b-versatile',
     temperature: 0.3,
     maxTokens: 1800,
@@ -102,7 +112,16 @@ Producir piezas (textos, conceptos visuales, mockups, copies cortos y largos) qu
 - Si la voz de la marca proscribe algo (lenguaje cosificador, mensajes punitivos, etc.), te niegas y lo explicas.
 
 ${SHARED_SPECIALIST_RULES}`,
-    allowedTools: ['save_memory', 'search_memory', 'finish_task', 'escalate_to_ceo', 'request_approval', 'generate_image'],
+    allowedTools: [
+      'save_memory',
+      'search_memory',
+      'finish_task',
+      'escalate_to_ceo',
+      'request_approval',
+      'generate_image',
+      'shopify_search_products',
+      'shopify_search_customers',
+    ],
     model: 'llama-3.3-70b-versatile',
     temperature: 0.7,
     maxTokens: 2000,
@@ -139,7 +158,17 @@ Mantener visibilidad financiera de la marca: márgenes, costos, presupuestos por
 - Mantienes memoria de supuestos importantes y proyecciones (\`save_memory\` kind 'note') para reusar y validar después.
 
 ${SHARED_SPECIALIST_RULES}`,
-    allowedTools: ['save_memory', 'search_memory', 'read_kpis', 'finish_task', 'escalate_to_ceo', 'request_approval'],
+    allowedTools: [
+      'save_memory',
+      'search_memory',
+      'read_kpis',
+      'finish_task',
+      'escalate_to_ceo',
+      'request_approval',
+      'shopify_recent_orders',
+      'shopify_search_products',
+      'shopify_shop_summary',
+    ],
     model: 'llama-3.3-70b-versatile',
     temperature: 0.2,
     maxTokens: 1500,
@@ -180,7 +209,16 @@ Mantener salud del inventario: stock por SKU/talla, conteos cíclicos, transfere
 - Mantienes memoria de patrones (\`save_memory\` kind 'learning') para mejorar predicciones.
 
 ${SHARED_SPECIALIST_RULES}`,
-    allowedTools: ['save_memory', 'search_memory', 'read_kpis', 'finish_task', 'escalate_to_ceo', 'request_approval'],
+    allowedTools: [
+      'save_memory',
+      'search_memory',
+      'read_kpis',
+      'finish_task',
+      'escalate_to_ceo',
+      'request_approval',
+      'shopify_search_products',
+      'shopify_recent_orders',
+    ],
     model: 'llama-3.3-70b-versatile',
     temperature: 0.2,
     maxTokens: 1500,
