@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { withAuthRetry } from '../lib/supabaseQuery'
 
-const FETCH_TIMEOUT = 8000
+const FETCH_TIMEOUT = 15000
 
 // Devuelve el agente completo (incluyendo system_prompt, allowed_tools, config).
 // useAgents() lista sólo campos básicos para la sidebar; este hook se usa en

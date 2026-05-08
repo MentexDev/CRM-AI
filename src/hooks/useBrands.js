@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { withAuthRetry } from '../lib/supabaseQuery'
 
-const FETCH_TIMEOUT = 8000
+const FETCH_TIMEOUT = 15000
 
 export function useBrands() {
   const [brands, setBrands] = useState([])

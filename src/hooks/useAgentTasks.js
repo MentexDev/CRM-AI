@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { withAuthRetry } from '../lib/supabaseQuery'
 
-const FETCH_TIMEOUT = 8000
+const FETCH_TIMEOUT = 15000
 
 // Tareas de un agente — todas (kanban). Realtime para refrescar en cambios.
 export function useAgentTasks(agentId) {

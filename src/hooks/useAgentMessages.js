@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { withAuthRetry } from '../lib/supabaseQuery'
 
-const FETCH_TIMEOUT = 8000
+const FETCH_TIMEOUT = 15000
 
 // Devuelve los últimos N mensajes de un agente, ordenados ascendente,
 // y se suscribe a inserts en realtime para que el chat se actualice solo.

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { withAuthRetry } from '../lib/supabaseQuery'
 
-const FETCH_TIMEOUT = 8000
+const FETCH_TIMEOUT = 15000
 
 // Lista los agentes visibles para el usuario actual (RLS filtra por marca).
 // Se actualiza en tiempo real con cualquier cambio en la tabla agents.
