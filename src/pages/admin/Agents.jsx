@@ -1,24 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
   ArrowLeft,
   Bot,
+  Calculator,
   ChevronRight,
   CircleDot,
   Crown,
   Hammer,
   Loader2,
+  Package,
   Plus,
   Sparkles,
+  TrendingUp,
+  UserPlus,
   Wrench,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAgents } from '../../hooks/useAgents'
 import { useAgentMessages } from '../../hooks/useAgentMessages'
 import { useAgentTasks } from '../../hooks/useAgentTasks'
+import { useAuth } from '../../context/AuthContext'
 import EmptyState from '../../components/EmptyState'
 import Modal from '../../components/Modal'
+import NewAgentModal from '../../components/NewAgentModal'
 import { supabase } from '../../lib/supabase'
 
 const STATUS_DOT = {
@@ -34,11 +40,18 @@ const STATUS_LABEL = {
   disabled: 'Deshabilitado',
 }
 
+const SPECIALTY_ICON = {
+  analista_tendencias: TrendingUp,
+  creador_contenido: Sparkles,
+  contador: Calculator,
+  inventarista: Package,
+}
+
 function agentIcon(agent) {
   if (!agent) return Bot
   if (agent.role === 'ceo_global') return Crown
   if (agent.role === 'brand_manager') return Sparkles
-  return Bot
+  return SPECIALTY_ICON[agent.specialty] ?? Bot
 }
 
 function fmtTime(ts) {
@@ -54,8 +67,10 @@ export default function Agents() {
   const { slug } = useParams()
   const navigate = useNavigate()
   const { agents, loading } = useAgents()
+  const { isJunta } = useAuth()
   const activeAgent = useMemo(() => agents.find((a) => a.slug === slug), [agents, slug])
   const [taskOpen, setTaskOpen] = useState(false)
+  const [newAgentOpen, setNewAgentOpen] = useState(false)
 
   // En lg+ siempre seleccionamos el primero por default si no hay slug.
   useEffect(() => {
@@ -75,10 +90,22 @@ export default function Agents() {
 
   if (agents.length === 0) {
     return (
-      <EmptyState
-        title="Aún no hay agentes"
-        description="Crea agentes desde el panel de marcas para que empiecen a trabajar."
-      />
+      <>
+        <EmptyState
+          icon={Bot}
+          title="Aún no hay agentes"
+          description="Crea tu primer agente para que arranque a trabajar."
+          actions={
+            isJunta ? (
+              <button onClick={() => setNewAgentOpen(true)} className="btn-primary text-sm">
+                <UserPlus className="w-4 h-4" />
+                Crear agente
+              </button>
+            ) : null
+          }
+        />
+        <NewAgentModal open={newAgentOpen} onClose={() => setNewAgentOpen(false)} />
+      </>
     )
   }
 
@@ -88,7 +115,12 @@ export default function Agents() {
       style={{ height: 'calc(100dvh - 9rem)' }}
     >
       <div className={slug ? 'hidden lg:block' : 'block min-h-0'}>
-        <AgentList agents={agents} activeSlug={slug} onSelect={(s) => navigate(`/admin/agentes/${s}`)} />
+        <AgentList
+          agents={agents}
+          activeSlug={slug}
+          onSelect={(s) => navigate(`/admin/agentes/${s}`)}
+          onNewAgent={isJunta ? () => setNewAgentOpen(true) : null}
+        />
       </div>
       <div className={slug ? 'block min-h-0' : 'hidden lg:block min-h-0'}>
         {activeAgent ? (
@@ -111,6 +143,8 @@ export default function Agents() {
           agent={activeAgent}
         />
       )}
+
+      <NewAgentModal open={newAgentOpen} onClose={() => setNewAgentOpen(false)} />
     </div>
   )
 }
@@ -118,14 +152,26 @@ export default function Agents() {
 // =====================================================================
 // Lista de agentes — sidebar izquierdo
 // =====================================================================
-function AgentList({ agents, activeSlug, onSelect }) {
+function AgentList({ agents, activeSlug, onSelect, onNewAgent }) {
   return (
     <div className="panel h-full overflow-hidden flex flex-col">
-      <div className="px-4 py-3 border-b border-nina-line">
-        <div className="text-[10px] uppercase tracking-[0.2em] text-nina-mute">Agentes</div>
-        <div className="text-sm font-medium text-nina-chrome mt-0.5">
-          {agents.length} activo{agents.length === 1 ? '' : 's'}
+      <div className="px-4 py-3 border-b border-nina-line flex items-center justify-between gap-2">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.2em] text-nina-mute">Agentes</div>
+          <div className="text-sm font-medium text-nina-chrome mt-0.5">
+            {agents.length} activo{agents.length === 1 ? '' : 's'}
+          </div>
         </div>
+        {onNewAgent && (
+          <button
+            onClick={onNewAgent}
+            className="btn-ghost !p-2 hover:!border-nina-silver/30"
+            title="Nuevo agente"
+            aria-label="Nuevo agente"
+          >
+            <UserPlus className="w-4 h-4" />
+          </button>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto">
         {agents.map((a) => {
