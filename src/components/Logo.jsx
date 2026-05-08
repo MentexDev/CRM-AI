@@ -14,7 +14,7 @@ export default function Logo({ size = 'md', subtitle = true }) {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: 'easeOut' }}
-        className={`silver-text font-display font-bold tracking-[0.18em] ${sz.w}`}
+        className={`silver-text-static font-display font-bold tracking-[0.18em] ${sz.w}`}
       >
         CRM · AI
       </motion.div>

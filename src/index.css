@@ -12,14 +12,13 @@
   }
   body {
     @apply bg-nina-black text-nina-chrome font-sans antialiased;
+    /* Background sólido + dos radial-gradients estáticos. background-attachment:
+       fixed era costoso en GPUs integradas (cada scroll forzaba a redibujar
+       toda la capa). Ahora se pinta una sola vez. */
     background:
       radial-gradient(1200px 600px at 10% -10%, rgba(232, 232, 232, 0.06), transparent 60%),
       radial-gradient(900px 500px at 110% 20%, rgba(200, 200, 200, 0.05), transparent 55%),
       #0a0a0a;
-    background-attachment: fixed;
-    /* Respeta la safe area horizontal del dispositivo (notches laterales,
-       Dynamic Island en orientación landscape, etc). El TopBar ya maneja
-       top y bottom por su cuenta. */
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
   }
@@ -54,8 +53,20 @@
     animation: shimmer 6s linear infinite;
   }
 
+  /* Versión sin animación — para Macs con GPU integrada o cuando el shimmer
+     no aporta (ej. logos en sidebar/topbar que se ven en todo momento). */
+  .silver-text-static {
+    background: linear-gradient(135deg, #ffffff 0%, #c8c8c8 35%, #8a8a8a 50%, #c8c8c8 65%, #ffffff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
   .panel {
-    @apply bg-nina-panel/80 border border-nina-line rounded-2xl backdrop-blur-sm;
+    /* Antes usaba backdrop-blur-sm, que en GPUs integradas (Intel UHD, Apple
+       M1 base con muchos paneles) genera frames lentos. Lo cambiamos por
+       opacidad sólida — visualmente casi igual, ~4-6× más liviano. */
+    @apply bg-nina-panel/95 border border-nina-line rounded-2xl;
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.04) inset,
       0 30px 60px -30px rgba(0, 0, 0, 0.6);
@@ -109,5 +120,26 @@
   }
   .badge-stock-out {
     @apply chip bg-red-500/10 border-red-500/20 text-red-300;
+  }
+}
+
+/* Respeta la preferencia del sistema. Cuando el user activa "Reducir
+   movimiento" en macOS / iOS, apagamos animaciones infinitas (shimmer,
+   pulse) y dejamos el sistema corriendo sólido sin tirones. */
+@media (prefers-reduced-motion: reduce) {
+  .silver-text {
+    animation: none;
+  }
+  .animate-pulse,
+  .animate-shimmer,
+  .animate-float {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
   }
 }

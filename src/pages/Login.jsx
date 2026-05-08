@@ -36,23 +36,22 @@ export default function Login() {
 
   return (
     <div className="min-h-screen relative overflow-hidden flex items-center justify-center px-4 py-10">
-      <motion.div
+      {/* Blobs decorativos estáticos. Antes eran motion.div con animate
+          continuo (x/y oscilando), pero saturaban el GPU en Macs con
+          gráficos integrados. Como decoración estática se ven igual. */}
+      <div
         aria-hidden
-        className="absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full"
+        className="absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full pointer-events-none"
         style={{
           background: 'radial-gradient(circle, rgba(232,232,232,0.18), transparent 60%)',
         }}
-        animate={{ x: [0, 40, 0], y: [0, 30, 0] }}
-        transition={{ duration: 14, repeat: Infinity, ease: 'easeInOut' }}
       />
-      <motion.div
+      <div
         aria-hidden
-        className="absolute -bottom-40 -right-40 w-[600px] h-[600px] rounded-full"
+        className="absolute -bottom-40 -right-40 w-[600px] h-[600px] rounded-full pointer-events-none"
         style={{
           background: 'radial-gradient(circle, rgba(200,200,200,0.12), transparent 60%)',
         }}
-        animate={{ x: [0, -30, 0], y: [0, -20, 0] }}
-        transition={{ duration: 16, repeat: Infinity, ease: 'easeInOut' }}
       />
 
       <motion.div

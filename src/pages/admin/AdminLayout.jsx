@@ -71,7 +71,7 @@ export default function AdminLayout() {
   return (
     <div className="min-h-screen flex">
       {/* Sidebar desktop fijo */}
-      <aside className="hidden lg:flex w-60 flex-col border-r border-nina-line bg-nina-panel/40 backdrop-blur-sm sticky top-0 h-screen">
+      <aside className="hidden lg:flex w-60 flex-col border-r border-nina-line bg-nina-panel/95 sticky top-0 h-screen">
         <div className="px-5 py-6 border-b border-nina-line">
           <Logo size="sm" subtitle={false} />
         </div>

@@ -161,6 +161,39 @@ function DetailsStep({ form, setForm, tplId, onBack, onClose, busy, setBusy }) {
     return agents.filter((a) => a.role === 'brand_manager' || a.role === 'ceo_global')
   }, [agents, form?.role])
 
+  // Auto-seleccionar el padre más razonable cuando aún no se haya elegido uno.
+  // Reglas:
+  //  - specialist + marca elegida → BM de esa marca; si no hay, primer BM disponible
+  //  - specialist sin marca → primer BM disponible o el CEO
+  //  - brand_manager → CEO global
+  //  - ceo_global → ninguno
+  useEffect(() => {
+    if (!form) return
+    if (form.role === 'ceo_global') {
+      if (form.parent_agent_id) setForm((f) => ({ ...f, parent_agent_id: '' }))
+      return
+    }
+    if (form.parent_agent_id) return // ya seleccionó manualmente, no tocamos
+
+    let candidate = null
+    if (form.role === 'brand_manager') {
+      candidate = possibleParents[0] // CEO
+    } else {
+      // specialist
+      if (form.brand_id) {
+        candidate = possibleParents.find(
+          (p) => p.role === 'brand_manager' && p.brand_id === form.brand_id,
+        )
+      }
+      candidate = candidate
+        ?? possibleParents.find((p) => p.role === 'brand_manager')
+        ?? possibleParents.find((p) => p.role === 'ceo_global')
+    }
+    if (candidate) {
+      setForm((f) => ({ ...f, parent_agent_id: candidate.id }))
+    }
+  }, [form?.role, form?.brand_id, possibleParents, setForm])
+
   const toggleTool = (name) => {
     setForm((f) => {
       const has = f.allowed_tools.includes(name)

@@ -69,7 +69,7 @@ export default function TopBar({ onMenuClick }) {
 
   return (
     <header
-      className="sticky top-0 z-30 backdrop-blur-md bg-nina-black/60 border-b border-nina-line"
+      className="sticky top-0 z-30 bg-nina-black/95 border-b border-nina-line"
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
       <div
