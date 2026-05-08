@@ -3,22 +3,29 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft,
+  BookOpen,
   Bot,
   Calculator,
   ChevronRight,
   CircleDot,
   Crown,
   Hammer,
+  ListTodo,
   Loader2,
+  MessageSquare,
   Package,
+  Pencil,
   Plus,
+  Settings as SettingsIcon,
   Sparkles,
+  Thermometer,
   TrendingUp,
   UserPlus,
   Wrench,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAgents } from '../../hooks/useAgents'
+import { useAgentDetail } from '../../hooks/useAgentDetail'
 import { useAgentMessages } from '../../hooks/useAgentMessages'
 import { useAgentTasks } from '../../hooks/useAgentTasks'
 import { useAuth } from '../../context/AuthContext'
@@ -172,8 +179,10 @@ export default function Agents() {
         {activeAgent ? (
           <AgentChat
             agent={activeAgent}
+            isJunta={isJunta}
             onBack={() => navigate('/admin/agentes')}
             onNewTask={() => setTaskOpen(true)}
+            onEdit={() => handleEdit(activeAgent)}
           />
         ) : (
           <div className="panel h-full grid place-items-center text-nina-mute text-sm">
@@ -288,19 +297,25 @@ function AgentList({
 }
 
 // =====================================================================
-// Chat del agente — centro
+// Chat del agente — header + tabs internas (Paperclip-style)
 // =====================================================================
-function AgentChat({ agent, onBack, onNewTask }) {
-  const Icon = agentIcon(agent)
-  const { messages, loading } = useAgentMessages(agent.id, 200)
-  const { tasks } = useAgentTasks(agent.id)
-  const scrollRef = useRef(null)
+const AGENT_TABS = [
+  { id: 'messages', label: 'Mensajes', icon: MessageSquare },
+  { id: 'tasks', label: 'Tareas', icon: ListTodo },
+  { id: 'instructions', label: 'Instrucciones', icon: BookOpen },
+  { id: 'skills', label: 'Habilidades', icon: Wrench },
+  { id: 'config', label: 'Configuración', icon: SettingsIcon },
+]
 
-  // Auto-scroll al fondo cuando llegan mensajes nuevos
+function AgentChat({ agent, isJunta, onBack, onNewTask, onEdit }) {
+  const Icon = agentIcon(agent)
+  const [tab, setTab] = useState('messages')
+  const { tasks } = useAgentTasks(agent.id)
+
+  // Reset al cambiar de agente
   useEffect(() => {
-    if (!scrollRef.current) return
-    scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-  }, [messages.length])
+    setTab('messages')
+  }, [agent.id])
 
   const activeTasks = tasks.filter((t) => t.status === 'to_do' || t.status === 'in_progress')
 
@@ -341,27 +356,378 @@ function AgentChat({ agent, onBack, onNewTask }) {
         </button>
       </div>
 
-      {/* Hilo */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 space-y-3"
-        style={{
-          backgroundImage:
-            'radial-gradient(1200px 400px at 50% -10%, rgba(232,232,232,0.04), transparent 70%)',
-        }}
-      >
-        {loading ? (
-          <div className="grid place-items-center py-10 text-nina-mute">
-            <Loader2 className="w-5 h-5 animate-spin" />
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="grid place-items-center py-10 text-nina-mute text-sm">
-            Sin conversación todavía. Asigna una tarea para que arranque.
-          </div>
-        ) : (
-          messages.map((m) => <MessageBubble key={m.id} message={m} />)
+      {/* Tabs */}
+      <div className="px-2 sm:px-4 border-b border-nina-line overflow-x-auto">
+        <div className="flex gap-0 min-w-max">
+          {AGENT_TABS.map((t) => {
+            const TabIcon = t.icon
+            const isActive = tab === t.id
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={`relative flex items-center gap-1.5 px-3 py-2.5 text-[12px] font-medium transition ${
+                  isActive ? 'text-nina-chrome' : 'text-nina-mute hover:text-nina-chrome'
+                }`}
+              >
+                <TabIcon className="w-3.5 h-3.5" />
+                {t.label}
+                {isActive && (
+                  <motion.span
+                    layoutId="agentTabUnderline"
+                    className="absolute left-2 right-2 -bottom-px h-0.5 rounded-full bg-silver-gradient"
+                    transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+                  />
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Tab content */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {tab === 'messages' && <MessagesTab agentId={agent.id} />}
+        {tab === 'tasks' && <TasksTab tasks={tasks} onNewTask={onNewTask} />}
+        {tab === 'instructions' && (
+          <InstructionsTab agentId={agent.id} isJunta={isJunta} onEdit={onEdit} />
+        )}
+        {tab === 'skills' && <SkillsTab agentId={agent.id} />}
+        {tab === 'config' && (
+          <ConfigTab agentId={agent.id} agentBasic={agent} isJunta={isJunta} onEdit={onEdit} />
         )}
       </div>
+    </div>
+  )
+}
+
+// =====================================================================
+// Tab · Mensajes (chat real-time)
+// =====================================================================
+function MessagesTab({ agentId }) {
+  const { messages, loading } = useAgentMessages(agentId, 200)
+  const scrollRef = useRef(null)
+
+  useEffect(() => {
+    if (!scrollRef.current) return
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }, [messages.length])
+
+  return (
+    <div
+      ref={scrollRef}
+      className="h-full overflow-y-auto px-3 sm:px-6 py-4 space-y-3"
+      style={{
+        backgroundImage:
+          'radial-gradient(1200px 400px at 50% -10%, rgba(232,232,232,0.04), transparent 70%)',
+      }}
+    >
+      {loading ? (
+        <div className="grid place-items-center py-10 text-nina-mute">
+          <Loader2 className="w-5 h-5 animate-spin" />
+        </div>
+      ) : messages.length === 0 ? (
+        <div className="grid place-items-center py-10 text-nina-mute text-sm">
+          Sin conversación todavía. Asigna una tarea para que arranque.
+        </div>
+      ) : (
+        messages.map((m) => <MessageBubble key={m.id} message={m} />)
+      )}
+    </div>
+  )
+}
+
+// =====================================================================
+// Tab · Tareas (mini-kanban del agente)
+// =====================================================================
+function TasksTab({ tasks, onNewTask }) {
+  const COLS = [
+    { key: 'to_do', label: 'Por hacer', color: 'text-nina-chrome' },
+    { key: 'in_progress', label: 'En progreso', color: 'text-emerald-300' },
+    { key: 'blocked', label: 'Bloqueadas', color: 'text-amber-300' },
+    { key: 'needs_review', label: 'Para revisar', color: 'text-nina-chrome' },
+    { key: 'done', label: 'Hechas', color: 'text-nina-mute' },
+  ]
+  const grouped = COLS.reduce((acc, c) => {
+    acc[c.key] = tasks.filter((t) => t.status === c.key)
+    return acc
+  }, {})
+
+  if (tasks.length === 0) {
+    return (
+      <div className="h-full grid place-items-center text-center px-6">
+        <div className="space-y-3">
+          <div className="text-sm text-nina-mute">Este agente aún no tiene tareas.</div>
+          <button onClick={onNewTask} className="btn-primary text-xs">
+            <Plus className="w-3.5 h-3.5" /> Crear primera tarea
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-full overflow-y-auto px-4 sm:px-6 py-4 space-y-5">
+      {COLS.map((c) =>
+        grouped[c.key].length > 0 ? (
+          <div key={c.key}>
+            <div className={`flex items-center gap-2 mb-2 ${c.color}`}>
+              <span className="text-[10px] uppercase tracking-[0.2em]">{c.label}</span>
+              <span className="text-[10px] text-nina-mute">· {grouped[c.key].length}</span>
+            </div>
+            <div className="space-y-2">
+              {grouped[c.key].map((t) => (
+                <div
+                  key={t.id}
+                  className="rounded-lg border border-nina-line bg-nina-ink p-3 space-y-1"
+                >
+                  <div className="text-sm text-nina-chrome leading-snug">{t.title}</div>
+                  {t.result?.summary && (
+                    <div className="text-[12px] text-nina-mute leading-snug">
+                      → {t.result.summary}
+                    </div>
+                  )}
+                  <div className="text-[10px] text-nina-mute uppercase tracking-[0.18em]">
+                    {fmtTime(t.updated_at ?? t.created_at)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null,
+      )}
+    </div>
+  )
+}
+
+// =====================================================================
+// Tab · Instrucciones (system prompt)
+// =====================================================================
+function InstructionsTab({ agentId, isJunta, onEdit }) {
+  const { agent: detail, loading } = useAgentDetail(agentId)
+  if (loading) {
+    return (
+      <div className="h-full grid place-items-center text-nina-mute">
+        <Loader2 className="w-5 h-5 animate-spin" />
+      </div>
+    )
+  }
+  if (!detail) return null
+  return (
+    <div className="h-full overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
+      <header className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="text-xs uppercase tracking-[0.2em] text-nina-mute">System prompt</h3>
+          <p className="text-[12px] text-nina-mute mt-1 max-w-prose">
+            Este texto es lo que el agente "recuerda" en cada turno y define cómo se comporta.
+          </p>
+        </div>
+        {isJunta && (
+          <button onClick={onEdit} className="btn-ghost !py-1.5 !px-3 text-xs flex items-center gap-1">
+            <Pencil className="w-3.5 h-3.5" />
+            Editar
+          </button>
+        )}
+      </header>
+      <pre className="rounded-xl border border-nina-line bg-nina-ink p-4 text-[12.5px] font-mono text-nina-chrome leading-relaxed whitespace-pre-wrap break-words">
+        {detail.system_prompt}
+      </pre>
+    </div>
+  )
+}
+
+// =====================================================================
+// Tab · Habilidades (tools permitidas)
+// =====================================================================
+function SkillsTab({ agentId }) {
+  const { agent: detail, loading } = useAgentDetail(agentId)
+  const [tools, setTools] = useState([])
+  const [loadingTools, setLoadingTools] = useState(false)
+
+  useEffect(() => {
+    if (!detail?.allowed_tools?.length) {
+      setTools([])
+      return
+    }
+    let active = true
+    setLoadingTools(true)
+    ;(async () => {
+      const { data } = await supabase
+        .from('tools_registry')
+        .select('name, description, category, requires_approval, is_active')
+        .in('name', detail.allowed_tools)
+      if (active) {
+        setTools(data ?? [])
+        setLoadingTools(false)
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [detail?.allowed_tools])
+
+  if (loading || loadingTools) {
+    return (
+      <div className="h-full grid place-items-center text-nina-mute">
+        <Loader2 className="w-5 h-5 animate-spin" />
+      </div>
+    )
+  }
+  if (!detail) return null
+
+  return (
+    <div className="h-full overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
+      <header>
+        <h3 className="text-xs uppercase tracking-[0.2em] text-nina-mute">
+          Tools permitidas · {tools.length}
+        </h3>
+        <p className="text-[12px] text-nina-mute mt-1">
+          El runtime sólo le permite invocar estas. Cualquier otra es rechazada automáticamente.
+        </p>
+      </header>
+      {tools.length === 0 ? (
+        <div className="text-sm text-nina-mute">No tiene tools asignadas.</div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {tools.map((t) => (
+            <div
+              key={t.name}
+              className="rounded-lg border border-nina-line bg-nina-ink p-3 space-y-1"
+            >
+              <div className="flex items-center gap-2 flex-wrap">
+                <code className="text-[12px] font-mono text-nina-chrome">{t.name}</code>
+                <span className="text-[9px] uppercase tracking-[0.2em] text-nina-mute">
+                  {t.category}
+                </span>
+                {t.requires_approval && (
+                  <span className="text-[9px] uppercase tracking-[0.15em] text-amber-300/80">
+                    aprobación
+                  </span>
+                )}
+                {!t.is_active && (
+                  <span className="text-[9px] uppercase tracking-[0.15em] text-red-300/80">
+                    inactiva
+                  </span>
+                )}
+              </div>
+              <div className="text-[11.5px] text-nina-mute leading-snug">{t.description}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// =====================================================================
+// Tab · Configuración (modelo, temp, padre, marca)
+// =====================================================================
+function ConfigTab({ agentId, agentBasic, isJunta, onEdit }) {
+  const { agent: detail, loading } = useAgentDetail(agentId)
+  const [parentName, setParentName] = useState(null)
+  const [brandName, setBrandName] = useState(null)
+
+  useEffect(() => {
+    if (!detail) return
+    let active = true
+    ;(async () => {
+      const tasks = []
+      if (detail.parent_agent_id) {
+        tasks.push(
+          supabase
+            .from('agents')
+            .select('name')
+            .eq('id', detail.parent_agent_id)
+            .maybeSingle()
+            .then(({ data }) => active && setParentName(data?.name ?? '—')),
+        )
+      } else {
+        setParentName('—')
+      }
+      if (detail.brand_id) {
+        tasks.push(
+          supabase
+            .from('brands')
+            .select('name')
+            .eq('id', detail.brand_id)
+            .maybeSingle()
+            .then(({ data }) => active && setBrandName(data?.name ?? '—')),
+        )
+      } else {
+        setBrandName('Global / sin marca')
+      }
+      await Promise.allSettled(tasks)
+    })()
+    return () => {
+      active = false
+    }
+  }, [detail])
+
+  if (loading) {
+    return (
+      <div className="h-full grid place-items-center text-nina-mute">
+        <Loader2 className="w-5 h-5 animate-spin" />
+      </div>
+    )
+  }
+  if (!detail) return null
+
+  const cfg = detail.config ?? {}
+
+  const Field = ({ label, children }) => (
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.2em] text-nina-mute mb-1">{label}</div>
+      <div className="text-sm text-nina-chrome">{children}</div>
+    </div>
+  )
+
+  return (
+    <div className="h-full overflow-y-auto px-4 sm:px-6 py-4 space-y-5">
+      <header className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="text-xs uppercase tracking-[0.2em] text-nina-mute">Configuración</h3>
+          <p className="text-[12px] text-nina-mute mt-1">
+            Modelo, parámetros y pertenencia jerárquica.
+          </p>
+        </div>
+        {isJunta && (
+          <button onClick={onEdit} className="btn-ghost !py-1.5 !px-3 text-xs flex items-center gap-1">
+            <Pencil className="w-3.5 h-3.5" />
+            Editar
+          </button>
+        )}
+      </header>
+
+      <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 panel p-4">
+        <Field label="Slug">
+          <code className="font-mono text-[12.5px]">{detail.slug}</code>
+        </Field>
+        <Field label="Rol">{detail.role}</Field>
+        {detail.specialty && <Field label="Especialidad">{detail.specialty}</Field>}
+        <Field label="Estado">
+          <span className="capitalize">{STATUS_LABEL[agentBasic.status] ?? agentBasic.status}</span>
+        </Field>
+      </section>
+
+      <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 panel p-4">
+        <Field label="Marca">{brandName ?? '…'}</Field>
+        <Field label="Reporta a">{parentName ?? '…'}</Field>
+      </section>
+
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 panel p-4">
+        <Field label="Proveedor">{detail.provider}</Field>
+        <Field label="Modelo">
+          <code className="font-mono text-[12.5px]">{detail.model}</code>
+        </Field>
+        <Field label="Temperatura">
+          <span className="flex items-center gap-1.5">
+            <Thermometer className="w-3.5 h-3.5 text-nina-mute" />
+            <span className="font-mono">{(cfg.temperature ?? 0.4).toFixed(2)}</span>
+          </span>
+        </Field>
+        <Field label="Max tokens">{cfg.max_tokens ?? 1500}</Field>
+      </section>
     </div>
   )
 }
