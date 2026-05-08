@@ -59,20 +59,33 @@ export async function higgsfieldGenerateImage(
 
   const enrichedPrompt = styleHint ? `${prompt}\n\nStyle: ${styleHint}` : prompt
 
+  // El endpoint espera los campos en el top-level del body, NO envueltos en
+  // { input: {...} } como muestra el README del SDK (el SDK los desenvuelve
+  // internamente). Verificado con un curl directo: con `input` devuelve
+  // `'prompt' is a required property`. Con campos al raíz funciona.
   const submitResp = await fetch(`${BASE_URL}${T2I_ENDPOINT}`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
-      input: {
-        prompt: enrichedPrompt,
-        aspect_ratio: aspectRatio,
-        safety_tolerance: 2,
-      },
+      prompt: enrichedPrompt,
+      aspect_ratio: aspectRatio,
+      safety_tolerance: 2,
     }),
   })
 
   if (!submitResp.ok) {
     const text = await submitResp.text().catch(() => '')
+    // Errores comunes con mensaje claro para el modelo y para el log
+    if (submitResp.status === 403 && text.includes('not_enough_credits')) {
+      throw new Error(
+        'Higgsfield sin créditos: la cuenta no tiene saldo para generar imágenes. Recarga en https://cloud.higgsfield.ai',
+      )
+    }
+    if (submitResp.status === 401) {
+      throw new Error(
+        'Higgsfield 401: credenciales inválidas o User-Agent rechazado. Revisa HIGGSFIELD_API_KEY/SECRET en los secrets.',
+      )
+    }
     throw new Error(`Higgsfield submit ${submitResp.status}: ${text.slice(0, 200)}`)
   }
 
