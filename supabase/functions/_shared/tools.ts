@@ -6,7 +6,7 @@ import type { SupabaseClient } from 'jsr:@supabase/supabase-js@^2'
 import type { ToolCallRequest, ToolDefinition } from './llm.ts'
 import { adminDb } from './db.ts'
 import { shopifyGraphQL, stripGid } from './shopify.ts'
-import { higgsfieldGenerateImage } from './higgsfield.ts'
+import { generateImage as generateImageMulti } from './imageGen.ts'
 
 export interface ToolDescriptor {
   name: string
@@ -566,13 +566,14 @@ async function generateImage(
   const styleHint = args.style_hint as string | undefined
   if (!prompt) return { ok: false, error: 'Falta prompt' }
   try {
-    const images = await higgsfieldGenerateImage(prompt, aspectRatio, styleHint)
+    const result = await generateImageMulti(prompt, aspectRatio, styleHint)
     return {
       ok: true,
       data: {
-        images: images.map((url) => ({ url })),
+        images: result.urls.map((url) => ({ url })),
         prompt,
         aspect_ratio: aspectRatio,
+        provider: result.provider,
       },
     }
   } catch (e) {

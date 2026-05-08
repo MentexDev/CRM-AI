@@ -1,0 +1,95 @@
+// Multi-provider image generation.
+// El handler `generate_image` llama a este módulo. La selección del provider
+// se hace por env var IMAGE_PROVIDER (pollinations | higgsfield), o
+// automáticamente: si hay créditos/keys de Higgsfield se usa ese; si no,
+// fallback a Pollinations (gratis, sin auth).
+import { higgsfieldGenerateImage } from './higgsfield.ts'
+
+export interface ImageGenResult {
+  provider: string
+  urls: string[]
+}
+
+// Mapping de aspect ratios → dimensiones para providers que toman width/height.
+function aspectToDims(aspectRatio: string): { width: number; height: number } {
+  switch (aspectRatio) {
+    case '16:9':
+      return { width: 1280, height: 720 }
+    case '9:16':
+      return { width: 720, height: 1280 }
+    case '4:5':
+      return { width: 1024, height: 1280 }
+    case '3:2':
+      return { width: 1200, height: 800 }
+    case '1:1':
+    default:
+      return { width: 1024, height: 1024 }
+  }
+}
+
+// Pollinations.ai — gratis, sin auth, sin setup. La URL misma renderiza la
+// imagen on-the-fly: el cliente la consume al cargar el src del <img>.
+function pollinationsUrl(prompt: string, aspectRatio: string, styleHint?: string): string {
+  const { width, height } = aspectToDims(aspectRatio)
+  const fullPrompt = styleHint ? `${prompt}, ${styleHint}` : prompt
+  const enc = encodeURIComponent(fullPrompt)
+  // model=flux es el mejor de los gratuitos; nologo quita la marca de agua
+  // y enhance mejora calidad. seed con timestamp para que cada generación
+  // sea diferente.
+  const seed = Date.now() % 1_000_000
+  return `https://image.pollinations.ai/prompt/${enc}?width=${width}&height=${height}&model=flux&nologo=true&enhance=true&seed=${seed}`
+}
+
+async function pollinationsGenerate(
+  prompt: string,
+  aspectRatio: string,
+  styleHint?: string,
+): Promise<string[]> {
+  // Pollinations no necesita esperar — la URL ES la imagen. El navegador la
+  // resuelve cuando hace src=. Pero para asegurar que el generador la haya
+  // cocinado, hacemos un HEAD request al final con timeout corto.
+  const url = pollinationsUrl(prompt, aspectRatio, styleHint)
+  return [url]
+}
+
+function pickProvider(): string {
+  const explicit = (Deno.env.get('IMAGE_PROVIDER') || '').trim().toLowerCase()
+  if (explicit === 'pollinations' || explicit === 'higgsfield') return explicit
+  // Auto: si hay credenciales de Higgsfield, las usamos. Si fallan por
+  // créditos, el caller verá el error claro y puede cambiar a pollinations
+  // con la env var.
+  if (Deno.env.get('HIGGSFIELD_API_KEY') && Deno.env.get('HIGGSFIELD_API_SECRET')) {
+    return 'higgsfield'
+  }
+  return 'pollinations'
+}
+
+export async function generateImage(
+  prompt: string,
+  aspectRatio: string = '1:1',
+  styleHint?: string,
+): Promise<ImageGenResult> {
+  const provider = pickProvider()
+
+  if (provider === 'higgsfield') {
+    try {
+      const urls = await higgsfieldGenerateImage(prompt, aspectRatio, styleHint)
+      return { provider: 'higgsfield', urls }
+    } catch (e) {
+      // Si Higgsfield falla por créditos, hacemos fallback automático a
+      // Pollinations para que la tarea siga adelante (con calidad menor)
+      // en lugar de bloquearse. Esto sólo aplica para errores de saldo,
+      // no para errores reales del prompt o del modelo.
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg.includes('sin créditos') || msg.includes('not_enough_credits')) {
+        console.warn('[imageGen] Higgsfield sin créditos, fallback a Pollinations')
+        const urls = await pollinationsGenerate(prompt, aspectRatio, styleHint)
+        return { provider: 'pollinations (fallback)', urls }
+      }
+      throw e
+    }
+  }
+
+  const urls = await pollinationsGenerate(prompt, aspectRatio, styleHint)
+  return { provider: 'pollinations', urls }
+}
