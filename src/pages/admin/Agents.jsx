@@ -83,11 +83,14 @@ export default function Agents() {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-4 lg:gap-6 h-[calc(100vh-180px)] min-h-[520px]">
-      <div className={slug ? 'hidden lg:block' : 'block'}>
+    <div
+      className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-4 lg:gap-6 min-h-[480px]"
+      style={{ height: 'calc(100dvh - 9rem)' }}
+    >
+      <div className={slug ? 'hidden lg:block' : 'block min-h-0'}>
         <AgentList agents={agents} activeSlug={slug} onSelect={(s) => navigate(`/admin/agentes/${s}`)} />
       </div>
-      <div className={slug ? 'block' : 'hidden lg:block'}>
+      <div className={slug ? 'block min-h-0' : 'hidden lg:block min-h-0'}>
         {activeAgent ? (
           <AgentChat
             agent={activeAgent}
