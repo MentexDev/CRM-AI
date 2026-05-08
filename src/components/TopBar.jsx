@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
-import { LogOut } from 'lucide-react'
+import { LogOut, Menu } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import Logo from './Logo'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 
-export default function TopBar() {
+export default function TopBar({ onMenuClick }) {
   const { user, logout } = useAuth()
   const nav = useNavigate()
 
@@ -74,14 +73,24 @@ export default function TopBar() {
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
       <div
-        className="max-w-7xl mx-auto py-4 flex items-center justify-between gap-4"
+        className="py-3 sm:py-4 flex items-center justify-between gap-3"
         style={{
           paddingLeft: 'max(1rem, env(safe-area-inset-left))',
           paddingRight: 'max(1rem, env(safe-area-inset-right))',
         }}
       >
-        <Logo size="sm" subtitle={false} />
-        <div className="flex items-center gap-3">
+        {/* Izquierda: hamburger en mobile */}
+        <button
+          onClick={onMenuClick}
+          className="lg:hidden btn-ghost !p-2"
+          aria-label="Abrir menú"
+        >
+          <Menu className="w-4 h-4" />
+        </button>
+        <div className="hidden lg:block" />
+
+        {/* Derecha: estado + user */}
+        <div className="flex items-center gap-3 ml-auto">
           <div className="hidden sm:flex flex-col items-end leading-tight">
             <span className="text-sm font-medium text-nina-chrome">{user?.fullName}</span>
             <span className="text-[10px] uppercase tracking-[0.2em] text-nina-mute">
