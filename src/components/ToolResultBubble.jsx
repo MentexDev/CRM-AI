@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   AlertCircle,
@@ -5,6 +6,7 @@ import {
   Clock,
   Database,
   ImageIcon,
+  Loader2,
   Package,
   ShoppingBag,
   Store,
@@ -349,6 +351,54 @@ function OrderList({ orders }) {
   )
 }
 
+function GeneratedImage({ url, index }) {
+  const [state, setState] = useState('loading') // 'loading' | 'loaded' | 'error'
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group block relative rounded-lg overflow-hidden border border-emerald-500/20 bg-nina-black/40 hover:border-emerald-400/60 transition min-h-[140px]"
+      title="Abrir imagen original"
+    >
+      {state === 'loading' && (
+        <div className="absolute inset-0 grid place-items-center text-emerald-200/70 z-10">
+          <div className="text-center space-y-2">
+            <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+            <div className="text-[10px] uppercase tracking-[0.18em]">Generando…</div>
+            <div className="text-[9px] opacity-60">puede tardar 10-30s</div>
+          </div>
+        </div>
+      )}
+      {state === 'error' && (
+        <div className="absolute inset-0 grid place-items-center text-red-200 z-10 px-3 text-center">
+          <div className="space-y-1">
+            <AlertCircle className="w-4 h-4 mx-auto" />
+            <div className="text-[10px]">No se pudo cargar la imagen</div>
+            <div className="text-[9px] opacity-60 break-all">{url.slice(0, 80)}…</div>
+          </div>
+        </div>
+      )}
+      <img
+        src={url}
+        alt={`Generación ${index + 1}`}
+        referrerPolicy="no-referrer"
+        onLoad={() => setState('loaded')}
+        onError={() => setState('error')}
+        className={`w-full h-auto block transition-opacity duration-300 ${state === 'loaded' ? 'opacity-100' : 'opacity-0'}`}
+        style={{ minHeight: state === 'loaded' ? 'auto' : '200px' }}
+      />
+      {state === 'loaded' && (
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition flex items-end justify-end p-2 opacity-0 group-hover:opacity-100">
+          <span className="text-[10px] uppercase tracking-[0.18em] bg-black/70 text-emerald-200 px-2 py-1 rounded-full">
+            abrir ↗
+          </span>
+        </div>
+      )}
+    </a>
+  )
+}
+
 function ImageGrid({ images }) {
   // Acepta tanto Array<{url}> como Array<string>
   const urls = images.map((img) => (typeof img === 'string' ? img : img?.url)).filter(Boolean)
@@ -356,26 +406,7 @@ function ImageGrid({ images }) {
   return (
     <div className={`grid ${cols} gap-2`}>
       {urls.map((url, i) => (
-        <a
-          key={i}
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="group block relative rounded-lg overflow-hidden border border-emerald-500/20 bg-nina-black/40 hover:border-emerald-400/60 transition"
-          title="Abrir imagen original"
-        >
-          <img
-            src={url}
-            alt={`Generación ${i + 1}`}
-            loading="lazy"
-            className="w-full h-auto aspect-square object-cover"
-          />
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition flex items-end justify-end p-2 opacity-0 group-hover:opacity-100">
-            <span className="text-[10px] uppercase tracking-[0.18em] bg-black/70 text-emerald-200 px-2 py-1 rounded-full">
-              abrir ↗
-            </span>
-          </div>
-        </a>
+        <GeneratedImage key={i} url={url} index={i} />
       ))}
     </div>
   )
