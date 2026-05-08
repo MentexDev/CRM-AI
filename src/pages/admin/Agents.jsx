@@ -35,6 +35,7 @@ import EmptyState from '../../components/EmptyState'
 import Modal from '../../components/Modal'
 import NewAgentModal from '../../components/NewAgentModal'
 import AgentActionsMenu from '../../components/AgentActionsMenu'
+import ToolResultBubble from '../../components/ToolResultBubble'
 import { supabase } from '../../lib/supabase'
 
 const STATUS_DOT = {
@@ -785,40 +786,7 @@ function MessageBubble({ message }) {
   if (role === 'system') return null
 
   if (role === 'tool') {
-    let parsed = null
-    try {
-      parsed = JSON.parse(content || '{}')
-    } catch {
-      parsed = { _raw: content }
-    }
-    const ok = parsed?.ok === true
-    return (
-      <motion.div
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex justify-center"
-      >
-        <div
-          className={`max-w-[85%] rounded-xl px-3 py-2 text-[11px] border flex items-start gap-2 ${
-            ok
-              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-200'
-              : 'bg-red-500/10 border-red-500/20 text-red-200'
-          }`}
-        >
-          <Wrench className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-          <div className="space-y-1 min-w-0">
-            <div className="uppercase tracking-[0.18em] opacity-70">
-              Resultado de tool · {ok ? 'éxito' : 'error'}
-            </div>
-            <pre className="whitespace-pre-wrap break-words font-mono text-[10.5px] opacity-90">
-              {ok
-                ? JSON.stringify(parsed.data ?? null, null, 2)
-                : parsed.error || JSON.stringify(parsed)}
-            </pre>
-          </div>
-        </div>
-      </motion.div>
-    )
+    return <ToolResultBubble message={message} />
   }
 
   const isUser = role === 'user'

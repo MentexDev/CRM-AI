@@ -378,16 +378,48 @@ async function shopifySearchProducts(
   }
 }
 
+// Convierte expresiones como "30 days ago", "yesterday", "last week" a una
+// fecha ISO (YYYY-MM-DD). Acepta también ISO directo y lo retorna tal cual.
+// Retorna null si no entiende la expresión.
+function parseDateExpression(s: string | undefined | null): string | null {
+  if (!s) return null
+  const trimmed = String(s).trim().toLowerCase()
+  // Si ya es ISO (al menos YYYY-MM-DD), lo respetamos
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed
+  const now = new Date()
+  const offsetDays = (n: number) => {
+    const d = new Date(now)
+    d.setDate(d.getDate() - n)
+    return d.toISOString().slice(0, 10)
+  }
+  if (trimmed === 'today') return offsetDays(0)
+  if (trimmed === 'yesterday') return offsetDays(1)
+  if (trimmed === 'last week' || trimmed === 'last 7 days') return offsetDays(7)
+  if (trimmed === 'last month' || trimmed === 'last 30 days') return offsetDays(30)
+  if (trimmed === 'last 90 days' || trimmed === 'last quarter') return offsetDays(90)
+  // "X days ago" / "X day ago" / "X weeks ago" / "X months ago"
+  const m = trimmed.match(/^(\d+)\s+(day|days|week|weeks|month|months)\s+ago$/)
+  if (m) {
+    const n = parseInt(m[1], 10)
+    const unit = m[2]
+    const days = unit.startsWith('week') ? n * 7 : unit.startsWith('month') ? n * 30 : n
+    return offsetDays(days)
+  }
+  return null
+}
+
 async function shopifyRecentOrders(
   _ctx: ToolContext,
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
   const limit = Math.min((args.limit as number) || 20, 50)
   const status = (args.status as string) || ''
+  const sinceRaw = args.since as string | undefined
+  const since = parseDateExpression(sinceRaw)
   // Query Shopify uses syntax like "financial_status:paid created_at:>2024-01-01"
   let q = ''
   if (status) q += `financial_status:${status} `
-  if (args.since) q += `created_at:>='${args.since}' `
+  if (since) q += `created_at:>='${since}' `
 
   try {
     const data = await shopifyGraphQL<{
@@ -450,7 +482,11 @@ async function shopifyRecentOrders(
     })
     return {
       ok: true,
-      data: { orders, count: orders.length, filters: { status, since: args.since ?? null } },
+      data: {
+        orders,
+        count: orders.length,
+        filters: { status, since: since ?? null, since_input: sinceRaw ?? null },
+      },
     }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
