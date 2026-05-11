@@ -61,6 +61,7 @@ export default function Approvals() {
       return
     }
     setBusyId(item.id)
+    const t = toast.loading(decision === 'approved' ? 'Aprobando…' : 'Rechazando…')
     try {
       const { error } = await supabase
         .from('approvals')
@@ -71,9 +72,29 @@ export default function Approvals() {
         })
         .eq('id', item.id)
       if (error) throw error
-      toast.success(decision === 'approved' ? 'Aprobado' : 'Rechazado')
+
+      // Si se aprobó Y el payload tiene un tool_name (operación pendiente
+      // de ejecutar), invocamos execute-approval para que el runtime haga
+      // la operación real y le notifique al agente.
+      const payload = item.payload || {}
+      if (decision === 'approved' && payload.tool_name) {
+        toast.loading(`Ejecutando ${payload.tool_name}…`, { id: t })
+        const { data: execData, error: execErr } = await supabase.functions.invoke(
+          'execute-approval',
+          { body: { approval_id: item.id } },
+        )
+        if (execErr) throw execErr
+        if (execData?.error) throw new Error(execData.error)
+        if (execData?.executed === false) {
+          toast.error(`Aprobado, pero la ejecución falló: ${execData?.result?.error || 'desconocido'}`, { id: t })
+        } else {
+          toast.success(`Aprobado y ejecutado · ${payload.tool_name}`, { id: t })
+        }
+      } else {
+        toast.success(decision === 'approved' ? 'Aprobado' : 'Rechazado', { id: t })
+      }
     } catch (err) {
-      toast.error(err.message || 'No se pudo guardar la decisión')
+      toast.error(err.message || 'No se pudo guardar la decisión', { id: t })
     } finally {
       setBusyId(null)
     }

@@ -5,7 +5,7 @@
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@^2'
 import type { ToolCallRequest, ToolDefinition } from './llm.ts'
 import { adminDb } from './db.ts'
-import { shopifyGraphQL, stripGid } from './shopify.ts'
+import { shopifyAdjustInventory, shopifyGetInventoryBySku, shopifyGraphQL, stripGid } from './shopify.ts'
 import { generateImage as generateImageMulti } from './imageGen.ts'
 import { tavilySearch } from './tavily.ts'
 
@@ -618,6 +618,86 @@ async function generateImage(
   }
 }
 
+// =====================================================================
+// Shopify · inventario (lectura + escritura con umbral)
+// =====================================================================
+
+async function shopifyGetInventory(
+  _ctx: ToolContext,
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
+  const sku = (args.sku as string)?.trim()
+  if (!sku) return { ok: false, error: 'Falta SKU' }
+  try {
+    const levels = await shopifyGetInventoryBySku(sku)
+    const total = levels.reduce((acc, l) => acc + l.available, 0)
+    return { ok: true, data: { sku, total_available: total, levels } }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+// Umbrales para auto-aprobación. Si |delta| supera, se crea approval y NO
+// se ejecuta — la junta debe aprobar y un edge function execute-approval
+// procesará la operación con los args guardados en payload.
+const INVENTORY_UNIT_THRESHOLD = 20
+
+async function shopifyAdjustInventoryHandler(
+  ctx: ToolContext,
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
+  const sku = (args.sku as string)?.trim()
+  const locationId = (args.location_id as string)?.trim()
+  const delta = Number(args.delta)
+  const reason = (args.reason as string)?.trim() || 'correction'
+
+  if (!sku) return { ok: false, error: 'Falta SKU' }
+  if (!locationId) return { ok: false, error: 'Falta location_id (úsalo desde shopify_get_inventory)' }
+  if (!delta || Number.isNaN(delta)) return { ok: false, error: 'Falta delta numérico (positivo para sumar, negativo para restar)' }
+
+  const absDelta = Math.abs(delta)
+
+  // Si supera el umbral, crear aprobación y NO ejecutar.
+  if (absDelta > INVENTORY_UNIT_THRESHOLD) {
+    const summary = `Ajustar inventario SKU ${sku}: ${delta > 0 ? '+' : ''}${delta} unidades en location ${locationId} (razón: ${reason}). Supera el umbral de ${INVENTORY_UNIT_THRESHOLD} unidades — requiere aprobación.`
+    const { data: approval, error } = await ctx.db
+      .from('approvals')
+      .insert({
+        agent_id: ctx.agentId,
+        task_id: ctx.taskId ?? null,
+        brand_id: ctx.brandId ?? null,
+        trigger: 'inventory_threshold',
+        summary,
+        payload: {
+          tool_name: 'shopify_adjust_inventory',
+          args: { sku, location_id: locationId, delta, reason },
+          threshold: INVENTORY_UNIT_THRESHOLD,
+        },
+        status: 'pending',
+      })
+      .select('id')
+      .single()
+    if (error) return { ok: false, error: error.message }
+
+    if (ctx.taskId) {
+      await ctx.db.from('tasks').update({ status: 'blocked' }).eq('id', ctx.taskId)
+    }
+    return {
+      ok: false,
+      error: `Cambio de ${absDelta} unidades supera el umbral de ${INVENTORY_UNIT_THRESHOLD}. Creé la aprobación ${approval.id} y bloqueé esta tarea hasta que la Junta decida. NO repitas la operación — cuando se apruebe, se ejecuta automáticamente.`,
+      side_effect: { kind: 'approval_created', id: approval.id },
+    }
+  }
+
+  // Bajo umbral: ejecutar directo
+  try {
+    const result = await shopifyAdjustInventory(sku, locationId, delta, reason)
+    return { ok: true, data: { ...result, delta_applied: delta, reason } }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 async function shopifyShopSummary(
   _ctx: ToolContext,
   _args: Record<string, unknown>,
@@ -679,6 +759,8 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   shopify_recent_orders: shopifyRecentOrders,
   shopify_search_customers: shopifySearchCustomers,
   shopify_shop_summary: shopifyShopSummary,
+  shopify_get_inventory: shopifyGetInventory,
+  shopify_adjust_inventory: shopifyAdjustInventoryHandler,
   generate_image: generateImage,
   web_search: webSearch,
 }
