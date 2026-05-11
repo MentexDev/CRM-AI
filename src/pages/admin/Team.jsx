@@ -1,7 +1,9 @@
 import { useEffect, useId, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, Users } from 'lucide-react'
+import { Loader2, Plus, Users } from 'lucide-react'
 import EmptyState from '../../components/EmptyState'
+import InviteMemberModal from '../../components/InviteMemberModal'
+import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 
 const ROLE_LABEL = {
@@ -27,8 +29,10 @@ const initials = (name = '') =>
     .toUpperCase() || 'NN'
 
 export default function Team() {
+  const { isJunta } = useAuth()
   const [profiles, setProfiles] = useState([])
   const [loading, setLoading] = useState(true)
+  const [inviteOpen, setInviteOpen] = useState(false)
   const channelId = useId()
 
   useEffect(() => {
@@ -66,11 +70,22 @@ export default function Team() {
 
   if (profiles.length === 0) {
     return (
-      <EmptyState
-        icon={Users}
-        title="Sólo tú estás en el equipo"
-        description="Pronto vas a poder invitar más humanos al holding y asignarles marcas."
-      />
+      <>
+        <EmptyState
+          icon={Users}
+          title="Sólo tú estás en el equipo"
+          description="Invita humanos al holding por email. Recibirán un enlace mágico para crear su contraseña y entrarán con el rol y las marcas que les asignes."
+          actions={
+            isJunta ? (
+              <button onClick={() => setInviteOpen(true)} className="btn-primary text-sm">
+                <Plus className="w-4 h-4" />
+                Invitar a alguien
+              </button>
+            ) : null
+          }
+        />
+        <InviteMemberModal open={inviteOpen} onClose={() => setInviteOpen(false)} />
+      </>
     )
   }
 
@@ -83,9 +98,12 @@ export default function Team() {
             Personas con acceso al holding. Sólo la Junta Directiva puede cambiar roles.
           </p>
         </div>
-        <button className="btn-ghost text-xs" disabled title="Próximamente">
-          + Invitar
-        </button>
+        {isJunta && (
+          <button onClick={() => setInviteOpen(true)} className="btn-primary text-xs">
+            <Plus className="w-3.5 h-3.5" />
+            Invitar
+          </button>
+        )}
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -112,6 +130,8 @@ export default function Team() {
           )
         })}
       </div>
+
+      <InviteMemberModal open={inviteOpen} onClose={() => setInviteOpen(false)} />
     </div>
   )
 }
