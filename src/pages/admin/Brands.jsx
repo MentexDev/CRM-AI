@@ -1,7 +1,9 @@
 import { useEffect, useId, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, Sparkles } from 'lucide-react'
+import { Loader2, Pencil, Plus, Sparkles } from 'lucide-react'
 import EmptyState from '../../components/EmptyState'
+import NewBrandModal from '../../components/NewBrandModal'
+import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 
 const STATUS_BADGE = {
@@ -11,9 +13,15 @@ const STATUS_BADGE = {
 }
 
 export default function Brands() {
+  const { isJunta } = useAuth()
   const [brands, setBrands] = useState([])
   const [loading, setLoading] = useState(true)
+  const [modal, setModal] = useState({ open: false, brandId: null })
   const channelId = useId()
+
+  const openCreate = () => setModal({ open: true, brandId: null })
+  const openEdit = (id) => setModal({ open: true, brandId: id })
+  const closeModal = () => setModal({ open: false, brandId: null })
 
   useEffect(() => {
     let active = true
@@ -50,11 +58,22 @@ export default function Brands() {
 
   if (brands.length === 0) {
     return (
-      <EmptyState
-        icon={Sparkles}
-        title="Aún no hay marcas registradas"
-        description="Las marcas son los universos que el CRM gestiona. Crear marcas estará disponible en el siguiente release."
-      />
+      <>
+        <EmptyState
+          icon={Sparkles}
+          title="Aún no hay marcas registradas"
+          description="Las marcas son los universos que el CRM gestiona. Crea la primera para que su Brand Manager arranque a trabajar."
+          actions={
+            isJunta ? (
+              <button onClick={openCreate} className="btn-primary text-sm">
+                <Plus className="w-4 h-4" />
+                Crear marca
+              </button>
+            ) : null
+          }
+        />
+        <NewBrandModal open={modal.open} brandId={modal.brandId} onClose={closeModal} />
+      </>
     )
   }
 
@@ -67,9 +86,12 @@ export default function Brands() {
             Cada marca tiene su propio Brand Manager y vive aislada del resto.
           </p>
         </div>
-        <button className="btn-ghost text-xs" disabled title="Próximamente">
-          + Nueva marca
-        </button>
+        {isJunta && (
+          <button onClick={openCreate} className="btn-primary text-xs">
+            <Plus className="w-3.5 h-3.5" />
+            Nueva marca
+          </button>
+        )}
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -78,18 +100,30 @@ export default function Brands() {
             key={b.id}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            className="panel p-5 space-y-3"
+            className="panel p-5 space-y-3 group relative"
           >
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="font-display text-2xl silver-text">{b.name}</div>
-                <div className="text-[11px] uppercase tracking-[0.2em] text-nina-mute mt-0.5">
+              <div className="min-w-0 flex-1">
+                <div className="font-display text-2xl silver-text-static">{b.name}</div>
+                <div className="text-[11px] uppercase tracking-[0.2em] text-nina-mute mt-0.5 font-mono">
                   {b.slug}
                 </div>
               </div>
-              <span className={`chip ${STATUS_BADGE[b.status] ?? STATUS_BADGE.archived} text-[10px]`}>
-                {b.status}
-              </span>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className={`chip ${STATUS_BADGE[b.status] ?? STATUS_BADGE.archived} text-[10px]`}>
+                  {b.status}
+                </span>
+                {isJunta && (
+                  <button
+                    onClick={() => openEdit(b.id)}
+                    className="p-1.5 rounded-md text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition opacity-0 group-hover:opacity-100"
+                    title="Editar marca"
+                    aria-label="Editar marca"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
             {b.description && (
               <p className="text-sm text-nina-chrome leading-relaxed line-clamp-6">
@@ -106,9 +140,17 @@ export default function Brands() {
                 </div>
               </div>
             )}
+            {b.market && (
+              <div className="text-[11px] text-nina-mute">
+                <span className="uppercase tracking-[0.18em] mr-1.5">Mercado:</span>
+                {b.market}
+              </div>
+            )}
           </motion.div>
         ))}
       </div>
+
+      <NewBrandModal open={modal.open} brandId={modal.brandId} onClose={closeModal} />
     </div>
   )
 }
