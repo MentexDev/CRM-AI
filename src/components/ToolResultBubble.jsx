@@ -5,6 +5,8 @@ import {
   CheckCircle2,
   Clock,
   Database,
+  ExternalLink,
+  Globe,
   ImageIcon,
   Loader2,
   Package,
@@ -54,6 +56,29 @@ export default function ToolResultBubble({ message }) {
   }
 
   const data = parsed.data ?? {}
+
+  // Web search (Tavily). El distintivo: tiene `query` + `results` con
+  // `url`+`title`+`content`, y opcionalmente un `answer` sintetizado.
+  if (data.query && Array.isArray(data.results) && data.results[0]?.url && data.results[0]?.title) {
+    return (
+      <Wrap kind="ok">
+        <Header
+          icon={<Globe className="w-3.5 h-3.5" />}
+          title={`${data.results.length} resultado${data.results.length === 1 ? '' : 's'}`}
+          subtitle={`query: ${truncate(data.query, 80)}`}
+        />
+        {data.answer && (
+          <div className="rounded-md bg-nina-black/30 border border-emerald-500/20 px-3 py-2 text-[11.5px] leading-relaxed text-emerald-100/95">
+            <div className="text-[9px] uppercase tracking-[0.2em] opacity-60 mb-1">Resumen</div>
+            {truncate(data.answer, 320)}
+          </div>
+        )}
+        <SearchResultList results={data.results.slice(0, 5)} />
+        {data.results.length > 5 && <Tail label={`+${data.results.length - 5} más en el JSON ↓`} />}
+        <RawJson data={data} />
+      </Wrap>
+    )
+  }
 
   // Imágenes generadas (Higgsfield)
   if (Array.isArray(data.images) && data.images.length > 0 && (data.images[0]?.url || typeof data.images[0] === 'string')) {
@@ -407,6 +432,49 @@ function ImageGrid({ images }) {
     <div className={`grid ${cols} gap-2`}>
       {urls.map((url, i) => (
         <GeneratedImage key={i} url={url} index={i} />
+      ))}
+    </div>
+  )
+}
+
+function SearchResultList({ results }) {
+  const host = (u) => {
+    try {
+      return new URL(u).hostname.replace(/^www\./, '')
+    } catch {
+      return u
+    }
+  }
+  return (
+    <div className="space-y-1.5">
+      {results.map((r, i) => (
+        <a
+          key={i}
+          href={r.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block rounded-md bg-nina-black/30 border border-nina-line/40 px-2.5 py-2 hover:border-emerald-400/40 transition group"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="text-[11.5px] text-nina-chrome leading-snug group-hover:text-emerald-200 transition truncate">
+                {r.title}
+              </div>
+              <div className="text-[10px] text-emerald-300/80 truncate font-mono mt-0.5">
+                {host(r.url)}
+                {r.published_date && (
+                  <span className="ml-1.5 opacity-60">· {r.published_date.slice(0, 10)}</span>
+                )}
+              </div>
+            </div>
+            <ExternalLink className="w-3 h-3 mt-0.5 flex-shrink-0 opacity-50 group-hover:opacity-100 transition" />
+          </div>
+          {r.content && (
+            <div className="text-[11px] text-nina-mute leading-snug mt-1.5 line-clamp-3">
+              {r.content}
+            </div>
+          )}
+        </a>
       ))}
     </div>
   )

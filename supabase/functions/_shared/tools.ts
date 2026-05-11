@@ -7,6 +7,7 @@ import type { ToolCallRequest, ToolDefinition } from './llm.ts'
 import { adminDb } from './db.ts'
 import { shopifyGraphQL, stripGid } from './shopify.ts'
 import { generateImage as generateImageMulti } from './imageGen.ts'
+import { tavilySearch } from './tavily.ts'
 
 export interface ToolDescriptor {
   name: string
@@ -557,6 +558,42 @@ async function shopifySearchCustomers(
 // =====================================================================
 // Higgsfield · generación de imágenes (text-to-image)
 // =====================================================================
+// =====================================================================
+// Web search · Tavily
+// =====================================================================
+async function webSearch(
+  _ctx: ToolContext,
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
+  const query = (args.query as string)?.trim()
+  const limit = Math.min((args.limit as number) || 5, 10)
+  const depth = (args.depth as 'basic' | 'advanced') || 'basic'
+  const topic = (args.topic as 'general' | 'news') || 'general'
+  if (!query) return { ok: false, error: 'Falta query' }
+  try {
+    const result = await tavilySearch(query, { maxResults: limit, depth, topic })
+    return {
+      ok: true,
+      data: {
+        query: result.query,
+        answer: result.answer ?? null,
+        results: result.results.map((r) => ({
+          title: r.title,
+          url: r.url,
+          // Truncar el content para no inflar contexto del modelo. Si el
+          // agente necesita más, puede hacer otra búsqueda más específica.
+          content: r.content.length > 500 ? r.content.slice(0, 500) + '…' : r.content,
+          published_date: r.published_date ?? null,
+          score: r.score,
+        })),
+        count: result.results.length,
+      },
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 async function generateImage(
   _ctx: ToolContext,
   args: Record<string, unknown>,
@@ -643,4 +680,5 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   shopify_search_customers: shopifySearchCustomers,
   shopify_shop_summary: shopifyShopSummary,
   generate_image: generateImage,
+  web_search: webSearch,
 }
