@@ -1,0 +1,8 @@
+# POC motor agéntico · CrewAI
+# Python 3.10–3.13
+crewai>=0.130,<1.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+# API web (despliegue)
+fastapi>=0.110
+uvicorn[standard]>=0.29
