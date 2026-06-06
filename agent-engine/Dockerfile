@@ -16,5 +16,5 @@ COPY . .
 ENV PORT=8000
 EXPOSE 8000
 
-# $PORT lo inyecta el host (Railway/Fly). Default 8000 en local/VPS.
-CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Python lee PORT (default 8000). Evita problemas de expansión en el shell.
+CMD ["python", "server.py"]

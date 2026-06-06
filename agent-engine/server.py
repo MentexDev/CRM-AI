@@ -83,3 +83,12 @@ def get_run(run_id: str, x_engine_key: str | None = Header(default=None)) -> dic
     if not run:
         raise HTTPException(status_code=404, detail="run_id no encontrado")
     return {"run_id": run_id, **run}
+
+
+# Arranque directo (Railway/host): el PORT lo lee Python, no el shell.
+# Así evitamos problemas de expansión de variables en el startCommand.
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.environ.get("PORT", "8000"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
