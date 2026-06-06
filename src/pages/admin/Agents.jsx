@@ -1,41 +1,61 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowLeft,
+  ArrowUp,
   BookOpen,
   Bot,
   Calculator,
+  CheckCircle2,
+  ChevronDown,
   ChevronRight,
-  CircleDot,
+  Cpu,
   Crown,
+  Database,
+  Globe,
   Hammer,
+  Image as ImageIcon,
   ListTodo,
   Loader2,
   MessageSquare,
+  MessageSquarePlus,
+  Mic,
+  MicOff,
   Package,
+  Paperclip,
   Pencil,
   Play,
+  Plug,
   Plus,
   Settings as SettingsIcon,
+  ShoppingBag,
+  SlidersHorizontal,
   Sparkles,
   Thermometer,
   TrendingUp,
   UserPlus,
   Wrench,
+  X,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAgents } from '../../hooks/useAgents'
 import { useAgentDetail } from '../../hooks/useAgentDetail'
 import { useAgentMessages } from '../../hooks/useAgentMessages'
 import { useAgentTasks } from '../../hooks/useAgentTasks'
+import { useConversations } from '../../hooks/useConversations'
+import { ConversationMenu } from '../../components/ConversationMenu'
+import { TasksBoard } from './Tasks'
+import { useVoiceTranscription } from '../../hooks/useVoiceTranscription'
 import { useAuth } from '../../context/AuthContext'
 import { useConfirm } from '../../components/ConfirmDialog'
 import EmptyState from '../../components/EmptyState'
 import Modal from '../../components/Modal'
+import AgentEngineModal from '../../components/AgentEngineModal'
 import NewAgentModal from '../../components/NewAgentModal'
 import AgentActionsMenu from '../../components/AgentActionsMenu'
 import ToolResultBubble from '../../components/ToolResultBubble'
+import VoiceOverlay from '../../components/VoiceOverlay'
 import { supabase } from '../../lib/supabase'
 
 const STATUS_DOT = {
@@ -77,16 +97,72 @@ function fmtTime(ts) {
 export default function Agents() {
   const { slug } = useParams()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { agents, loading } = useAgents()
   const { isJunta } = useAuth()
   const confirm = useConfirm()
   const activeAgent = useMemo(() => agents.find((a) => a.slug === slug), [agents, slug])
   const [taskOpen, setTaskOpen] = useState(false)
   const [agentModal, setAgentModal] = useState({ open: false, agentId: null })
+  const [running, setRunning] = useState(false)
+
+  // Abrir el modal de "nuevo agente" cuando el sidebar pide ?new=1
+  useEffect(() => {
+    if (searchParams.get('new') === '1' && isJunta) {
+      setAgentModal({ open: true, agentId: null })
+      const next = new URLSearchParams(searchParams)
+      next.delete('new')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, isJunta, setSearchParams])
+
+  // El query param `c` decide la vista del agente:
+  //   sin c     → "home" del agente (composer + historial de conversaciones)
+  //   c=<uuid>  → chat de esa conversación
+  const activeConversationId = searchParams.get('c') || null
+
+  const setConversation = (id) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('c', id)
+    setSearchParams(next, { replace: true })
+  }
+  const goHome = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('c')
+    setSearchParams(next, { replace: true })
+  }
 
   const closeAgentModal = () => setAgentModal({ open: false, agentId: null })
 
   const handleEdit = (agent) => setAgentModal({ open: true, agentId: agent.id })
+
+  // Tick manual del agente activo, llamando run-agent-step con el JWT del user.
+  const handleRunTick = async () => {
+    if (!activeAgent || running) return
+    setRunning(true)
+    const t = toast.loading(`Ejecutando tick de ${activeAgent.name}…`)
+    try {
+      const { data, error } = await supabase.functions.invoke('run-agent-step', {
+        body: { agent_slug: activeAgent.slug },
+      })
+      if (error) throw error
+      const finished = data?.finished
+      const iterations = data?.iterations ?? 0
+      const reason = data?.reason
+      toast.success(
+        finished
+          ? reason === 'no active tasks'
+            ? 'Sin tareas activas'
+            : `Tick · ${iterations} iter${iterations === 1 ? '' : 's'}`
+          : `Tick parcial · ${iterations} iters`,
+        { id: t },
+      )
+    } catch (e) {
+      toast.error(e?.message || 'No se pudo ejecutar', { id: t })
+    } finally {
+      setRunning(false)
+    }
+  }
 
   const handleTogglePause = async (agent) => {
     const next = agent.status === 'disabled' ? 'idle' : 'disabled'
@@ -161,267 +237,117 @@ export default function Agents() {
   }
 
   return (
-    <div
-      className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-4 lg:gap-6 min-h-[480px]"
-      style={{ height: 'calc(100dvh - 9rem)' }}
-    >
-      <div className={slug ? 'hidden lg:block' : 'block min-h-0'}>
-        <AgentList
-          agents={agents}
-          activeSlug={slug}
-          isJunta={isJunta}
-          onSelect={(s) => navigate(`/admin/agentes/${s}`)}
-          onNewAgent={isJunta ? () => setAgentModal({ open: true, agentId: null }) : null}
-          onEdit={handleEdit}
-          onTogglePause={handleTogglePause}
-          onDelete={handleDelete}
-        />
-      </div>
-      <div className={slug ? 'block min-h-0' : 'hidden lg:block min-h-0'}>
+    <div className="flex h-[calc(100dvh-3rem)] lg:h-screen min-w-0">
+      <div className="flex-1 min-w-0">
         {activeAgent ? (
-          <AgentChat
+          <AgentWorkspace
             agent={activeAgent}
             isJunta={isJunta}
-            onBack={() => navigate('/admin/agentes')}
-            onNewTask={() => setTaskOpen(true)}
+            conversationId={activeConversationId}
+            onOpenConversation={setConversation}
+            onGoHome={goHome}
             onEdit={() => handleEdit(activeAgent)}
+            onTogglePause={() => handleTogglePause(activeAgent)}
+            onDelete={() => handleDelete(activeAgent)}
+            onRunTick={handleRunTick}
+            running={running}
+            onNewTask={() => setTaskOpen(true)}
           />
         ) : (
-          <div className="panel h-full grid place-items-center text-nina-mute text-sm">
-            Selecciona un agente para ver la conversación.
+          <div className="h-full grid place-items-center text-nina-mute text-sm text-center px-6">
+            Selecciona un agente desde el menú de la izquierda.
           </div>
         )}
       </div>
 
       {activeAgent && (
-        <NewTaskModal
-          open={taskOpen}
-          onClose={() => setTaskOpen(false)}
-          agent={activeAgent}
-        />
+        <NewTaskModal open={taskOpen} onClose={() => setTaskOpen(false)} agent={activeAgent} />
       )}
 
-      <NewAgentModal
-        open={agentModal.open}
-        agentId={agentModal.agentId}
-        onClose={closeAgentModal}
-      />
+      <NewAgentModal open={agentModal.open} agentId={agentModal.agentId} onClose={closeAgentModal} />
     </div>
   )
 }
 
 // =====================================================================
-// Lista de agentes — sidebar izquierdo
+// Workspace del agente — barra superior full-width (identidad + acciones
+// + tabs) y abajo el contenido (Inicio/chat · Tareas · Prompt · Tools · Config).
 // =====================================================================
-function AgentList({
-  agents,
-  activeSlug,
+const WORKSPACE_TABS = [
+  { id: 'main', label: 'Inicio', icon: MessageSquare },
+  { id: 'tasks', label: 'Tareas', icon: ListTodo },
+  { id: 'instructions', label: 'Prompt', icon: BookOpen },
+  { id: 'skills', label: 'Tools', icon: Wrench },
+  { id: 'connectors', label: 'Conectores', icon: Plug },
+  { id: 'config', label: 'Config', icon: SettingsIcon },
+]
+
+function AgentWorkspace({
+  agent,
   isJunta,
-  onSelect,
-  onNewAgent,
+  conversationId,
+  onOpenConversation,
+  onGoHome,
   onEdit,
   onTogglePause,
   onDelete,
+  onRunTick,
+  running,
+  onNewTask,
 }) {
-  return (
-    <div className="panel h-full overflow-hidden flex flex-col">
-      <div className="px-4 py-3 border-b border-nina-line flex items-center justify-between gap-2">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.2em] text-nina-mute">Agentes</div>
-          <div className="text-sm font-medium text-nina-chrome mt-0.5">
-            {agents.length} activo{agents.length === 1 ? '' : 's'}
-          </div>
-        </div>
-        {onNewAgent && (
-          <button
-            onClick={onNewAgent}
-            className="btn-ghost !p-2 hover:!border-nina-silver/30"
-            title="Nuevo agente"
-            aria-label="Nuevo agente"
-          >
-            <UserPlus className="w-4 h-4" />
-          </button>
-        )}
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        {agents.map((a) => {
-          const Icon = agentIcon(a)
-          const isActive = a.slug === activeSlug
-          // Item es un <div role="button"> en vez de <button> para poder anidar
-          // el menú de acciones (que es otro botón) sin chocar con HTML válido.
-          return (
-            <div
-              key={a.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => onSelect(a.slug)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  onSelect(a.slug)
-                }
-              }}
-              className={`px-4 py-3 flex items-center gap-3 text-left cursor-pointer transition border-b border-nina-line/50 last:border-b-0 outline-none focus-visible:bg-nina-line/30 ${
-                isActive ? 'bg-nina-line/40' : 'hover:bg-nina-line/20'
-              }`}
-            >
-              <div className="relative">
-                <div className="w-11 h-11 rounded-full grid place-items-center bg-silver-gradient text-nina-black shadow-chrome">
-                  <Icon className="w-5 h-5" />
-                </div>
-                <span
-                  className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-nina-panel ${STATUS_DOT[a.status] ?? STATUS_DOT.idle}`}
-                />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-nina-chrome truncate">{a.name}</div>
-                <div className="text-[11px] text-nina-mute truncate">
-                  {STATUS_LABEL[a.status] ?? a.status}
-                  {a.last_heartbeat_at ? ` · ${fmtTime(a.last_heartbeat_at)}` : ''}
-                </div>
-              </div>
-              {isJunta ? (
-                <AgentActionsMenu
-                  agent={a}
-                  onEdit={() => onEdit(a)}
-                  onTogglePause={() => onTogglePause(a)}
-                  onDelete={() => onDelete(a)}
-                />
-              ) : (
-                <ChevronRight className="w-4 h-4 text-nina-mute" />
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// =====================================================================
-// Chat del agente — header + tabs internas (Paperclip-style)
-// =====================================================================
-const AGENT_TABS = [
-  { id: 'messages', label: 'Mensajes', icon: MessageSquare },
-  { id: 'tasks', label: 'Tareas', icon: ListTodo },
-  { id: 'instructions', label: 'Instrucciones', icon: BookOpen },
-  { id: 'skills', label: 'Habilidades', icon: Wrench },
-  { id: 'config', label: 'Configuración', icon: SettingsIcon },
-]
-
-function AgentChat({ agent, isJunta, onBack, onNewTask, onEdit }) {
-  const Icon = agentIcon(agent)
-  const [tab, setTab] = useState('messages')
-  const [running, setRunning] = useState(false)
+  const [view, setView] = useState('main')
+  const [engineOpen, setEngineOpen] = useState(false)
   const { tasks } = useAgentTasks(agent.id)
+  const { conversations } = useConversations({ agentId: agent.id })
+  const activeConv = conversations.find((c) => c.id === conversationId) ?? null
+  const activeTaskCount = tasks.filter(
+    (t) => t.status === 'to_do' || t.status === 'in_progress',
+  ).length
 
-  // Reset al cambiar de agente
+  // ¿Estamos viendo el chat de una conversación? Ahí ocultamos la barra de tabs.
+  const inChat = Boolean(conversationId) && view === 'main'
+
+  // Al abrir una conversación, mostramos el chat (vista Inicio).
   useEffect(() => {
-    setTab('messages')
+    if (conversationId) setView('main')
+  }, [conversationId])
+  // Al cambiar de agente, volvemos a Inicio.
+  useEffect(() => {
+    setView('main')
   }, [agent.id])
 
-  const activeTasks = tasks.filter((t) => t.status === 'to_do' || t.status === 'in_progress')
-
-  // Dispara un tick manual del agente sin esperar al cron de cada minuto.
-  // Llama la Edge Function run-agent-step con el JWT del usuario actual.
-  const handleRunTick = async () => {
-    if (running) return
-    setRunning(true)
-    const t = toast.loading(`Ejecutando tick de ${agent.name}…`)
-    try {
-      const { data, error } = await supabase.functions.invoke('run-agent-step', {
-        body: { agent_slug: agent.slug },
-      })
-      if (error) throw error
-      const finished = data?.finished
-      const iterations = data?.iterations ?? 0
-      const reason = data?.reason
-      toast.success(
-        finished
-          ? reason === 'no active tasks'
-            ? 'Sin tareas activas para ejecutar'
-            : `Tick completado · ${iterations} iter${iterations === 1 ? '' : 's'}`
-          : `Tick parcial · ${iterations} iters`,
-        { id: t },
-      )
-    } catch (e) {
-      toast.error(e?.message || 'No se pudo ejecutar', { id: t })
-    } finally {
-      setRunning(false)
-    }
-  }
-
   return (
-    <div className="panel h-full overflow-hidden flex flex-col">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-nina-line flex items-center gap-3">
-        <button
-          onClick={onBack}
-          className="lg:hidden text-nina-mute hover:text-nina-chrome transition p-1"
-          aria-label="Volver a la lista"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        <div className="relative">
-          <div className="w-10 h-10 rounded-full grid place-items-center bg-silver-gradient text-nina-black shadow-chrome">
-            <Icon className="w-5 h-5" />
-          </div>
-          <span
-            className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-nina-panel ${STATUS_DOT[agent.status] ?? STATUS_DOT.idle}`}
-          />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-nina-chrome truncate">{agent.name}</div>
-          <div className="text-[11px] text-nina-mute truncate flex items-center gap-1.5">
-            <CircleDot className="w-3 h-3" />
-            {STATUS_LABEL[agent.status] ?? agent.status}
-            {activeTasks.length > 0 && (
-              <span className="ml-2 px-1.5 py-0.5 rounded-full bg-nina-line/60 text-[10px]">
-                {activeTasks.length} tarea{activeTasks.length === 1 ? '' : 's'} activa{activeTasks.length === 1 ? '' : 's'}
-              </span>
-            )}
-          </div>
-        </div>
-        <button
-          onClick={handleRunTick}
-          disabled={running}
-          className="btn-ghost !py-1.5 !px-3 text-xs flex items-center gap-1"
-          title="Ejecutar un tick ahora (sin esperar al cron)"
-        >
-          {running ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <Play className="w-3.5 h-3.5" />
-          )}
-          <span className="hidden sm:inline">{running ? 'Ejecutando…' : 'Ejecutar tick'}</span>
-        </button>
-        <button onClick={onNewTask} className="btn-ghost !py-1.5 !px-3 text-xs flex items-center gap-1">
-          <Plus className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Nueva tarea</span>
-        </button>
-      </div>
-
-      {/* Tabs */}
-      <div className="px-2 sm:px-4 border-b border-nina-line overflow-x-auto">
-        <div className="flex gap-0 min-w-max">
-          {AGENT_TABS.map((t) => {
+    <div className="h-full flex flex-col">
+      {/* Barra superior — tabs + acciones. Se oculta cuando estás en un chat. */}
+      {!inChat && (
+      <div className="border-b border-nina-line bg-nina-panel/40 shrink-0 flex items-stretch gap-2 px-2 sm:px-4">
+        {/* Tabs a la izquierda */}
+        <div className="flex items-stretch gap-1 overflow-x-auto flex-1 min-w-0">
+          {WORKSPACE_TABS.map((t) => {
             const TabIcon = t.icon
-            const isActive = tab === t.id
+            const isActive = view === t.id
+            const showBadge = t.id === 'tasks' && activeTaskCount > 0
             return (
               <button
                 key={t.id}
                 type="button"
-                onClick={() => setTab(t.id)}
-                className={`relative flex items-center gap-1.5 px-3 py-2.5 text-[12px] font-medium transition ${
+                onClick={() => setView(t.id)}
+                className={`relative flex items-center gap-2 px-3.5 py-5 text-[13.5px] font-medium transition whitespace-nowrap ${
                   isActive ? 'text-nina-chrome' : 'text-nina-mute hover:text-nina-chrome'
                 }`}
+                title={t.label}
               >
-                <TabIcon className="w-3.5 h-3.5" />
-                {t.label}
+                <TabIcon className="w-[18px] h-[18px]" />
+                <span>{t.label}</span>
+                {showBadge && (
+                  <span className="ml-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400/90 text-nina-black text-[10px] font-bold leading-[18px] text-center">
+                    {activeTaskCount}
+                  </span>
+                )}
                 {isActive && (
                   <motion.span
-                    layoutId="agentTabUnderline"
-                    className="absolute left-2 right-2 -bottom-px h-0.5 rounded-full bg-silver-gradient"
+                    layoutId="agentWorkspaceTab"
+                    className="absolute left-2 right-2 bottom-0 h-0.5 rounded-full bg-silver-gradient"
                     transition={{ type: 'spring', stiffness: 400, damping: 32 }}
                   />
                 )}
@@ -429,58 +355,582 @@ function AgentChat({ agent, isJunta, onBack, onNewTask, onEdit }) {
             )
           })}
         </div>
-      </div>
 
-      {/* Tab content */}
+        {/* Acciones a la derecha — sin borde, solo en hover */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => setEngineOpen(true)}
+            className="flex items-center gap-1.5 py-2 px-3 rounded-lg text-[12px] text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
+            title="Ejecutar el equipo en el motor agéntico (nube)"
+          >
+            <Cpu className="w-4 h-4" />
+            <span className="hidden sm:inline">Motor</span>
+          </button>
+          <button
+            onClick={onRunTick}
+            disabled={running}
+            className="flex items-center gap-1.5 py-2 px-3 rounded-lg text-[12px] text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition disabled:opacity-50"
+            title="Ejecutar un tick ahora"
+          >
+            {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+            <span className="hidden sm:inline">{running ? 'Ejecutando…' : 'Tick'}</span>
+          </button>
+          <button
+            onClick={onNewTask}
+            className="flex items-center gap-1.5 py-2 px-3 rounded-lg text-[12px] text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
+            title="Crear nueva tarea"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">Nueva tarea</span>
+          </button>
+          {isJunta && (
+            <AgentActionsMenu
+              agent={agent}
+              onEdit={onEdit}
+              onTogglePause={onTogglePause}
+              onDelete={onDelete}
+            />
+          )}
+        </div>
+      </div>
+      )}
+
+      {/* Contenido */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {tab === 'messages' && <MessagesTab agentId={agent.id} />}
-        {tab === 'tasks' && <TasksTab tasks={tasks} onNewTask={onNewTask} />}
-        {tab === 'instructions' && (
+        {view === 'main' &&
+          (conversationId ? (
+            <MessagesTab
+              agent={agent}
+              conversationId={conversationId}
+              conversation={activeConv}
+              onConversationCreated={onOpenConversation}
+              onGoHome={onGoHome}
+            />
+          ) : (
+            <AgentHome agent={agent} onOpenConversation={onOpenConversation} />
+          ))}
+        {view === 'tasks' && <TasksBoard agentId={agent.id} embedded />}
+        {view === 'instructions' && (
           <InstructionsTab agentId={agent.id} isJunta={isJunta} onEdit={onEdit} />
         )}
-        {tab === 'skills' && <SkillsTab agentId={agent.id} />}
-        {tab === 'config' && (
+        {view === 'skills' && <SkillsTab agentId={agent.id} />}
+        {view === 'connectors' && <ConnectorsTab agentId={agent.id} agentBasic={agent} />}
+        {view === 'config' && (
           <ConfigTab agentId={agent.id} agentBasic={agent} isJunta={isJunta} onEdit={onEdit} />
         )}
+      </div>
+
+      <AgentEngineModal open={engineOpen} onClose={() => setEngineOpen(false)} />
+    </div>
+  )
+}
+
+
+// =====================================================================
+// Home del agente — composer para iniciar + historial de conversaciones
+// (réplica del "project view" de Manus, pero por perfil de agente).
+// =====================================================================
+function AgentHome({ agent, onOpenConversation }) {
+  const { conversations, loading } = useConversations({ agentId: agent.id })
+  const Icon = agentIcon(agent)
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-3xl mx-auto px-4 sm:px-8 py-6 sm:py-10">
+        {/* Header del agente */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className="relative shrink-0">
+            <div className="w-12 h-12 rounded-2xl grid place-items-center bg-silver-gradient text-nina-black shadow-chrome">
+              <Icon className="w-6 h-6" />
+            </div>
+            <span
+              className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-nina-ink ${STATUS_DOT[agent.status] ?? STATUS_DOT.idle}`}
+            />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-xl font-display text-nina-chrome truncate">{agent.name}</h1>
+            <p className="text-[12px] text-nina-mute">{STATUS_LABEL[agent.status] ?? agent.status}</p>
+          </div>
+        </div>
+
+        {/* Composer para iniciar una conversación */}
+        <ChatComposer agent={agent} conversationId={null} onConversationCreated={onOpenConversation} bare />
+
+        {/* Historial de conversaciones del agente */}
+        <div className="mt-8">
+          <h2 className="text-sm font-medium text-nina-chrome">Conversaciones</h2>
+          <p className="text-[12px] text-nina-mute mb-3">Tu historial de charlas con {agent.name}.</p>
+          {loading ? (
+            <div className="py-6 grid place-items-center text-nina-mute">
+              <Loader2 className="w-5 h-5 animate-spin" />
+            </div>
+          ) : conversations.length === 0 ? (
+            <div className="text-[13px] text-nina-mute py-4">
+              Aún no hay conversaciones. Escribe arriba para empezar la primera.
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {conversations.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => onOpenConversation(c.id)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-nina-line/30 transition text-left"
+                >
+                  <MessageSquare className="w-4 h-4 text-nina-mute shrink-0" />
+                  <span className="flex-1 min-w-0 text-[13.5px] text-nina-chrome truncate">
+                    {c.title || 'Conversación'}
+                  </span>
+                  <span className="text-[11px] text-nina-mute shrink-0">{fmtTime(c.last_message_at)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
 // =====================================================================
-// Tab · Mensajes (chat real-time)
+// Tab · Mensajes (chat real-time + composer para hablarle al agente)
 // =====================================================================
-function MessagesTab({ agentId }) {
-  const { messages, loading } = useAgentMessages(agentId, 200)
+function MessagesTab({ agent, conversationId, conversation, onConversationCreated, onGoHome }) {
+  const { messages, loading } = useAgentMessages(agent.id, conversationId, 200)
+  const [optimistic, setOptimistic] = useState([])
+  const [thinking, setThinking] = useState(false)
   const scrollRef = useRef(null)
+
+  // Cuando un mensaje real del usuario llega (vía realtime / fetch), quitamos
+  // el optimista equivalente para no duplicarlo.
+  useEffect(() => {
+    setOptimistic((prev) =>
+      prev.filter(
+        (o) => !messages.some((m) => m.role === 'user' && m.content === o.content),
+      ),
+    )
+  }, [messages])
+
+  // Al cambiar de conversación, limpiamos optimista + thinking.
+  useEffect(() => {
+    setOptimistic([])
+    setThinking(false)
+  }, [conversationId])
+
+  const addOptimistic = (content) => {
+    setOptimistic((prev) => [
+      ...prev,
+      { id: `opt-${Date.now()}`, role: 'user', content, created_at: new Date().toISOString(), optimistic: true },
+    ])
+    setThinking(true)
+  }
+
+  const allMessages = [...messages, ...optimistic]
 
   useEffect(() => {
     if (!scrollRef.current) return
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-  }, [messages.length])
+  }, [allMessages.length, thinking])
+
+  return (
+    <div className="h-full flex flex-col">
+      {/* Header de conversación — volver al home + nueva conversación */}
+      <div className="px-3 sm:px-5 py-2 border-b border-nina-line/60 flex items-center justify-between gap-2 shrink-0">
+        <button
+          onClick={onGoHome}
+          className="flex items-center gap-1.5 text-[12px] text-nina-mute hover:text-nina-chrome transition min-w-0"
+          title="Volver al inicio del agente"
+        >
+          <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">{agent.name}</span>
+        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={onGoHome}
+            className="btn-ghost !py-1 !px-2 text-[11px] flex items-center gap-1"
+            title="Empezar una conversación nueva"
+          >
+            <MessageSquarePlus className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Nueva</span>
+          </button>
+          {conversation && (
+            <ConversationMenu
+              conv={conversation}
+              onAfterDelete={onGoHome}
+              buttonClassName="w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
+              menuClassName="right-0 top-9"
+            />
+          )}
+        </div>
+      </div>
+
+      <div
+        ref={scrollRef}
+        className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-6 py-4"
+        style={{
+          backgroundImage:
+            'radial-gradient(1200px 400px at 50% -10%, rgba(232,232,232,0.04), transparent 70%)',
+        }}
+      >
+        <div className="max-w-3xl mx-auto w-full space-y-3">
+          {loading && allMessages.length === 0 ? (
+            <div className="grid place-items-center py-10 text-nina-mute">
+              <Loader2 className="w-5 h-5 animate-spin" />
+            </div>
+          ) : allMessages.length === 0 ? (
+            <div className="grid place-items-center py-10 text-nina-mute text-sm text-center px-6">
+              Sin mensajes en esta conversación todavía.
+            </div>
+          ) : (
+            allMessages.map((m) => <MessageBubble key={m.id} message={m} />)
+          )}
+          {thinking && <ThinkingIndicator name={agent.name} />}
+        </div>
+      </div>
+      <ChatComposer
+        agent={agent}
+        conversationId={conversationId}
+        onConversationCreated={onConversationCreated}
+        onUserSend={addOptimistic}
+        onSettled={() => setThinking(false)}
+      />
+    </div>
+  )
+}
+
+// Indicador "está pensando" con 3 puntos saltando en ola.
+function ThinkingIndicator({ name }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex justify-start"
+    >
+      <div className="flex items-center gap-2 px-1 py-1 text-[12px] text-nina-mute">
+        <span>{name} está pensando</span>
+        <span className="flex items-end gap-0.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-nina-mute animate-bounce" style={{ animationDelay: '0ms' }} />
+          <span className="w-1.5 h-1.5 rounded-full bg-nina-mute animate-bounce" style={{ animationDelay: '150ms' }} />
+          <span className="w-1.5 h-1.5 rounded-full bg-nina-mute animate-bounce" style={{ animationDelay: '300ms' }} />
+        </span>
+      </div>
+    </motion.div>
+  )
+}
+
+// Sugerencias rápidas según el rol del agente — aparecen al enfocar el input.
+function quickPromptsFor(agent) {
+  if (!agent) return []
+  if (agent.role === 'ceo_global') {
+    return [
+      'Dame el reporte del estado del holding',
+      '¿Qué decisiones necesitan mi aprobación?',
+      'Resume el avance de las marcas',
+      '¿Qué tareas están bloqueadas?',
+    ]
+  }
+  if (agent.role === 'brand_manager') {
+    return [
+      '¿Cómo va la marca esta semana?',
+      'Dame ideas para la próxima campaña',
+      'Revisa los KPIs y dame alertas',
+      'Consulta el brain sobre nuestra política de descuentos',
+    ]
+  }
+  // Especialistas
+  return [
+    '¿En qué estás trabajando ahora?',
+    'Dame un resumen de tu última tarea',
+    '¿Qué necesitas de mí para avanzar?',
+  ]
+}
+
+// =====================================================================
+// Composer · le escribes (o le hablas) al agente y responde en el chat.
+// Layout inspirado en NeuralOS: textarea arriba + toolbar abajo con
+// attach / settings / agent pill · ⌘K · model pill / mic / send.
+// =====================================================================
+function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend, onSettled, bare = false }) {
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [voiceGhost, setVoiceGhost] = useState('')
+  const [focused, setFocused] = useState(false)
+  const taRef = useRef(null)
+  const quickPrompts = quickPromptsFor(agent)
+
+  // Hook de voz — bilingüe ES/EN con 12 capas de NLP (filler removal,
+  // comandos por voz, normalización de números, etc).
+  const voice = useVoiceTranscription({
+    lang: 'es-ES',
+    onFinalResult: (voiceText) => {
+      setVoiceGhost('')
+      setText((prev) => (prev ? `${prev} ${voiceText}`.trim() : voiceText))
+      requestAnimationFrame(() => {
+        const ta = taRef.current
+        if (ta) {
+          const len = ta.value.length
+          ta.setSelectionRange(len, len)
+        }
+      })
+    },
+    onInterimResult: (interim) => setVoiceGhost(interim),
+    onError: (msg) => toast.error(msg),
+  })
+
+  // Auto-resize del textarea (hasta un cap)
+  useEffect(() => {
+    const ta = taRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = Math.min(Math.max(64, ta.scrollHeight), 200) + 'px'
+  }, [text, voiceGhost])
+
+  const send = async () => {
+    const content = text.trim()
+    if (!content || sending) return
+    if (agent.status === 'disabled') {
+      toast.error('Este agente está deshabilitado. Reactívalo para conversar.')
+      return
+    }
+    if (voice.status !== 'idle') voice.stopListening()
+    setSending(true)
+    setText('')
+    setVoiceGhost('')
+    // Pintar el mensaje del usuario al instante (optimistic UI). Si el bot
+    // tarda en responder no importa — lo tuyo ya aparece.
+    onUserSend?.(content)
+    try {
+      const { data, error } = await supabase.functions.invoke('chat-with-agent', {
+        body: { agent_slug: agent.slug, content, conversation_id: conversationId ?? null },
+      })
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
+      // Si era una conversación nueva, adoptamos el id devuelto para que los
+      // siguientes mensajes continúen el mismo hilo (y aparezca en el historial).
+      if (data?.conversation_id && data.conversation_id !== conversationId) {
+        onConversationCreated?.(data.conversation_id)
+      }
+    } catch (e) {
+      toast.error(e?.message || 'No se pudo enviar')
+      setText((prev) => (prev ? prev : content))
+    } finally {
+      setSending(false)
+      onSettled?.()
+    }
+  }
+
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      send()
+    }
+  }
+
+  const toggleMic = () => {
+    if (!voice.isSupported) {
+      toast.error('Tu navegador no soporta Web Speech API. Prueba Chrome o Edge.')
+      return
+    }
+    voice.toggle()
+  }
+
+  const stub = (msg) => () => toast(msg, { icon: '⏳' })
+
+  const displayedText = voiceGhost
+    ? `${text}${text && voiceGhost ? ' ' : ''}${voiceGhost}`
+    : text
+
+  // Sugerencias rápidas. En el chat (placement 'top') van arriba, en una sola línea
+  // con scroll horizontal. En el perfil del agente ('bottom') van abajo y envuelven.
+  const renderPrompts = (placement) => (
+    <AnimatePresence>
+      {focused && !text.trim() && quickPrompts.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: placement === 'top' ? 4 : -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: placement === 'top' ? 4 : -4 }}
+          transition={{ duration: 0.12 }}
+          // preventDefault evita que el click haga blur del textarea antes de aplicar
+          onMouseDown={(e) => e.preventDefault()}
+          className={
+            placement === 'top'
+              ? 'mb-2 flex flex-nowrap gap-1.5 px-1 overflow-x-auto cursor-grab [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+              : 'mt-2 flex flex-wrap gap-1.5 px-1'
+          }
+        >
+          {quickPrompts.map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => {
+                setText(p)
+                requestAnimationFrame(() => taRef.current?.focus())
+              }}
+              className={`px-3 py-1.5 rounded-full border border-nina-line bg-nina-line/15 text-[12px] text-nina-mute hover:text-nina-chrome hover:border-nina-silver/40 hover:bg-nina-line/30 transition ${
+                placement === 'top' ? 'shrink-0 whitespace-nowrap' : ''
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
 
   return (
     <div
-      ref={scrollRef}
-      className="h-full overflow-y-auto px-3 sm:px-6 py-4 space-y-3"
-      style={{
-        backgroundImage:
-          'radial-gradient(1200px 400px at 50% -10%, rgba(232,232,232,0.04), transparent 70%)',
-      }}
+      className={
+        bare ? '' : 'px-3 sm:px-4 pt-2 pb-2'
+      }
+      style={bare ? undefined : { paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom))' }}
     >
-      {loading ? (
-        <div className="grid place-items-center py-10 text-nina-mute">
-          <Loader2 className="w-5 h-5 animate-spin" />
+      <div className={bare ? '' : 'max-w-3xl mx-auto w-full'}>
+      <AnimatePresence>
+        {voice.status !== 'idle' && voice.status !== 'unsupported' && (
+          <VoiceOverlay voice={voice} />
+        )}
+      </AnimatePresence>
+
+      {/* En el chat las sugerencias van ARRIBA del composer */}
+      {!bare && renderPrompts('top')}
+
+      <div className="rounded-2xl border border-nina-line bg-nina-panel/40 focus-within:border-nina-silver/40 transition-colors">
+        <div className="relative px-3 pt-2.5 pb-1">
+          <textarea
+            ref={taRef}
+            value={displayedText}
+            onChange={(e) => {
+              setText(e.target.value)
+              if (voice.status !== 'idle') {
+                // Si escribe a mano mientras dicta, paramos el ghost para no
+                // duplicar contenido (el final result vendrá vacío).
+                setVoiceGhost('')
+              }
+            }}
+            onKeyDown={onKeyDown}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setTimeout(() => setFocused(false), 150)}
+            placeholder={`Escríbele a ${agent.name}…`}
+            rows={1}
+            className="w-full bg-transparent outline-none resize-none text-sm leading-snug text-nina-chrome placeholder:text-nina-mute"
+            style={{ minHeight: '64px', maxHeight: '200px' }}
+            disabled={sending}
+          />
         </div>
-      ) : messages.length === 0 ? (
-        <div className="grid place-items-center py-10 text-nina-mute text-sm">
-          Sin conversación todavía. Asigna una tarea para que arranque.
+
+        <div className="flex items-center gap-1 px-2 pb-2">
+          {/* Izquierda — attach + settings + agent pill */}
+          <button
+            type="button"
+            onClick={stub('Próximamente: adjuntar archivos')}
+            className="w-8 h-8 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
+            title="Adjuntar"
+            aria-label="Adjuntar"
+          >
+            <Paperclip className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={stub('Próximamente: parámetros del turno (temp, tokens)')}
+            className="w-8 h-8 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
+            title="Parámetros"
+            aria-label="Parámetros"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={stub('Estás hablando con este agente — cambia desde la lista de la izquierda')}
+            className="flex items-center gap-1.5 pl-2 pr-2.5 h-8 rounded-full bg-nina-line/40 hover:bg-nina-line/60 transition text-[11px] font-medium text-nina-chrome"
+            title={agent.name}
+          >
+            <span className="w-4 h-4 rounded-full grid place-items-center bg-silver-gradient text-nina-black shrink-0">
+              <Sparkles className="w-2.5 h-2.5" />
+            </span>
+            <span className="truncate max-w-[120px]">{agent.name}</span>
+            <ChevronDown className="w-3 h-3 opacity-60" />
+          </button>
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Derecha — ⌘K hint + model pill + mic + send */}
+          <kbd
+            className="hidden sm:flex items-center gap-0.5 px-1.5 h-6 rounded text-[10px] font-mono text-nina-mute bg-nina-line/30 border border-nina-line"
+            title="Atajo (próximamente)"
+          >
+            ⌘K
+          </kbd>
+          <button
+            type="button"
+            onClick={stub(`Modelo actual: ${agent.model}. Cambio de proveedor próximamente.`)}
+            className="flex items-center gap-1.5 px-2.5 h-8 rounded-full bg-emerald-500/10 hover:bg-emerald-500/15 transition text-[11px] font-mono text-emerald-300"
+            title="Modelo"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span className="truncate max-w-[120px]">{shortModel(agent.model)}</span>
+            <ChevronDown className="w-3 h-3 opacity-60" />
+          </button>
+          <button
+            type="button"
+            onClick={toggleMic}
+            disabled={!voice.isSupported}
+            className={`w-9 h-9 grid place-items-center rounded-lg transition ${
+              voice.status === 'listening'
+                ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30'
+                : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40'
+            } disabled:opacity-40 disabled:cursor-not-allowed`}
+            title={
+              !voice.isSupported
+                ? 'Voz no soportada en este navegador'
+                : voice.status === 'listening'
+                ? 'Detener dictado'
+                : 'Dictar por voz'
+            }
+            aria-label="Micrófono"
+          >
+            {voice.isSupported ? (
+              voice.status === 'listening' ? (
+                <Mic className="w-4 h-4" />
+              ) : (
+                <Mic className="w-4 h-4" />
+              )
+            ) : (
+              <MicOff className="w-4 h-4" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={send}
+            disabled={!text.trim() || sending}
+            className="btn-primary !p-2 h-9 w-9 grid place-items-center"
+            title="Enviar (Enter)"
+            aria-label="Enviar"
+          >
+            {sending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <ArrowUp className="w-4 h-4" />
+            )}
+          </button>
         </div>
-      ) : (
-        messages.map((m) => <MessageBubble key={m.id} message={m} />)
-      )}
+      </div>
+
+      {/* En el perfil del agente las sugerencias van ABAJO del composer */}
+      {bare && renderPrompts('bottom')}
+      </div>
     </div>
   )
+}
+
+// Recorta nombres largos de modelo para que quepan en la pill (~14 chars)
+function shortModel(model) {
+  if (!model) return 'modelo'
+  if (model.length <= 16) return model
+  // llama-3.3-70b-versatile → llama-3.3-70b
+  const parts = model.split('-')
+  if (parts.length > 3) return parts.slice(0, 3).join('-')
+  return model.slice(0, 14) + '…'
 }
 
 // =====================================================================
@@ -666,6 +1116,166 @@ function SkillsTab({ agentId }) {
 }
 
 // =====================================================================
+// Tab · Conectores (servicios externos según las tools del agente)
+// =====================================================================
+const CONNECTOR_CATALOG = [
+  {
+    id: 'shopify',
+    name: 'Tienda Shopify',
+    desc: 'Productos, inventario, órdenes y clientes de la tienda.',
+    icon: ShoppingBag,
+    iconColor: 'text-emerald-300',
+    tools: [
+      'shopify_search_products',
+      'shopify_recent_orders',
+      'shopify_search_customers',
+      'shopify_get_inventory',
+      'shopify_adjust_inventory',
+      'shopify_shop_summary',
+    ],
+  },
+  {
+    id: 'brain',
+    name: 'Brain · base de conocimiento',
+    desc: 'Memoria institucional semántica de la marca.',
+    icon: Database,
+    iconColor: 'text-sky-300',
+    tools: ['query_brain', 'ingest_document'],
+  },
+  {
+    id: 'web',
+    name: 'Búsqueda web (Tavily)',
+    desc: 'Investigación en internet en tiempo real.',
+    icon: Globe,
+    iconColor: 'text-amber-300',
+    tools: ['web_search'],
+  },
+  {
+    id: 'image',
+    name: 'Generación de imágenes',
+    desc: 'Crea imágenes con IA (Higgsfield / Pollinations).',
+    icon: ImageIcon,
+    iconColor: 'text-purple-300',
+    tools: ['generate_image'],
+  },
+]
+
+// Conectores que aún no están implementados (estilo "próximamente").
+const CONNECTOR_SOON = [
+  { id: 'meta', name: 'Meta Ads Manager', desc: 'Campañas y métricas de Meta.' },
+  { id: 'instagram', name: 'Instagram', desc: 'Publicaciones, historias y mensajes.' },
+]
+
+function ConnectorRow({ icon: Icon, iconColor, name, desc, status, onConnect }) {
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-xl border border-nina-line bg-nina-panel/40">
+      <div className="w-9 h-9 rounded-lg grid place-items-center bg-nina-line/40 shrink-0">
+        <Icon className={`w-4 h-4 ${iconColor ?? 'text-nina-chrome'}`} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm text-nina-chrome truncate">{name}</div>
+        <div className="text-[11px] text-nina-mute truncate">{desc}</div>
+      </div>
+      {status === 'connected' ? (
+        <span className="text-[11px] text-emerald-300 flex items-center gap-1 shrink-0">
+          <CheckCircle2 className="w-3.5 h-3.5" /> Conectado
+        </span>
+      ) : (
+        <button
+          onClick={onConnect}
+          className="btn-ghost !py-1.5 !px-3 text-[11px] shrink-0"
+          title="Conectar"
+        >
+          Conectar
+        </button>
+      )}
+    </div>
+  )
+}
+
+function ConnectorsTab({ agentId, agentBasic }) {
+  const { agent: detail, loading } = useAgentDetail(agentId)
+  const [brandName, setBrandName] = useState(null)
+
+  useEffect(() => {
+    if (!detail?.brand_id) {
+      setBrandName(null)
+      return
+    }
+    let active = true
+    supabase
+      .from('brands')
+      .select('name')
+      .eq('id', detail.brand_id)
+      .maybeSingle()
+      .then(({ data }) => active && setBrandName(data?.name ?? null))
+    return () => {
+      active = false
+    }
+  }, [detail?.brand_id])
+
+  if (loading) {
+    return (
+      <div className="h-full grid place-items-center text-nina-mute">
+        <Loader2 className="w-5 h-5 animate-spin" />
+      </div>
+    )
+  }
+  if (!detail) return null
+
+  const tools = detail.allowed_tools ?? []
+  const connected = CONNECTOR_CATALOG.filter((c) => c.tools.some((t) => tools.includes(t)))
+
+  return (
+    <div className="h-full overflow-y-auto px-4 sm:px-6 py-4 space-y-5 max-w-2xl">
+      <header>
+        <h3 className="text-xs uppercase tracking-[0.2em] text-nina-mute">Conectores</h3>
+        <p className="text-[12px] text-nina-mute mt-1">
+          Servicios externos a los que {agentBasic.name} tiene acceso a través de sus herramientas.
+        </p>
+      </header>
+
+      <section className="space-y-2">
+        <div className="text-[10px] uppercase tracking-[0.2em] text-nina-mute">Conectados</div>
+        {connected.length === 0 ? (
+          <div className="text-[13px] text-nina-mute py-2">
+            Este agente no tiene conectores externos activos. Actívalos asignándole las tools correspondientes en la pestaña Tools.
+          </div>
+        ) : (
+          connected.map((c) => (
+            <ConnectorRow
+              key={c.id}
+              icon={c.icon}
+              iconColor={c.iconColor}
+              name={c.id === 'shopify' && brandName ? `Tienda ${brandName} (Shopify)` : c.name}
+              desc={c.desc}
+              status="connected"
+            />
+          ))
+        )}
+      </section>
+
+      <section className="space-y-2">
+        <div className="text-[10px] uppercase tracking-[0.2em] text-nina-mute">
+          Disponibles próximamente
+        </div>
+        {CONNECTOR_SOON.map((c) => (
+          <ConnectorRow
+            key={c.id}
+            icon={Plug}
+            iconColor="text-nina-mute"
+            name={c.name}
+            desc={c.desc}
+            status="soon"
+            onConnect={() => toast(`${c.name}: integración próximamente`, { icon: '🔌' })}
+          />
+        ))}
+      </section>
+    </div>
+  )
+}
+
+// =====================================================================
 // Tab · Configuración (modelo, temp, padre, marca)
 // =====================================================================
 function ConfigTab({ agentId, agentBasic, isJunta, onEdit }) {
@@ -780,42 +1390,81 @@ function ConfigTab({ agentId, agentBasic, isJunta, onEdit }) {
 // =====================================================================
 // Una burbuja de mensaje — diferenciada por role
 // =====================================================================
+// Etiquetas humanas para los nombres técnicos de las tools.
+const TOOL_LABELS = {
+  search_memory: 'Buscó en su memoria',
+  save_memory: 'Guardó en memoria',
+  query_brain: 'Consultó el brain',
+  ingest_document: 'Ingestó un documento',
+  delegate_task: 'Delegó una tarea',
+  request_approval: 'Pidió aprobación a la Junta',
+  finish_task: 'Finalizó la tarea',
+  escalate_to_ceo: 'Escaló al CEO',
+  read_kpis: 'Consultó los KPIs',
+  web_search: 'Buscó en la web',
+  generate_image: 'Generó una imagen',
+  create_agent: 'Solicitó crear un agente',
+  shopify_search_products: 'Buscó productos',
+  shopify_recent_orders: 'Consultó órdenes',
+  shopify_search_customers: 'Buscó clientes',
+  shopify_get_inventory: 'Consultó inventario',
+  shopify_adjust_inventory: 'Ajustó inventario',
+  shopify_shop_summary: 'Resumen de la tienda',
+}
+const humanTool = (name) => TOOL_LABELS[name] || name
+
 function MessageBubble({ message }) {
-  const { role, content, tool_calls, tool_call_id, created_at } = message
+  const { role, content, tool_calls, created_at } = message
 
   if (role === 'system') return null
-
-  if (role === 'tool') {
-    return <ToolResultBubble message={message} />
-  }
+  if (role === 'tool') return <ToolResultBubble message={message} />
 
   const isUser = role === 'user'
+  const hasTools = Array.isArray(tool_calls) && tool_calls.length > 0
+
+  // Asistente que SOLO ejecuta tools (sin texto) → líneas sutiles, sin burbuja
+  if (!isUser && !content && hasTools) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex justify-start"
+      >
+        <div className="space-y-0.5 pl-1">
+          {tool_calls.map((tc) => (
+            <ToolCallChip key={tc.id} call={tc} />
+          ))}
+        </div>
+      </motion.div>
+    )
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
     >
-      <div className="max-w-[85%] sm:max-w-[75%] space-y-2">
-        <div
-          className={`rounded-2xl px-4 py-2.5 ${
-            isUser
-              ? 'bg-silver-gradient text-nina-black rounded-br-md shadow-chrome'
-              : 'bg-nina-line/60 text-nina-chrome rounded-bl-md border border-nina-line'
-          }`}
-        >
-          {content && (
+      <div className="max-w-[85%] sm:max-w-[75%] space-y-1.5">
+        {content && (
+          <div
+            className={`rounded-2xl px-4 py-2.5 ${
+              isUser
+                ? 'bg-silver-gradient text-nina-black rounded-br-md shadow-chrome'
+                : 'bg-nina-line/60 text-nina-chrome rounded-bl-md border border-nina-line'
+            }`}
+          >
             <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{content}</div>
-          )}
-          {Array.isArray(tool_calls) && tool_calls.length > 0 && (
-            <div className="mt-2 space-y-1.5">
-              {tool_calls.map((tc) => (
-                <ToolCallChip key={tc.id} call={tc} />
-              ))}
-            </div>
-          )}
-        </div>
-        <div className={`text-[10px] text-nina-mute ${isUser ? 'text-right' : ''}`}>
+          </div>
+        )}
+        {hasTools && (
+          <div className="space-y-0.5 pl-1">
+            {tool_calls.map((tc) => (
+              <ToolCallChip key={tc.id} call={tc} />
+            ))}
+          </div>
+        )}
+        <div className={`text-[10px] text-nina-mute ${isUser ? 'text-right' : 'pl-1'}`}>
           {fmtTime(created_at)}
         </div>
       </div>
@@ -823,31 +1472,22 @@ function MessageBubble({ message }) {
   )
 }
 
+// Línea sutil de una llamada a tool (estilo Manus): icono + acción humana.
 function ToolCallChip({ call }) {
-  let args = null
+  let arg = ''
   try {
-    args = JSON.parse(call?.function?.arguments || '{}')
+    const args = JSON.parse(call?.function?.arguments || '{}')
+    arg = args.query || args.title || args.summary || args.content || ''
   } catch {
-    args = null
+    arg = ''
   }
-  const summary = args
-    ? Object.entries(args)
-        .slice(0, 2)
-        .map(([k, v]) => {
-          const val = typeof v === 'string' ? v : JSON.stringify(v)
-          return `${k}: ${val.length > 60 ? val.slice(0, 60) + '…' : val}`
-        })
-        .join(' · ')
-    : ''
   return (
-    <div className="rounded-lg bg-nina-black/40 border border-nina-line px-2.5 py-1.5 text-[11px] flex items-start gap-2 text-nina-chrome">
-      <Hammer className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-nina-silver" />
-      <div className="min-w-0">
-        <div className="font-mono font-medium">{call.function.name}</div>
-        {summary && (
-          <div className="text-nina-mute truncate font-mono text-[10.5px]">{summary}</div>
-        )}
-      </div>
+    <div className="flex items-center gap-1.5 text-[11.5px] text-nina-mute">
+      <Hammer className="w-3 h-3 shrink-0 opacity-60" />
+      <span>{humanTool(call.function.name)}</span>
+      {arg && (
+        <span className="opacity-60 truncate max-w-[260px]">· {String(arg).slice(0, 48)}</span>
+      )}
     </div>
   )
 }
