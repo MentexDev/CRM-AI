@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { supabase } from '../lib/supabase'
 
-// Cliente del motor agéntico desplegado (Railway). Lanza una corrida del Crew
-// y hace polling del estado. Config por env: VITE_ENGINE_URL / VITE_ENGINE_KEY.
-const ENGINE_URL = import.meta.env.VITE_ENGINE_URL
-const ENGINE_KEY = import.meta.env.VITE_ENGINE_KEY
-
+// Cliente del motor agéntico. La UI NO habla con el motor directamente: pasa por
+// la Edge Function `run-engine` (autenticada con el login), que guarda la key del
+// motor server-side. Así la key nunca llega al navegador.
 export function useAgentEngine() {
   const [status, setStatus] = useState('idle') // idle | running | done | error
   const [result, setResult] = useState(null)
@@ -12,7 +11,7 @@ export function useAgentEngine() {
   const [runId, setRunId] = useState(null)
   const pollRef = useRef(null)
 
-  const configured = Boolean(ENGINE_URL)
+  const configured = Boolean(supabase)
 
   const stop = useCallback(() => {
     if (pollRef.current) {
@@ -23,17 +22,13 @@ export function useAgentEngine() {
 
   useEffect(() => () => stop(), [stop])
 
-  const headers = () => {
-    const h = { 'Content-Type': 'application/json' }
-    if (ENGINE_KEY) h['X-Engine-Key'] = ENGINE_KEY
-    return h
-  }
-
   const poll = useCallback((id) => {
     pollRef.current = setTimeout(async () => {
       try {
-        const r = await fetch(`${ENGINE_URL}/runs/${id}`, { headers: headers() })
-        const data = await r.json()
+        const { data, error: err } = await supabase.functions.invoke('run-engine', {
+          body: { action: 'status', run_id: id },
+        })
+        if (err) throw err
         if (data.status === 'running') {
           poll(id)
           return
@@ -46,7 +41,7 @@ export function useAgentEngine() {
           setStatus('error')
         }
       } catch (e) {
-        setError(String(e?.message || e))
+        setError(e?.message || String(e))
         setStatus('error')
       }
     }, 3000)
@@ -54,8 +49,8 @@ export function useAgentEngine() {
 
   const run = useCallback(
     async (directive) => {
-      if (!ENGINE_URL) {
-        setError('VITE_ENGINE_URL no está configurado')
+      if (!supabase) {
+        setError('Supabase no está configurado')
         setStatus('error')
         return
       }
@@ -65,20 +60,15 @@ export function useAgentEngine() {
       setError(null)
       setRunId(null)
       try {
-        const r = await fetch(`${ENGINE_URL}/runs`, {
-          method: 'POST',
-          headers: headers(),
-          body: JSON.stringify({ directive }),
+        const { data, error: err } = await supabase.functions.invoke('run-engine', {
+          body: { action: 'start', directive },
         })
-        if (!r.ok) {
-          const t = await r.text()
-          throw new Error(`${r.status}: ${t.slice(0, 160)}`)
-        }
-        const data = await r.json()
+        if (err) throw err
+        if (!data?.run_id) throw new Error(data?.error || 'El motor no devolvió run_id')
         setRunId(data.run_id)
         poll(data.run_id)
       } catch (e) {
-        setError(String(e?.message || e))
+        setError(e?.message || String(e))
         setStatus('error')
       }
     },

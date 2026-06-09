@@ -50,7 +50,7 @@ export default function AgentEngineModal({ open, onClose }) {
         {!configured && (
           <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-200">
             <AlertTriangle className="w-4 h-4 shrink-0" />
-            Falta <code className="font-mono">VITE_ENGINE_URL</code> en el .env del frontend.
+            Supabase no está configurado en el frontend.
           </div>
         )}
 
