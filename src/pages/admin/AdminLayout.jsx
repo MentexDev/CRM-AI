@@ -1,9 +1,224 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { Bot, CheckCircle2, ListTodo, Sparkles, Users, X } from 'lucide-react'
+import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
+import {
+  Bot,
+  Calculator,
+  Check,
+  CheckCircle2,
+  Crown,
+  ListFilter,
+  ListTodo,
+  LogOut,
+  Package,
+  PanelLeft,
+  Settings,
+  Sparkles,
+  Star,
+  TrendingUp,
+  UserPlus,
+  Users,
+  X,
+} from 'lucide-react'
 import TopBar from '../../components/TopBar'
 import Logo from '../../components/Logo'
+import { ConversationMenu } from '../../components/ConversationMenu'
+import SettingsModal from '../../components/SettingsModal'
+import { useAuth } from '../../context/AuthContext'
+import { useAgents } from '../../hooks/useAgents'
+import { useConversations } from '../../hooks/useConversations'
+import { isSupabaseConfigured, supabase } from '../../lib/supabase'
+
+function fmtConvTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const now = new Date()
+  if (d.toDateString() === now.toDateString())
+    return d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+  const yest = new Date(now)
+  yest.setDate(now.getDate() - 1)
+  if (d.toDateString() === yest.toDateString()) return 'Ayer'
+  return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })
+}
+
+const AGENT_STATUS_DOT = {
+  idle: 'bg-nina-mute',
+  running: 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)] animate-pulse',
+  blocked: 'bg-amber-400',
+  disabled: 'bg-red-400',
+}
+const AGENT_SPECIALTY_ICON = {
+  analista_tendencias: TrendingUp,
+  creador_contenido: Sparkles,
+  contador: Calculator,
+  inventarista: Package,
+}
+function sidebarAgentIcon(a) {
+  if (a.role === 'ceo_global') return Crown
+  if (a.role === 'brand_manager') return Sparkles
+  return AGENT_SPECIALTY_ICON[a.specialty] ?? Bot
+}
+
+// Lista de agentes en el sidebar principal. Click → abre el perfil del agente.
+function AgentsNav({ onNavigate, isJunta }) {
+  const { agents } = useAgents()
+  const { slug } = useParams()
+
+  return (
+    <div className="pt-1">
+      <div className="px-4 pt-2 pb-1 flex items-center justify-between">
+        <span className="text-[10px] uppercase tracking-[0.2em] text-nina-mute">Agentes</span>
+        {isJunta && (
+          <button
+            onClick={() => onNavigate('/admin/agentes?new=1')}
+            className="w-5 h-5 grid place-items-center rounded text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
+            title="Nuevo agente"
+            aria-label="Nuevo agente"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+      <div className="px-2 space-y-0.5">
+        {agents.length === 0 ? (
+          <div className="px-3 py-2 text-[11px] text-nina-mute">Sin agentes aún</div>
+        ) : (
+          agents.map((a) => {
+            const Icon = sidebarAgentIcon(a)
+            const isActive = a.slug === slug
+            return (
+              <button
+                key={a.id}
+                onClick={() => onNavigate(`/admin/agentes/${a.slug}`)}
+                className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition text-left ${
+                  isActive ? 'bg-nina-line/40' : 'hover:bg-nina-line/25'
+                }`}
+                title={a.name}
+              >
+                <div className="relative shrink-0">
+                  <div className="w-7 h-7 rounded-full grid place-items-center bg-silver-gradient text-nina-black shadow-chrome">
+                    <Icon className="w-3.5 h-3.5" />
+                  </div>
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-nina-panel ${AGENT_STATUS_DOT[a.status] ?? AGENT_STATUS_DOT.idle}`}
+                  />
+                </div>
+                <span className="text-[12.5px] text-nina-chrome truncate flex-1">{a.name}</span>
+              </button>
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Historial de conversaciones — todas las conversaciones con todos los
+// agentes, ordenadas por actividad reciente. Click → abre la conversación.
+const CONV_FILTERS = [
+  { id: 'all', label: 'Todas las conversaciones' },
+  { id: 'favorites', label: 'Favoritas' },
+  { id: 'archived', label: 'Archivadas' },
+]
+
+// Una conversación del historial — título + estrella + menú (⋯).
+function ConversationItem({ conv, onNavigate }) {
+  const slug = conv.agents?.slug
+  return (
+    <div className="relative group">
+      <button
+        onClick={() => slug && onNavigate(`/admin/agentes/${slug}?c=${conv.id}`)}
+        className="w-full text-left pl-3 pr-8 py-2 rounded-lg hover:bg-nina-line/30 transition flex items-center gap-1.5"
+        title={conv.title}
+      >
+        <span className="flex-1 min-w-0 text-[12.5px] text-nina-chrome truncate leading-snug">
+          {conv.title || 'Conversación'}
+        </span>
+        {conv.is_favorite && (
+          <Star className="w-3 h-3 text-amber-300 shrink-0 fill-amber-300 group-hover:hidden" />
+        )}
+      </button>
+      <div className="absolute top-1.5 right-1.5">
+        <ConversationMenu
+          conv={conv}
+          buttonClassName="w-6 h-6 grid place-items-center rounded text-nina-mute opacity-0 group-hover:opacity-100 hover:text-nina-chrome hover:bg-nina-line/50 transition data-[open=true]:opacity-100"
+          menuClassName="right-0 top-7"
+        />
+      </div>
+    </div>
+  )
+}
+
+function ConversationHistory({ onNavigate }) {
+  const { conversations, loading } = useConversations({ limit: 80 })
+  const [filter, setFilter] = useState('all')
+  const [filterOpen, setFilterOpen] = useState(false)
+
+  const visible = conversations.filter((c) => {
+    if (filter === 'favorites') return c.is_favorite && !c.is_archived
+    if (filter === 'archived') return c.is_archived
+    return !c.is_archived // "all" = no archivadas
+  })
+
+  const activeFilter = CONV_FILTERS.find((f) => f.id === filter)
+
+  return (
+    <div className="pt-8">
+      <div className="px-4 pb-1 flex items-center justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-[0.2em] text-nina-mute">Conversaciones</span>
+        <div className="relative">
+          <button
+            onClick={() => setFilterOpen((v) => !v)}
+            className={`w-6 h-6 grid place-items-center rounded transition ${
+              filter !== 'all' || filterOpen
+                ? 'text-nina-chrome bg-nina-line/40'
+                : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40'
+            }`}
+            title="Filtrar conversaciones"
+            aria-label="Filtrar conversaciones"
+          >
+            <ListFilter className="w-3.5 h-3.5" />
+          </button>
+          {filterOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
+              <div className="absolute right-0 top-7 z-50 w-56 rounded-xl border border-nina-line bg-nina-panel shadow-xl py-1">
+                {CONV_FILTERS.map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => {
+                      setFilter(f.id)
+                      setFilterOpen(false)
+                    }}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-[12.5px] text-left text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
+                  >
+                    <span>{f.label}</span>
+                    {filter === f.id && <Check className="w-3.5 h-3.5 text-nina-chrome shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="px-2 space-y-0.5 pb-2">
+        {loading ? (
+          <div className="px-3 py-3 text-[11px] text-nina-mute">Cargando…</div>
+        ) : visible.length === 0 ? (
+          <div className="px-3 py-3 text-[11px] text-nina-mute leading-snug">
+            {filter === 'all'
+              ? 'Aún no hay conversaciones. Escríbele a un agente para empezar.'
+              : `No hay conversaciones ${activeFilter?.label.toLowerCase()}.`}
+          </div>
+        ) : (
+          visible.map((c) => (
+            <ConversationItem key={c.id} conv={c} onNavigate={onNavigate} />
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
 
 const tabs = [
   { to: '/admin/agentes', icon: Bot, label: 'Agentes' },
@@ -13,16 +228,81 @@ const tabs = [
   { to: '/admin/equipo', icon: Users, label: 'Equipo' },
 ]
 
-function NavItems({ onSelect }) {
+// Nota: el estado colapsado NO se persiste a propósito — Brandon prefiere
+// que cada refresh arranque con el sidebar colapsado (icon-only) para
+// maximizar el espacio del chat. Si el usuario lo expande, dura sólo
+// dentro de la sesión visual.
+
+// Hook · estado de conexión (ping a profiles cada 30s).
+function useConnectionState() {
+  const { user } = useAuth()
+  const [conn, setConn] = useState(() => {
+    if (!isSupabaseConfigured) return 'local'
+    return user ? 'online' : 'idle'
+  })
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setConn('local')
+      return
+    }
+    let alive = true
+    let consecutiveFailures = 0
+    const ping = async () => {
+      try {
+        const { error } = await supabase.from('profiles').select('id').limit(1)
+        if (!alive) return
+        if (error) {
+          consecutiveFailures += 1
+          if (consecutiveFailures >= 2) setConn('offline')
+        } else {
+          consecutiveFailures = 0
+          setConn('online')
+        }
+      } catch {
+        consecutiveFailures += 1
+        if (alive && consecutiveFailures >= 2) setConn('offline')
+      }
+    }
+    ping()
+    const onOnline = () => {
+      consecutiveFailures = 0
+      ping()
+    }
+    const onOffline = () => alive && setConn('offline')
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    const interval = setInterval(ping, 30000)
+    return () => {
+      alive = false
+      clearInterval(interval)
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
+  }, [user?.id])
+  return conn
+}
+
+const INDICATOR = {
+  online: { dot: 'bg-emerald-400', label: 'En línea', shadow: 'shadow-[0_0_8px_rgba(52,211,153,0.6)]' },
+  offline: { dot: 'bg-red-400', label: 'Sin conexión', shadow: '' },
+  local: { dot: 'bg-amber-400', label: 'Local', shadow: '' },
+  idle: { dot: 'bg-nina-mute', label: 'Conectando…', shadow: '' },
+}
+
+function NavItems({ collapsed, onSelect }) {
   return (
-    <nav className="flex-1 px-2.5 py-3 space-y-0.5">
+    <nav className={`shrink-0 ${collapsed ? 'px-2' : 'px-2.5'} py-3 space-y-0.5`}>
       {tabs.map((t) => (
         <NavLink
           key={t.to}
           to={t.to}
           onClick={onSelect}
+          title={collapsed ? t.label : undefined}
+          aria-label={t.label}
           className={({ isActive }) =>
-            `relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition ${
+            `relative flex items-center ${
+              collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'
+            } rounded-xl text-sm font-medium transition ${
               isActive ? 'text-nina-black' : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'
             }`
           }
@@ -36,9 +316,13 @@ function NavItems({ onSelect }) {
                   transition={{ type: 'spring', stiffness: 400, damping: 32 }}
                 />
               )}
-              <span className="relative flex items-center gap-3">
+              <span
+                className={`relative flex items-center ${
+                  collapsed ? 'justify-center' : 'gap-3'
+                }`}
+              >
                 <t.icon className="w-4 h-4" />
-                {t.label}
+                {!collapsed && <span>{t.label}</span>}
               </span>
             </>
           )}
@@ -48,38 +332,174 @@ function NavItems({ onSelect }) {
   )
 }
 
-function SidebarFooter() {
+function SidebarUserBlock({ collapsed, onOpenSettings }) {
+  const { user } = useAuth()
+  const conn = useConnectionState()
+  const indicator = INDICATOR[conn]
+
+  if (collapsed) {
+    return (
+      <div className="px-2 py-2 border-t border-nina-line flex flex-col items-center gap-1.5">
+        <div className="relative" title={user?.fullName}>
+          <div className="w-9 h-9 rounded-full grid place-items-center bg-silver-gradient text-nina-black font-bold text-xs shadow-chrome">
+            {user?.avatarText}
+          </div>
+          <span
+            className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-nina-panel ${indicator.dot} ${indicator.shadow}`}
+          />
+        </div>
+        <button
+          onClick={onOpenSettings}
+          className="w-8 h-8 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30 transition"
+          title="Configuración"
+          aria-label="Configuración"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div className="px-5 py-4 border-t border-nina-line">
+    <div className="px-3 py-3 border-t border-nina-line">
+      <div className="flex items-center gap-2.5">
+        <div className="relative shrink-0">
+          <div className="w-9 h-9 rounded-full grid place-items-center bg-silver-gradient text-nina-black font-bold text-xs shadow-chrome">
+            {user?.avatarText}
+          </div>
+          <span
+            className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-nina-panel ${indicator.dot} ${indicator.shadow}`}
+          />
+        </div>
+        <div className="flex-1 min-w-0 leading-tight">
+          <div className="text-sm font-medium text-nina-chrome truncate">{user?.fullName}</div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-nina-mute truncate">
+            {user?.roleLabel}
+          </div>
+          <div className="text-[9px] uppercase tracking-[0.18em] text-nina-mute mt-0.5">
+            {indicator.label}
+          </div>
+        </div>
+        <button
+          onClick={onOpenSettings}
+          className="btn-ghost !p-2 shrink-0"
+          title="Configuración"
+          aria-label="Configuración"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SidebarBrandFooter({ collapsed }) {
+  if (collapsed) {
+    return (
+      <div className="px-2 py-2 border-t border-nina-line grid place-items-center">
+        <span className="text-[9px] uppercase tracking-[0.2em] text-nina-mute/60">v0.2</span>
+      </div>
+    )
+  }
+  return (
+    <div className="px-4 py-3 border-t border-nina-line">
       <div className="text-[10px] uppercase tracking-[0.32em] text-nina-mute/70">
         Mentex Holding
       </div>
-      <div className="text-[11px] text-nina-mute mt-1">v0.2 · Multi-Agent CRM</div>
+      <div className="text-[11px] text-nina-mute mt-0.5">v0.2 · Multi-Agent CRM</div>
+    </div>
+  )
+}
+
+function SidebarHeader({ collapsed, onToggle }) {
+  if (collapsed) {
+    // Colapsado: muestra la "A" del favicon; en hover aparece el icono de
+    // panel para abrir el sidebar.
+    return (
+      <div className="px-2 py-3 border-b border-nina-line flex justify-center">
+        <button
+          onClick={onToggle}
+          className="group relative w-9 h-9 grid place-items-center rounded-lg hover:bg-nina-line/30 transition"
+          title="Mostrar menú"
+          aria-label="Mostrar menú"
+        >
+          <img
+            src="/favicon-32.png"
+            alt="A"
+            className="w-6 h-6 object-contain transition group-hover:opacity-0"
+          />
+          <PanelLeft className="w-4 h-4 absolute text-nina-chrome opacity-0 transition group-hover:opacity-100" />
+        </button>
+      </div>
+    )
+  }
+  // Expandido: logo + "· CRM", y el icono de panel para ocultar el sidebar.
+  return (
+    <div className="px-4 py-4 border-b border-nina-line flex items-center justify-between gap-3">
+      <div className="flex items-end gap-1 min-w-0 overflow-hidden">
+        <motion.img
+          src="/logo-crm.png"
+          alt="CRM AI"
+          initial={{ opacity: 0, y: 22 }}
+          animate={{ opacity: 1, y: 3 }}
+          transition={{ duration: 0.7, ease: 'easeOut', delay: 0.05 }}
+          className="h-8 w-auto object-contain block"
+        />
+        <span className="silver-text-static font-display font-bold tracking-[0.18em] text-lg leading-none pb-2">
+          · CRM
+        </span>
+      </div>
+      <button
+        onClick={onToggle}
+        className="w-8 h-8 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30 transition shrink-0"
+        title="Ocultar menú"
+        aria-label="Ocultar menú"
+      >
+        <PanelLeft className="w-4 h-4" />
+      </button>
     </div>
   )
 }
 
 export default function AdminLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false)
+  // Siempre colapsado al cargar la página — Brandon quiere maximizar el
+  // espacio del chat por default. El toggle expande dentro de la sesión
+  // pero el refresh resetea.
+  const [collapsed, setCollapsed] = useState(true)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const location = useLocation()
+  const navigate = useNavigate()
+  const { isJunta } = useAuth()
 
-  // Cerrar drawer al cambiar de ruta (en mobile)
   useEffect(() => {
     setDrawerOpen(false)
   }, [location.pathname])
 
+  const toggleCollapsed = () => setCollapsed((prev) => !prev)
+
   return (
-    <div className="min-h-screen flex">
-      {/* Sidebar desktop fijo */}
-      <aside className="hidden lg:flex w-60 flex-col border-r border-nina-line bg-nina-panel/95 sticky top-0 h-screen">
-        <div className="px-5 py-6 border-b border-nina-line">
-          <Logo size="sm" subtitle={false} />
-        </div>
-        <NavItems />
-        <SidebarFooter />
+    <div className="h-screen overflow-hidden flex">
+      {/* Sidebar desktop fijo · ancho dependiente del modo collapsed */}
+      <aside
+        className={`hidden lg:flex flex-col border-r border-nina-line bg-nina-panel/95 sticky top-0 h-screen transition-[width] duration-200 ease-out ${
+          collapsed ? 'w-16' : 'w-64'
+        }`}
+      >
+        <SidebarHeader collapsed={collapsed} onToggle={toggleCollapsed} />
+        <NavItems collapsed={collapsed} />
+        {collapsed ? (
+          <div className="flex-1" />
+        ) : (
+          <div className="flex-1 min-h-0 overflow-y-auto border-t border-nina-line/60 mt-1">
+            <AgentsNav onNavigate={(to) => navigate(to)} isJunta={isJunta} />
+            <ConversationHistory onNavigate={(to) => navigate(to)} />
+          </div>
+        )}
+        <SidebarUserBlock collapsed={collapsed} onOpenSettings={() => setSettingsOpen(true)} />
       </aside>
 
-      {/* Sidebar mobile como drawer */}
+      {/* Sidebar mobile como drawer — siempre expandido */}
       <AnimatePresence>
         {drawerOpen && (
           <>
@@ -99,7 +519,7 @@ export default function AdminLayout() {
               style={{ paddingTop: 'env(safe-area-inset-top)' }}
             >
               <div className="px-5 py-5 border-b border-nina-line flex items-center justify-between">
-                <Logo size="sm" subtitle={false} />
+                <Logo size="sm" subtitle={false} text />
                 <button
                   onClick={() => setDrawerOpen(false)}
                   className="btn-ghost !p-2"
@@ -108,23 +528,52 @@ export default function AdminLayout() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <NavItems onSelect={() => setDrawerOpen(false)} />
-              <SidebarFooter />
+              <NavItems collapsed={false} onSelect={() => setDrawerOpen(false)} />
+              <div className="flex-1 min-h-0 overflow-y-auto border-t border-nina-line/60 mt-1">
+                <AgentsNav
+                  onNavigate={(to) => {
+                    navigate(to)
+                    setDrawerOpen(false)
+                  }}
+                  isJunta={isJunta}
+                />
+                <ConversationHistory
+                  onNavigate={(to) => {
+                    navigate(to)
+                    setDrawerOpen(false)
+                  }}
+                />
+              </div>
+              <SidebarUserBlock
+                collapsed={false}
+                onOpenSettings={() => {
+                  setDrawerOpen(false)
+                  setSettingsOpen(true)
+                }}
+              />
             </motion.aside>
           </>
         )}
       </AnimatePresence>
 
       {/* Columna principal */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <TopBar onMenuClick={() => setDrawerOpen(true)} />
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+        {/* TopBar SOLO mobile: hamburger + indicador chico.
+            En desktop la info del usuario vive en el sidebar. */}
+        <div className="lg:hidden">
+          <TopBar onMenuClick={() => setDrawerOpen(true)} />
+        </div>
+        {/* En lg+ main es full-bleed (sin padding/max-width) para que las
+            páginas tipo chat (Agents) puedan pegarse al sidebar. Las páginas
+            de listings agregan su propio padding interno (lg:px-6 lg:pt-4). */}
         <main
-          className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 pt-5 sm:pt-6"
-          style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}
+          className="flex-1 min-h-0 overflow-y-auto w-full max-w-7xl mx-auto px-4 sm:px-6 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))] lg:max-w-none lg:mx-0 lg:px-0 lg:pt-0 lg:pb-0"
         >
           <Outlet />
         </main>
       </div>
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }
