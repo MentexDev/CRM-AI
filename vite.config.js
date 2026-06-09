@@ -8,9 +8,9 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: [
-        'favicon.ico',
+        'favicon.png',
+        'favicon-32.png',
         'apple-touch-icon-180x180.png',
-        'pwa-icon.svg',
       ],
       manifest: {
         name: 'CRM · AI — Mentex Holding',

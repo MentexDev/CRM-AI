@@ -119,7 +119,7 @@ export default function Approvals() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 lg:px-6 lg:pt-4">
       <header>
         <h2 className="font-display text-2xl silver-text mb-1">Aprobaciones pendientes</h2>
         <p className="text-sm text-nina-mute">

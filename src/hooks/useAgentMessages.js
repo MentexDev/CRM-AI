@@ -4,17 +4,20 @@ import { withAuthRetry } from '../lib/supabaseQuery'
 
 const FETCH_TIMEOUT = 15000
 
-// Devuelve los últimos N mensajes de un agente, ordenados ascendente,
-// y se suscribe a inserts en realtime para que el chat se actualice solo.
-export function useAgentMessages(agentId, limit = 100) {
+// Devuelve los mensajes de UNA conversación, ordenados ascendente, y se
+// suscribe a inserts en realtime para que el chat se actualice solo.
+//
+// Si `conversationId` es null/undefined, no hay conversación activa todavía
+// (estado "nueva conversación"): devolvemos lista vacía y no consultamos.
+export function useAgentMessages(agentId, conversationId, limit = 200) {
   const [messages, setMessages] = useState([])
-  const [loading, setLoading] = useState(Boolean(agentId))
+  const [loading, setLoading] = useState(Boolean(agentId && conversationId))
   const channelIdRef = useRef(
     `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   )
 
   useEffect(() => {
-    if (!agentId) {
+    if (!agentId || !conversationId) {
       setMessages([])
       setLoading(false)
       return
@@ -29,9 +32,9 @@ export function useAgentMessages(agentId, limit = 100) {
             supabase
               .from('messages')
               .select(
-                'id, role, content, tool_call_id, tool_calls, task_id, metadata, created_at',
+                'id, role, content, tool_call_id, tool_calls, conversation_id, metadata, created_at',
               )
-              .eq('agent_id', agentId)
+              .eq('conversation_id', conversationId)
               .order('created_at', { ascending: false })
               .limit(limit),
           ),
@@ -56,10 +59,15 @@ export function useAgentMessages(agentId, limit = 100) {
     load()
 
     const channel = supabase
-      .channel(`messages-${agentId}-${channelIdRef.current}`)
+      .channel(`messages-${conversationId}-${channelIdRef.current}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `agent_id=eq.${agentId}` },
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
         (payload) => {
           if (!active) return
           setMessages((prev) => {
@@ -76,7 +84,7 @@ export function useAgentMessages(agentId, limit = 100) {
         supabase.removeChannel(channel)
       } catch {}
     }
-  }, [agentId, limit])
+  }, [agentId, conversationId, limit])
 
   return { messages, loading }
 }

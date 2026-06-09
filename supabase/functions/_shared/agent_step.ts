@@ -203,7 +203,11 @@ export async function runAgentStep(agentId: string): Promise<RunStepResult> {
           content: toolContent,
         })
 
-        if (tc.function.name === 'finish_task' && toolRes.ok) didFinishTask = true
+        if (tc.function.name === 'finish_task' && toolRes.ok) {
+          didFinishTask = true
+          // Protocolo Aetherna: disparar auto-distill en background (fire-and-forget)
+          triggerAutoDistill(agentId, activeTask.id, agent.brand_id ?? null).catch(() => null)
+        }
         if (tc.function.name === 'request_approval' || tc.function.name === 'escalate_to_ceo') didBlock = true
       }
 
@@ -220,6 +224,22 @@ export async function runAgentStep(agentId: string): Promise<RunStepResult> {
     // approval/escalation, eso queda reflejado en `tasks.status`, no en el agente.
     await db.from('agents').update({ status: 'idle' }).eq('id', agentId)
   }
+}
+
+// Dispara auto-distill sin bloquear el runtime del agente (fire-and-forget)
+async function triggerAutoDistill(agentId: string, taskId: string, brandId: string | null): Promise<void> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  if (!supabaseUrl || !serviceKey) return
+
+  await fetch(`${supabaseUrl}/functions/v1/auto-distill`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${serviceKey}`,
+    },
+    body: JSON.stringify({ task_id: taskId, agent_id: agentId, brand_id: brandId }),
+  })
 }
 
 function formatTaskDirective(task: { id: string; title: string; description?: string; due_at?: string }): string {

@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { Children, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronRight,
   Clock,
   Database,
   ExternalLink,
@@ -280,34 +281,44 @@ export default function ToolResultBubble({ message }) {
 // Helpers visuales
 // =====================================================================
 
+// Línea sutil colapsable (estilo Manus): el primer hijo (Header) es el
+// resumen siempre visible; el resto se muestra al expandir.
 function Wrap({ kind, children }) {
-  const tone =
-    kind === 'error'
-      ? 'bg-red-500/10 border-red-500/20 text-red-200'
-      : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-100'
+  const arr = Children.toArray(children).filter(Boolean)
+  const [head, ...rest] = arr
+  const hasDetail = rest.length > 0
+  const tone = kind === 'error' ? 'text-red-300/80' : 'text-nina-mute'
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 6 }}
+      initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex justify-center"
+      className="flex justify-start"
     >
-      <div className={`max-w-[88%] sm:max-w-[78%] rounded-xl px-3 py-2 text-[11px] border space-y-2 ${tone}`}>
-        {children}
-      </div>
+      <details className="group max-w-[90%] sm:max-w-[80%]">
+        <summary
+          className={`flex items-center gap-1.5 py-0.5 text-[11.5px] cursor-pointer select-none list-none transition hover:text-nina-chrome ${tone}`}
+        >
+          {head}
+          {hasDetail && (
+            <ChevronRight className="w-3 h-3 shrink-0 opacity-50 transition group-open:rotate-90" />
+          )}
+        </summary>
+        {hasDetail && <div className="mt-1.5 ml-5 space-y-2 text-[11px] text-nina-chrome">{rest}</div>}
+      </details>
     </motion.div>
   )
 }
 
-function Header({ icon, title, subtitle, tone }) {
-  const titleColor = tone === 'error' ? 'text-red-200' : tone === 'pending' ? 'text-amber-200' : 'text-emerald-100'
+function Header({ icon, title, subtitle }) {
   return (
-    <div className="flex items-start gap-2">
-      <span className="mt-0.5 flex-shrink-0">{icon}</span>
-      <div className="min-w-0">
-        <div className={`text-[11.5px] font-medium ${titleColor}`}>{title}</div>
-        {subtitle && <div className="text-[10.5px] opacity-75 mt-0.5">{subtitle}</div>}
-      </div>
-    </div>
+    <span className="inline-flex items-center gap-1.5 min-w-0">
+      <span className="shrink-0 opacity-70">{icon}</span>
+      <span className="font-medium truncate">{title}</span>
+      {subtitle && (
+        <span className="opacity-60 truncate hidden sm:inline">· {truncate(subtitle, 48)}</span>
+      )}
+    </span>
   )
 }
 

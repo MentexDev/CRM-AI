@@ -92,6 +92,47 @@ Deno.serve(async (req) => {
       const reason = (args.reason as string) || 'aprobado-por-junta'
       const result = await shopifyAdjustInventory(sku, locationId, delta, reason)
       toolResult = { ok: true, data: { ...result, delta_applied: delta, reason, executed_after_approval: true } }
+    } else if (toolName === 'create_agent') {
+      const { data: existing } = await admin
+        .from('agents')
+        .select('id')
+        .eq('slug', args.slug as string)
+        .maybeSingle()
+      if (existing) {
+        toolResult = { ok: false, error: `Ya existe un agente con slug "${args.slug}"` }
+      } else {
+        const { data: newAgent, error: agentErr } = await admin
+          .from('agents')
+          .insert({
+            name: args.name,
+            slug: args.slug,
+            role: args.role,
+            specialty: args.specialty ?? null,
+            brand_id: args.brand_id ?? null,
+            parent_agent_id: args.parent_agent_id ?? null,
+            system_prompt: args.system_prompt,
+            allowed_tools: args.allowed_tools ?? [],
+            model: args.model ?? 'llama-3.3-70b-versatile',
+            provider: 'groq',
+            status: 'idle',
+          })
+          .select('id, slug, name')
+          .single()
+        if (agentErr) {
+          toolResult = { ok: false, error: agentErr.message }
+        } else {
+          toolResult = {
+            ok: true,
+            data: {
+              agent_id: newAgent.id,
+              slug: newAgent.slug,
+              name: newAgent.name,
+              note: `Agente "${newAgent.name}" creado y activo.`,
+              executed_after_approval: true,
+            },
+          }
+        }
+      }
     } else {
       toolResult = { ok: false, error: `tool_name no soportado en execute-approval: ${toolName}` }
     }

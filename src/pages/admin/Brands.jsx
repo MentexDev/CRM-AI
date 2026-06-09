@@ -78,7 +78,7 @@ export default function Brands() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 lg:px-6 lg:pt-4">
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h2 className="font-display text-2xl silver-text mb-1">Marcas del holding</h2>

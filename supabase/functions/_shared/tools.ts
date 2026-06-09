@@ -4,6 +4,9 @@
 // reinyecta al modelo como mensaje role='tool' en la siguiente iteración.
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@^2'
 import type { ToolCallRequest, ToolDefinition } from './llm.ts'
+import { embedText } from './llm.ts'
+import { ingestDocument } from './ingest.ts'
+import { runQueryPipeline, formatForAgent } from './query.ts'
 import { adminDb } from './db.ts'
 import { shopifyAdjustInventory, shopifyGetInventoryBySku, shopifyGraphQL, stripGid } from './shopify.ts'
 import { generateImage as generateImageMulti } from './imageGen.ts'
@@ -63,9 +66,16 @@ export async function runTool(
   if (!handler) {
     return { ok: false, error: `Tool no implementada en runtime: ${call.function.name}` }
   }
+  // Defensa: el LLM ocasionalmente manda `"null"` o `"undefined"` cuando no
+  // hay argumentos. JSON.parse('null') devuelve null, lo cual rompe cualquier
+  // handler que haga `args.foo`. Forzamos a un objeto vacío en esos casos.
   let args: Record<string, unknown>
   try {
-    args = call.function.arguments ? JSON.parse(call.function.arguments) : {}
+    const raw = call.function.arguments
+    const parsed = raw ? JSON.parse(raw) : {}
+    args = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
   } catch {
     return { ok: false, error: 'Argumentos JSON inválidos' }
   }
@@ -194,6 +204,27 @@ async function searchMemory(ctx: ToolContext, args: Record<string, unknown>): Pr
   const limit = (args.limit as number | undefined) ?? 5
   if (!query) return { ok: false, error: 'Falta query' }
 
+  // Búsqueda semántica si hay OPENAI_API_KEY; fallback a ILIKE
+  try {
+    const vec = await embedText(query)
+    const { data, error } = await ctx.db.rpc('search_agent_memory', {
+      p_agent_id: ctx.agentId,
+      p_embedding: JSON.stringify(vec),
+      p_limit: limit,
+    })
+    if (!error && data && data.length > 0) {
+      return {
+        ok: true,
+        data: {
+          matches: data,
+          method: 'semantic',
+        },
+      }
+    }
+  } catch {
+    // Sin OPENAI_API_KEY o falla el embed → caemos al fallback
+  }
+
   const { data, error } = await ctx.db
     .from('agent_memory')
     .select('id, kind, content, created_at')
@@ -207,6 +238,7 @@ async function searchMemory(ctx: ToolContext, args: Record<string, unknown>): Pr
     ok: true,
     data: {
       matches: data ?? [],
+      method: 'keyword',
       note: (data ?? []).length === 0 ? 'No se encontraron memorias para esa búsqueda.' : undefined,
     },
   }
@@ -747,6 +779,148 @@ async function shopifyShopSummary(
   }
 }
 
+// =====================================================================
+// Brain · query_brain
+// =====================================================================
+
+async function queryBrain(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const query = (args.query as string)?.trim()
+  if (!query) return { ok: false, error: 'Falta query' }
+  if (!ctx.brandId) return { ok: false, error: 'Este agente no está asociado a una marca' }
+
+  try {
+    const result = await runQueryPipeline(
+      {
+        brandId:      ctx.brandId,
+        query,
+        limit:        (args.limit      as number  | undefined),
+        sourceKind:   (args.source_kind as string  | undefined),
+        minScore:     (args.min_score   as number  | undefined),
+        includeGraph: true,
+      },
+      ctx.db,
+    )
+
+    return { ok: true, data: formatForAgent(result) }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+// =====================================================================
+// Brain · ingest_document
+// =====================================================================
+
+async function ingestDocumentTool(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const title = (args.title as string)?.trim()
+  const content = (args.content as string)?.trim()
+  const sourceKind = (args.source_kind as string) || 'manual'
+  const sourceUri = args.source_uri as string | undefined
+
+  if (!title || !content) return { ok: false, error: 'Faltan title o content' }
+  if (!ctx.brandId) return { ok: false, error: 'Este agente no está asociado a una marca' }
+
+  try {
+    const { data: brand } = await ctx.db
+      .from('brands')
+      .select('name')
+      .eq('id', ctx.brandId)
+      .maybeSingle()
+
+    const result = await ingestDocument({
+      db: ctx.db,
+      brandId: ctx.brandId,
+      brandName: brand?.name ?? 'la marca',
+      title,
+      content,
+      sourceKind,
+      sourceUri,
+      agentId: ctx.agentId,
+    })
+
+    return {
+      ok: true,
+      data: {
+        document_id: result.documentId,
+        chunks_created: result.chunksCreated,
+        entities_created: result.entitiesCreated,
+        relations_created: result.relationsCreated,
+        duration_ms: result.durationMs,
+      },
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+// =====================================================================
+// Brain · create_agent (solo CEO Global)
+// =====================================================================
+
+async function createAgentTool(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const name = (args.name as string)?.trim()
+  const slug = (args.slug as string)?.trim()
+  const role = args.role as string
+  const specialty = (args.specialty as string) || ''
+  const brandId = (args.brand_id as string) || null
+  const parentAgentId = (args.parent_agent_id as string) || ctx.agentId
+  const systemPrompt = (args.system_prompt as string)?.trim()
+  const allowedTools = (args.allowed_tools as string[]) || []
+  const model = (args.model as string) || 'llama-3.3-70b-versatile'
+  const justification = (args.justification as string)?.trim()
+
+  if (!name || !slug || !systemPrompt || !justification) {
+    return { ok: false, error: 'Faltan campos: name, slug, system_prompt, justification' }
+  }
+  if (!['specialist', 'brand_manager'].includes(role)) {
+    return { ok: false, error: 'role debe ser specialist o brand_manager' }
+  }
+
+  // Verificar que quien llama es CEO Global
+  const { data: caller } = await ctx.db
+    .from('agents')
+    .select('role')
+    .eq('id', ctx.agentId)
+    .maybeSingle()
+  if (caller?.role !== 'ceo_global') {
+    return { ok: false, error: 'create_agent solo puede usarlo el CEO Global' }
+  }
+
+  const summary = `Crear agente "${name}" (${role}${specialty ? ' · ' + specialty : ''}). Justificación: ${justification}`
+
+  const { data: approval, error: aErr } = await ctx.db
+    .from('approvals')
+    .insert({
+      agent_id: ctx.agentId,
+      task_id: ctx.taskId ?? null,
+      brand_id: brandId ?? ctx.brandId ?? null,
+      trigger: 'structural',
+      summary,
+      payload: {
+        tool_name: 'create_agent',
+        args: { name, slug, role, specialty, brand_id: brandId, parent_agent_id: parentAgentId, system_prompt: systemPrompt, allowed_tools: allowedTools, model },
+      },
+      status: 'pending',
+    })
+    .select('id')
+    .single()
+  if (aErr) return { ok: false, error: aErr.message }
+
+  if (ctx.taskId) {
+    await ctx.db.from('tasks').update({ status: 'blocked' }).eq('id', ctx.taskId)
+  }
+
+  return {
+    ok: true,
+    data: {
+      approval_id: approval.id,
+      status: 'pending',
+      note: `Solicitud de creación del agente "${name}" enviada a la Junta. Cuando sea aprobada, el agente quedará activo automáticamente.`,
+    },
+    side_effect: { kind: 'approval_created', id: approval.id },
+  }
+}
+
 const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>) => Promise<ToolResult>> = {
   delegate_task: delegateTask,
   request_approval: requestApproval,
@@ -763,4 +937,7 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   shopify_adjust_inventory: shopifyAdjustInventoryHandler,
   generate_image: generateImage,
   web_search: webSearch,
+  query_brain: queryBrain,
+  ingest_document: ingestDocumentTool,
+  create_agent: createAgentTool,
 }
