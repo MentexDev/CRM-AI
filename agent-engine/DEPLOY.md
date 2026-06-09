@@ -83,8 +83,9 @@ poll()
 ```
 
 ## Notas de producción
-- El store de corridas es **en memoria** (se pierde al reiniciar y no escala a varias
-  instancias). Para producción: guardar `runs` en una tabla de Supabase y que la UI
-  lea de ahí (también persiste el historial).
+- **Persistencia de corridas:** híbrida — memoria (rápido para el polling) + Supabase
+  (tabla `agent_runs` vía Edge Function `agent-run`). Si el motor reinicia, `GET /runs/{id}`
+  cae a la BD; las corridas y su historial sobreviven. Una corrida `running` más vieja
+  que 15 min se asume caída (el motor reinició a mitad).
 - Restringe `allow_origins` del CORS al dominio real de la UI.
-- Sube a un modelo fuerte en tool-calling (Claude / gpt-4o) para corridas sin bucle.
+- (Opcional) modelo más fuerte en tool-calling vía `MODEL` (p.ej. `openrouter/anthropic/claude-sonnet-4.5`).
