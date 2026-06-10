@@ -99,7 +99,7 @@ export default function Biblioteca() {
         <EmptyState
           icon={Library}
           title="Biblioteca vacía"
-          description="Aquí vivirá todo lo que producen los agentes: campañas del Motor y entregables de tareas. Lanza una corrida del Motor o completa una tarea y aparecerá aquí."
+          description="Aquí vivirá el contenido que producen los agentes: campañas, y más adelante imágenes, videos y piezas. Lanza una corrida del Motor y aparecerá aquí."
         />
       </div>
     )
@@ -117,7 +117,7 @@ export default function Biblioteca() {
             <Library className="w-5 h-5 text-nina-silver" /> Biblioteca
           </h2>
           <p className="text-sm text-nina-mute">
-            Todo lo que producen los agentes — campañas del Motor y entregables de tareas.
+            Campañas y contenido producido por los agentes.
           </p>
         </div>
       </header>
@@ -208,7 +208,7 @@ export default function Biblioteca() {
               Nada coincide con el filtro.
             </div>
           ) : view === 'grid' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {visible.map((a) => (
                 <AssetCard key={a.id} asset={a} sourceLabel={sourceLabel(a)} onOpen={() => setSelected(a)} />
               ))}
@@ -296,20 +296,33 @@ function AssetCard({ asset, sourceLabel, onOpen }) {
       onClick={onOpen}
       className="panel overflow-hidden text-left group hover:border-nina-silver/30 transition"
     >
-      <div className="aspect-[16/10] grid place-items-center bg-gradient-to-br from-nina-line/30 to-nina-ink/70 relative">
-        <Icon className={`w-9 h-9 ${m.color} opacity-80 group-hover:scale-105 transition`} />
-        <span className="absolute top-2 left-2 chip !px-2 !py-0.5 text-[10px] bg-nina-ink/70 border-nina-line text-nina-mute">
+      {/* Preview del contenido (vista de lo que hay adentro) */}
+      <div className="aspect-[4/3] relative overflow-hidden bg-nina-ink/50 border-b border-nina-line/40">
+        <span className="absolute top-2 left-2 z-10 chip !px-2 !py-0.5 text-[10px] bg-nina-ink/80 border-nina-line text-nina-mute">
           {m.label}
         </span>
+        {asset.content ? (
+          <div
+            className="absolute inset-0 px-3 pt-9 pb-2 text-[8.5px] leading-[1.5] text-nina-mute/70 whitespace-pre-wrap overflow-hidden group-hover:text-nina-mute transition-colors"
+            style={{
+              maskImage: 'linear-gradient(to bottom, black 55%, transparent)',
+              WebkitMaskImage: 'linear-gradient(to bottom, black 55%, transparent)',
+            }}
+          >
+            {asset.content}
+          </div>
+        ) : (
+          <div className="absolute inset-0 grid place-items-center">
+            <Icon className={`w-8 h-8 ${m.color} opacity-70`} />
+          </div>
+        )}
       </div>
-      <div className="p-3 space-y-1.5">
-        <div className="text-[13px] text-nina-chrome font-medium line-clamp-2 leading-snug">{asset.title}</div>
-        <div className="flex items-center gap-1.5 text-[11px] text-nina-mute">
-          <span className={`w-1.5 h-1.5 rounded-full ${m.dot}`} />
+      <div className="p-2.5 space-y-1">
+        <div className="text-[12px] text-nina-chrome font-medium line-clamp-2 leading-snug">{asset.title}</div>
+        <div className="flex items-center gap-1 text-[10px] text-nina-mute">
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.dot}`} />
           <span className="truncate">{sourceLabel}</span>
-          <span>·</span>
-          <span className="shrink-0">{formatBytes(asset.size_bytes)}</span>
-          <span>·</span>
+          <span className="shrink-0">·</span>
           <span className="shrink-0">{formatTimeAgo(asset.created_at)}</span>
         </div>
       </div>
