@@ -99,5 +99,51 @@ export function useAgentEngine() {
     setRunId(null)
   }, [stop])
 
-  return { configured, status, result, error, runId, run, reset }
+  // Historial: últimas corridas (de agent_runs vía el proxy).
+  const listRuns = useCallback(async (limit = 8) => {
+    if (!supabase) return []
+    try {
+      const { data, error: err } = await supabase.functions.invoke('run-engine', {
+        body: { action: 'list', limit },
+      })
+      if (err) throw err
+      return data?.runs || []
+    } catch {
+      return []
+    }
+  }, [])
+
+  // Abrir una corrida pasada: si sigue corriendo la seguimos; si terminó, traemos su resultado.
+  const openRun = useCallback(
+    async (runMeta) => {
+      if (!supabase) return
+      stop()
+      failsRef.current = 0
+      setRunId(runMeta.id)
+      setError(null)
+      setResult(null)
+      setStatus('running')
+      try {
+        const { data, error: err } = await supabase.functions.invoke('run-engine', {
+          body: { action: 'status', run_id: runMeta.id },
+        })
+        if (err) throw err
+        if (data.status === 'running') {
+          poll(runMeta.id)
+        } else if (data.status === 'done') {
+          setResult(data.result)
+          setStatus('done')
+        } else {
+          setError(data.error || 'La corrida terminó con error')
+          setStatus('error')
+        }
+      } catch (e) {
+        setError(e?.message || String(e))
+        setStatus('error')
+      }
+    },
+    [poll, stop],
+  )
+
+  return { configured, status, result, error, runId, run, reset, listRuns, openRun }
 }

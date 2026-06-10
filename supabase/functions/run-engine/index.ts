@@ -54,6 +54,16 @@ Deno.serve(async (req) => {
   const headers = { 'Content-Type': 'application/json', 'X-Engine-Key': engineKey }
 
   try {
+    if (action === 'list') {
+      // Historial: no va al motor, sino a la BD (Edge Function agent-run).
+      const r = await fetch(`${supabaseUrl}/functions/v1/agent-run`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${anonKey}`, apikey: anonKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list', limit: (body.limit as number | undefined) ?? 10 }),
+      })
+      return passthrough(r)
+    }
+
     if (action === 'start') {
       const directive = (body.directive as string | undefined)?.trim()
       if (!directive) return json({ error: 'Falta directive' }, 400)

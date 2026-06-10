@@ -1,19 +1,49 @@
-import { useEffect, useState } from 'react'
-import { Cpu, Loader2, Sparkles, AlertTriangle, RotateCcw } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Cpu, Loader2, Sparkles, AlertTriangle, RotateCcw, History } from 'lucide-react'
 import Modal from './Modal'
 import { useAgentEngine } from '../hooks/useAgentEngine'
 
-// Lanza una corrida del motor agéntico (CrewAI en la nube) y muestra el resultado.
-// El motor orquesta el equipo CEO → Brand Manager NINA → Creador con el Brain,
-// memoria y acciones reales como herramientas.
-export default function AgentEngineModal({ open, onClose }) {
-  const { configured, status, result, error, runId, run, reset } = useAgentEngine()
-  const [directive, setDirective] = useState(
-    'Quiero impulsar las ventas de NINA para el Día de la Madre con una mini-campaña de contenido.',
-  )
-  const [elapsed, setElapsed] = useState(0)
+const DEFAULT_DIRECTIVE =
+  'Quiero impulsar las ventas de NINA para el Día de la Madre con una mini-campaña de contenido.'
 
-  // Contador de segundos mientras corre (feedback de que sigue trabajando).
+// Tiempo relativo corto ("hace 5 min", "ayer", "10 jun").
+function relTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const diff = (Date.now() - d.getTime()) / 1000
+  if (diff < 60) return 'ahora'
+  if (diff < 3600) return `hace ${Math.floor(diff / 60)} min`
+  if (diff < 86400) return `hace ${Math.floor(diff / 3600)} h`
+  return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })
+}
+
+const STATUS_DOT = {
+  running: 'bg-amber-400 animate-pulse',
+  done: 'bg-emerald-400',
+  error: 'bg-red-400',
+}
+
+// Lanza una corrida del motor agéntico (CrewAI en la nube), muestra el resultado
+// y el historial de corridas pasadas (persistidas en agent_runs).
+export default function AgentEngineModal({ open, onClose }) {
+  const { configured, status, result, error, runId, run, reset, listRuns, openRun } = useAgentEngine()
+  const [directive, setDirective] = useState(DEFAULT_DIRECTIVE)
+  const [elapsed, setElapsed] = useState(0)
+  const [history, setHistory] = useState([])
+
+  const refreshHistory = useCallback(async () => {
+    setHistory(await listRuns(8))
+  }, [listRuns])
+
+  // Cargar historial al abrir y cada vez que una corrida termina.
+  useEffect(() => {
+    if (open) refreshHistory()
+  }, [open, refreshHistory])
+  useEffect(() => {
+    if (status === 'done' || status === 'error') refreshHistory()
+  }, [status, refreshHistory])
+
+  // Contador de segundos mientras corre.
   useEffect(() => {
     if (status !== 'running') return
     setElapsed(0)
@@ -26,16 +56,15 @@ export default function AgentEngineModal({ open, onClose }) {
     if (directive.trim() && status !== 'running') run(directive.trim())
   }
 
-  // Al cerrar NO reseteamos: la corrida sigue en la nube y el polling continúa
-  // (este componente queda montado), así al reabrir ves el progreso/resultado.
-  const close = () => {
-    onClose()
+  const openHistoryRun = (h) => {
+    setDirective(h.directive)
+    openRun(h)
   }
 
   const running = status === 'running'
 
   return (
-    <Modal open={open} onClose={close} title="Motor agéntico · nube" maxWidth="max-w-2xl">
+    <Modal open={open} onClose={onClose} title="Motor agéntico · nube" maxWidth="max-w-2xl">
       <div className="space-y-4">
         <div className="flex items-start gap-2.5 text-[12px] text-nina-mute">
           <Cpu className="w-4 h-4 mt-0.5 shrink-0 text-nina-chrome" />
@@ -67,7 +96,7 @@ export default function AgentEngineModal({ open, onClose }) {
           </div>
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] text-nina-mute">
-              {runId ? `run ${runId.slice(0, 8)}…` : 'Una corrida tarda ~1–2 min'}
+              {runId ? `run ${runId.slice(0, 8)}…` : 'Una corrida tarda ~2–4 min'}
             </span>
             <div className="flex items-center gap-2">
               {(status === 'done' || status === 'error') && (
@@ -107,8 +136,33 @@ export default function AgentEngineModal({ open, onClose }) {
         {status === 'done' && (
           <div className="space-y-1.5">
             <div className="text-[11px] uppercase tracking-[0.2em] text-nina-mute">Resultado</div>
-            <div className="max-h-[42vh] overflow-y-auto rounded-lg border border-nina-line bg-nina-ink/40 px-3 py-2.5 text-[13px] text-nina-chrome whitespace-pre-wrap leading-relaxed">
+            <div className="max-h-[38vh] overflow-y-auto rounded-lg border border-nina-line bg-nina-ink/40 px-3 py-2.5 text-[13px] text-nina-chrome whitespace-pre-wrap leading-relaxed">
               {result}
+            </div>
+          </div>
+        )}
+
+        {/* Historial de corridas */}
+        {history.length > 0 && (
+          <div className="space-y-1.5 pt-1">
+            <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] text-nina-mute">
+              <History className="w-3.5 h-3.5" /> Historial
+            </div>
+            <div className="rounded-lg border border-nina-line divide-y divide-nina-line/60 overflow-hidden">
+              {history.map((h) => (
+                <button
+                  key={h.id}
+                  onClick={() => openHistoryRun(h)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition hover:bg-nina-line/30 ${
+                    h.id === runId ? 'bg-nina-line/30' : ''
+                  }`}
+                  title={h.directive}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[h.status] ?? 'bg-nina-mute'}`} />
+                  <span className="flex-1 min-w-0 truncate text-[12.5px] text-nina-chrome">{h.directive}</span>
+                  <span className="shrink-0 text-[11px] text-nina-mute">{relTime(h.created_at)}</span>
+                </button>
+              ))}
             </div>
           </div>
         )}

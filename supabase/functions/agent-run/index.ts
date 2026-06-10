@@ -5,6 +5,7 @@
 //   action: "create" { run_id, directive }            → inserta (status running)
 //   action: "finish" { run_id, status, result, error } → actualiza el resultado
 //   action: "get"    { run_id }                        → devuelve la corrida
+//   action: "list"   { limit }                         → últimas corridas (historial)
 //
 // Autocontenida, verify_jwt=false. Usa service_role (RLS no aplica).
 // =====================================================================
@@ -29,7 +30,6 @@ Deno.serve(async (req) => {
 
   const action = (body.action as string | undefined)?.trim()
   const runId = (body.run_id as string | undefined)?.trim()
-  if (!runId) return json({ error: 'Falta run_id' }, 400)
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
@@ -39,6 +39,19 @@ Deno.serve(async (req) => {
   })
 
   try {
+    if (action === 'list') {
+      const limit = Math.min((body.limit as number | undefined) ?? 10, 50)
+      const { data, error } = await db
+        .from('agent_runs')
+        .select('id, directive, status, created_at, updated_at')
+        .order('created_at', { ascending: false })
+        .limit(limit)
+      if (error) return json({ ok: false, error: error.message }, 422)
+      return json({ ok: true, action, runs: data ?? [] })
+    }
+
+    if (!runId) return json({ error: 'Falta run_id' }, 400)
+
     if (action === 'create') {
       const directive = (body.directive as string | undefined)?.trim()
       if (!directive) return json({ error: 'Falta directive' }, 400)
@@ -78,7 +91,7 @@ Deno.serve(async (req) => {
       return json({ ok: true, action, found: true, run: data })
     }
 
-    return json({ error: "action debe ser 'create', 'finish' o 'get'" }, 400)
+    return json({ error: "action debe ser 'create', 'finish', 'get' o 'list'" }, 400)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[agent-run] Error:', message)
