@@ -21,7 +21,6 @@ import {
   X,
 } from 'lucide-react'
 import TopBar from '../../components/TopBar'
-import Logo from '../../components/Logo'
 import { ConversationMenu } from '../../components/ConversationMenu'
 import SettingsModal from '../../components/SettingsModal'
 import { useAuth } from '../../context/AuthContext'
@@ -411,6 +410,32 @@ function SidebarBrandFooter({ collapsed }) {
   )
 }
 
+// Marca: (logo) · (logo2). Centrados con items-center (mismo eje), logo1 entra
+// desde abajo y logo2 desde arriba. Reusado en sidebar desktop y menú mobile.
+function BrandLogos() {
+  return (
+    <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+      <motion.img
+        src="/logo-crm.png"
+        alt="CRM"
+        initial={{ opacity: 0, y: 22 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.7, ease: 'easeOut', delay: 0.05 }}
+        className="h-[2.6rem] w-auto object-contain block"
+      />
+      <span className="silver-text-static font-display font-bold text-xl leading-none">·</span>
+      <motion.img
+        src="/log-crm2.png"
+        alt="Mentex"
+        initial={{ opacity: 0, y: -22 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.7, ease: 'easeOut', delay: 0.05 }}
+        className="h-[1.7rem] w-auto object-contain block"
+      />
+    </div>
+  )
+}
+
 function SidebarHeader({ collapsed, onToggle }) {
   if (collapsed) {
     // Colapsado: muestra la "A" del favicon; en hover aparece el icono de
@@ -433,22 +458,10 @@ function SidebarHeader({ collapsed, onToggle }) {
       </div>
     )
   }
-  // Expandido: logo + "· CRM", y el icono de panel para ocultar el sidebar.
+  // Expandido: (logo) · (logo2). logo1 sube desde abajo; logo2 baja desde arriba.
   return (
     <div className="px-4 py-4 border-b border-nina-line flex items-center justify-between gap-3">
-      <div className="flex items-end gap-1 min-w-0 overflow-hidden">
-        <motion.img
-          src="/logo-crm.png"
-          alt="CRM AI"
-          initial={{ opacity: 0, y: 22 }}
-          animate={{ opacity: 1, y: 3 }}
-          transition={{ duration: 0.7, ease: 'easeOut', delay: 0.05 }}
-          className="h-8 w-auto object-contain block"
-        />
-        <span className="silver-text-static font-display font-bold tracking-[0.18em] text-lg leading-none pb-2">
-          · CRM
-        </span>
-      </div>
+      <BrandLogos />
       <button
         onClick={onToggle}
         className="w-8 h-8 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30 transition shrink-0"
@@ -519,7 +532,7 @@ export default function AdminLayout() {
               style={{ paddingTop: 'env(safe-area-inset-top)' }}
             >
               <div className="px-5 py-5 border-b border-nina-line flex items-center justify-between">
-                <Logo size="sm" subtitle={false} text />
+                <BrandLogos />
                 <button
                   onClick={() => setDrawerOpen(false)}
                   className="btn-ghost !p-2"
