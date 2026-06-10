@@ -10,6 +10,11 @@ export function useAgentEngine() {
   const [error, setError] = useState(null)
   const [runId, setRunId] = useState(null)
   const pollRef = useRef(null)
+  const failsRef = useRef(0) // fallos de red consecutivos en el polling
+
+  // Tolerancia a parpadeos de internet: reintenta el polling varias veces antes
+  // de marcar error (la corrida sigue en el servidor durante el corte).
+  const MAX_POLL_FAILS = 6
 
   const configured = Boolean(supabase)
 
@@ -29,6 +34,7 @@ export function useAgentEngine() {
           body: { action: 'status', run_id: id },
         })
         if (err) throw err
+        failsRef.current = 0 // conexión OK
         if (data.status === 'running') {
           poll(id)
           return
@@ -41,8 +47,17 @@ export function useAgentEngine() {
           setStatus('error')
         }
       } catch (e) {
-        setError(e?.message || String(e))
-        setStatus('error')
+        // Parpadeo de red: reintentamos sin marcar error hasta agotar el margen.
+        failsRef.current += 1
+        if (failsRef.current < MAX_POLL_FAILS) {
+          poll(id)
+        } else {
+          setError(
+            'Se perdió la conexión con el motor. La corrida puede seguir en la nube; ' +
+              'reabre el modal en un momento para ver el resultado.',
+          )
+          setStatus('error')
+        }
       }
     }, 3000)
   }, [])
@@ -55,6 +70,7 @@ export function useAgentEngine() {
         return
       }
       stop()
+      failsRef.current = 0
       setStatus('running')
       setResult(null)
       setError(null)
