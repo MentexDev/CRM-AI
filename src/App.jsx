@@ -6,6 +6,7 @@ import AdminLayout from './pages/admin/AdminLayout'
 import Agents from './pages/admin/Agents'
 import Tasks from './pages/admin/Tasks'
 import Approvals from './pages/admin/Approvals'
+import Biblioteca from './pages/admin/Biblioteca'
 import Brands from './pages/admin/Brands'
 import Team from './pages/admin/Team'
 
@@ -73,6 +74,7 @@ export default function App() {
         <Route path="agentes/:slug" element={<Agents />} />
         <Route path="tareas" element={<Tasks />} />
         <Route path="aprobaciones" element={<Approvals />} />
+        <Route path="biblioteca" element={<Biblioteca />} />
         <Route path="marcas" element={<Brands />} />
         <Route path="equipo" element={<Team />} />
       </Route>

@@ -8,6 +8,24 @@ export const fmtCOP = (n) =>
 export const fmtNumber = (n) =>
   new Intl.NumberFormat('es-CO').format(Number(n) || 0)
 
+export const formatBytes = (bytes) => {
+  const n = Number(bytes) || 0
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+export const formatTimeAgo = (ts) => {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const diff = (Date.now() - d.getTime()) / 1000
+  if (diff < 60) return 'hace un momento'
+  if (diff < 3600) return `hace ${Math.floor(diff / 60)} min`
+  if (diff < 86400) return `hace ${Math.floor(diff / 3600)} h`
+  if (diff < 86400 * 7) return `hace ${Math.floor(diff / 86400)} d`
+  return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })
+}
+
 export const fmtDate = (d) =>
   new Intl.DateTimeFormat('es-CO', {
     day: '2-digit',

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Cpu, Loader2, Sparkles, AlertTriangle, RotateCcw, History } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Cpu, Loader2, Sparkles, AlertTriangle, RotateCcw, History, ArrowRight } from 'lucide-react'
 import Modal from './Modal'
 import { useAgentEngine } from '../hooks/useAgentEngine'
 
@@ -26,13 +27,15 @@ const STATUS_DOT = {
 // Lanza una corrida del motor agéntico (CrewAI en la nube), muestra el resultado
 // y el historial de corridas pasadas (persistidas en agent_runs).
 export default function AgentEngineModal({ open, onClose }) {
+  const navigate = useNavigate()
   const { configured, status, result, error, runId, run, reset, listRuns, openRun } = useAgentEngine()
   const [directive, setDirective] = useState(DEFAULT_DIRECTIVE)
   const [elapsed, setElapsed] = useState(0)
   const [history, setHistory] = useState([])
 
+  // Solo las últimas 2 corridas (vista rápida). El historial completo va en Biblioteca.
   const refreshHistory = useCallback(async () => {
-    setHistory(await listRuns(8))
+    setHistory(await listRuns(2))
   }, [listRuns])
 
   // Cargar historial al abrir y cada vez que una corrida termina.
@@ -145,8 +148,20 @@ export default function AgentEngineModal({ open, onClose }) {
         {/* Historial de corridas */}
         {history.length > 0 && (
           <div className="space-y-1.5 pt-1">
-            <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] text-nina-mute">
-              <History className="w-3.5 h-3.5" /> Historial
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] text-nina-mute">
+                <History className="w-3.5 h-3.5" /> Historial
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose()
+                  navigate('/admin/biblioteca')
+                }}
+                className="flex items-center gap-1 text-[11px] text-nina-mute hover:text-nina-chrome transition"
+              >
+                Ver todo en Biblioteca <ArrowRight className="w-3 h-3" />
+              </button>
             </div>
             <div className="rounded-lg border border-nina-line divide-y divide-nina-line/60 overflow-hidden">
               {history.map((h) => (

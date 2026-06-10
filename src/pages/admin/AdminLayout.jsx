@@ -7,6 +7,7 @@ import {
   Check,
   CheckCircle2,
   Crown,
+  Library,
   ListFilter,
   ListTodo,
   LogOut,
@@ -223,6 +224,7 @@ const tabs = [
   { to: '/admin/agentes', icon: Bot, label: 'Agentes' },
   { to: '/admin/tareas', icon: ListTodo, label: 'Tareas' },
   { to: '/admin/aprobaciones', icon: CheckCircle2, label: 'Aprobaciones' },
+  { to: '/admin/biblioteca', icon: Library, label: 'Biblioteca' },
   { to: '/admin/marcas', icon: Sparkles, label: 'Marcas' },
   { to: '/admin/equipo', icon: Users, label: 'Equipo' },
 ]
