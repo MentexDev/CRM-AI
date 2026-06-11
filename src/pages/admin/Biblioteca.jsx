@@ -51,8 +51,7 @@ export default function Biblioteca() {
     return m
   }, [agents])
 
-  const sourceLabel = (a) =>
-    a.source === 'motor' ? 'Motor' : agentsById[a.agent_id]?.name ?? 'Agente'
+  const sourceLabel = (a) => agentsById[a.agent_id]?.name ?? 'Agente'
 
   // ── KPIs ──────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -99,7 +98,7 @@ export default function Biblioteca() {
         <EmptyState
           icon={Library}
           title="Biblioteca vacía"
-          description="Aquí vivirá el contenido que producen los agentes: campañas, y más adelante imágenes, videos y piezas. Lanza una corrida del Motor y aparecerá aquí."
+          description="Aquí vivirá el contenido que producen los agentes: campañas, y más adelante imágenes, videos y piezas. Aparecerá aquí en cuanto los agentes lo generen."
         />
       </div>
     )

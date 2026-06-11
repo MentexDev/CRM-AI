@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Cpu,
   Crown,
   Database,
   Globe,
@@ -51,7 +50,6 @@ import { useAuth } from '../../context/AuthContext'
 import { useConfirm } from '../../components/ConfirmDialog'
 import EmptyState from '../../components/EmptyState'
 import Modal from '../../components/Modal'
-import AgentEngineModal from '../../components/AgentEngineModal'
 import NewAgentModal from '../../components/NewAgentModal'
 import AgentActionsMenu from '../../components/AgentActionsMenu'
 import ToolResultBubble from '../../components/ToolResultBubble'
@@ -296,7 +294,6 @@ function AgentWorkspace({
   onNewTask,
 }) {
   const [view, setView] = useState('main')
-  const [engineOpen, setEngineOpen] = useState(false)
   const { tasks } = useAgentTasks(agent.id)
   const { conversations } = useConversations({ agentId: agent.id })
   const activeConv = conversations.find((c) => c.id === conversationId) ?? null
@@ -359,14 +356,6 @@ function AgentWorkspace({
         {/* Acciones a la derecha — sin borde, solo en hover */}
         <div className="flex items-center gap-1.5 shrink-0">
           <button
-            onClick={() => setEngineOpen(true)}
-            className="flex items-center gap-1.5 py-2 px-3 rounded-lg text-[12px] text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
-            title="Ejecutar el equipo en el motor agéntico (nube)"
-          >
-            <Cpu className="w-4 h-4" />
-            <span className="hidden sm:inline">Motor</span>
-          </button>
-          <button
             onClick={onRunTick}
             disabled={running}
             className="flex items-center gap-1.5 py-2 px-3 rounded-lg text-[12px] text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition disabled:opacity-50"
@@ -418,10 +407,7 @@ function AgentWorkspace({
         {view === 'config' && (
           <ConfigTab agentId={agent.id} agentBasic={agent} isJunta={isJunta} onEdit={onEdit} />
         )}
-      </div>
-
-      <AgentEngineModal open={engineOpen} onClose={() => setEngineOpen(false)} />
-    </div>
+      </div>    </div>
   )
 }
 

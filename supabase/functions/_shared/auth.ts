@@ -1,10 +1,10 @@
 // =====================================================================
 // _shared/auth.ts — Guardia de autenticación para Edge Functions
-// máquina-a-máquina (motor agéntico ↔ Supabase).
+// máquina-a-máquina (cron/heartbeat ↔ Supabase).
 //
-// El motor (Railway) y el proxy run-engine llaman a estas funciones con la
-// cabecera `X-Engine-Key`, cuyo valor vive SOLO en los secrets de Supabase y
-// de Railway (nunca en el navegador). Sin esa clave —o si no coincide— se
+// Los llamadores internos (cron/heartbeat) llaman a estas funciones con la
+// cabecera `X-Engine-Key`, cuyo valor vive SOLO en los secrets de Supabase
+// (nunca en el navegador). Sin esa clave —o si no coincide— se
 // rechaza con 401. Si la clave no está configurada en el entorno de la
 // función, se rechaza con 503 (fail-closed: NUNCA se sirve sin verificar).
 //

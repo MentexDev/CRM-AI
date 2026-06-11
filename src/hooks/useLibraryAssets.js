@@ -4,7 +4,7 @@ import { withAuthRetry } from '../lib/supabaseQuery'
 
 const FETCH_TIMEOUT = 15000
 
-// Entregables de los agentes (campañas del Motor + tareas hechas), de library_assets.
+// Entregables de los agentes (campañas + tareas hechas), de library_assets.
 export function useLibraryAssets() {
   const [assets, setAssets] = useState([])
   const [loading, setLoading] = useState(true)
