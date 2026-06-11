@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   Bot,
+  Brain,
   Calculator,
   Check,
   CheckCircle2,
@@ -231,7 +232,7 @@ const WORKSPACES = [
 
 // Rutas que pertenecen a cada workspace (para saber cuál está activo).
 const WORKSPACE_ROUTES = {
-  agentes: ['/admin/agentes', '/admin/tareas', '/admin/aprobaciones', '/admin/biblioteca', '/admin/marcas'],
+  agentes: ['/admin/agentes', '/admin/tareas', '/admin/aprobaciones', '/admin/biblioteca', '/admin/cerebro', '/admin/marcas'],
   produccion: ['/admin/produccion'],
   equipo: ['/admin/equipo'],
 }
@@ -249,6 +250,7 @@ const WORKSPACE_NAV = {
     { to: '/admin/tareas', icon: ListTodo, label: 'Tareas' },
     { to: '/admin/aprobaciones', icon: CheckCircle2, label: 'Aprobaciones' },
     { to: '/admin/biblioteca', icon: Library, label: 'Biblioteca' },
+    { to: '/admin/cerebro', icon: Brain, label: 'Cerebro' },
     { to: '/admin/marcas', icon: Sparkles, label: 'Marcas' },
   ],
   produccion: [], // se llenará cuando definamos Producción

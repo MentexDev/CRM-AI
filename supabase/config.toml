@@ -42,3 +42,6 @@ verify_jwt = false
 
 [functions.run-engine]
 verify_jwt = false
+
+[functions.brain-proxy]
+verify_jwt = false
