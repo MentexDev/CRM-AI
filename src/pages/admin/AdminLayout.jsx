@@ -221,24 +221,42 @@ function ConversationHistory({ onNavigate }) {
   )
 }
 
-const tabs = [
-  { to: '/admin/agentes', icon: Bot, label: 'Agentes' },
-  { to: '/admin/tareas', icon: ListTodo, label: 'Tareas' },
-  { to: '/admin/aprobaciones', icon: CheckCircle2, label: 'Aprobaciones' },
-  { to: '/admin/biblioteca', icon: Library, label: 'Biblioteca' },
-  { to: '/admin/marcas', icon: Sparkles, label: 'Marcas' },
+// Workspaces de alto nivel (switcher horizontal estilo Chat/Cowork de Claude).
+// Cada workspace tiene su propio sub-menú abajo.
+const WORKSPACES = [
+  { id: 'agentes', to: '/admin/agentes', icon: Bot, label: 'Agentes' },
+  { id: 'produccion', to: '/admin/produccion', icon: Clapperboard, label: 'Producción' },
+  { id: 'equipo', to: '/admin/equipo', icon: Users, label: 'Equipo' },
 ]
 
-// Switcher horizontal arriba del sidebar (estilo Chat/Cowork de Claude): el
-// activo se expande con label, los demás quedan en icono.
-const SECTIONS = [
-  { to: '/admin/produccion', icon: Clapperboard, label: 'Producción' },
-  { to: '/admin/equipo', icon: Users, label: 'Equipo' },
-]
+// Rutas que pertenecen a cada workspace (para saber cuál está activo).
+const WORKSPACE_ROUTES = {
+  agentes: ['/admin/agentes', '/admin/tareas', '/admin/aprobaciones', '/admin/biblioteca', '/admin/marcas'],
+  produccion: ['/admin/produccion'],
+  equipo: ['/admin/equipo'],
+}
 
-function SectionSwitcher({ collapsed, onSelect }) {
+export function getWorkspace(pathname) {
+  for (const [id, routes] of Object.entries(WORKSPACE_ROUTES)) {
+    if (routes.some((r) => pathname.startsWith(r))) return id
+  }
+  return 'agentes'
+}
+
+// Sub-menú (nav vertical) propio de cada workspace.
+const WORKSPACE_NAV = {
+  agentes: [
+    { to: '/admin/tareas', icon: ListTodo, label: 'Tareas' },
+    { to: '/admin/aprobaciones', icon: CheckCircle2, label: 'Aprobaciones' },
+    { to: '/admin/biblioteca', icon: Library, label: 'Biblioteca' },
+    { to: '/admin/marcas', icon: Sparkles, label: 'Marcas' },
+  ],
+  produccion: [], // se llenará cuando definamos Producción
+  equipo: [],
+}
+
+function SectionSwitcher({ collapsed, active, onSelect }) {
   const navigate = useNavigate()
-  const { pathname } = useLocation()
   const go = (to) => {
     navigate(to)
     onSelect?.()
@@ -247,48 +265,42 @@ function SectionSwitcher({ collapsed, onSelect }) {
   if (collapsed) {
     return (
       <div className="px-2 pt-3 flex flex-col gap-1">
-        {SECTIONS.map((s) => {
-          const active = pathname.startsWith(s.to)
-          return (
-            <button
-              key={s.to}
-              onClick={() => go(s.to)}
-              title={s.label}
-              aria-label={s.label}
-              className={`h-9 grid place-items-center rounded-xl transition ${
-                active
-                  ? 'bg-silver-gradient text-nina-black shadow-chrome'
-                  : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'
-              }`}
-            >
-              <s.icon className="w-4 h-4" />
-            </button>
-          )
-        })}
+        {WORKSPACES.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => go(s.to)}
+            title={s.label}
+            aria-label={s.label}
+            className={`h-9 grid place-items-center rounded-xl transition ${
+              active === s.id
+                ? 'bg-silver-gradient text-nina-black shadow-chrome'
+                : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'
+            }`}
+          >
+            <s.icon className="w-4 h-4" />
+          </button>
+        ))}
       </div>
     )
   }
 
   return (
     <div className="px-3 pt-3 flex gap-1.5">
-      {SECTIONS.map((s) => {
-        const active = pathname.startsWith(s.to)
-        return (
-          <button
-            key={s.to}
-            onClick={() => go(s.to)}
-            title={s.label}
-            className={`flex items-center justify-center gap-2 h-9 rounded-xl overflow-hidden border transition-all duration-300 ease-out ${
-              active
-                ? 'flex-1 px-3 bg-nina-line/50 border-nina-line text-nina-chrome'
-                : 'w-9 px-0 bg-nina-line/15 border-transparent text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35'
-            }`}
-          >
-            <s.icon className="w-4 h-4 shrink-0" />
-            {active && <span className="text-[13px] font-medium whitespace-nowrap">{s.label}</span>}
-          </button>
-        )
-      })}
+      {WORKSPACES.map((s) => (
+        <button
+          key={s.id}
+          onClick={() => go(s.to)}
+          title={s.label}
+          className={`flex items-center justify-center gap-2 h-9 rounded-xl overflow-hidden border transition-all duration-300 ease-out ${
+            active === s.id
+              ? 'flex-1 px-3 bg-nina-line/50 border-nina-line text-nina-chrome'
+              : 'w-9 px-0 bg-nina-line/15 border-transparent text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35'
+          }`}
+        >
+          <s.icon className="w-4 h-4 shrink-0" />
+          {active === s.id && <span className="text-[13px] font-medium whitespace-nowrap">{s.label}</span>}
+        </button>
+      ))}
     </div>
   )
 }
@@ -354,10 +366,11 @@ const INDICATOR = {
   idle: { dot: 'bg-nina-mute', label: 'Conectando…', shadow: '' },
 }
 
-function NavItems({ collapsed, onSelect }) {
+function NavItems({ items, collapsed, onSelect }) {
+  if (!items?.length) return null
   return (
     <nav className={`shrink-0 ${collapsed ? 'px-2' : 'px-2.5'} py-3 space-y-0.5`}>
-      {tabs.map((t) => (
+      {items.map((t) => (
         <NavLink
           key={t.to}
           to={t.to}
@@ -550,6 +563,7 @@ export default function AdminLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const { isJunta } = useAuth()
+  const workspace = getWorkspace(location.pathname)
 
   useEffect(() => {
     setDrawerOpen(false)
@@ -566,15 +580,15 @@ export default function AdminLayout() {
         }`}
       >
         <SidebarHeader collapsed={collapsed} onToggle={toggleCollapsed} />
-        <SectionSwitcher collapsed={collapsed} />
-        <NavItems collapsed={collapsed} />
-        {collapsed ? (
-          <div className="flex-1" />
-        ) : (
+        <SectionSwitcher collapsed={collapsed} active={workspace} />
+        <NavItems items={WORKSPACE_NAV[workspace]} collapsed={collapsed} />
+        {workspace === 'agentes' && !collapsed ? (
           <div className="flex-1 min-h-0 overflow-y-auto border-t border-nina-line/60 mt-1">
             <AgentsNav onNavigate={(to) => navigate(to)} isJunta={isJunta} />
             <ConversationHistory onNavigate={(to) => navigate(to)} />
           </div>
+        ) : (
+          <div className="flex-1" />
         )}
         <SidebarUserBlock collapsed={collapsed} onOpenSettings={() => setSettingsOpen(true)} />
       </aside>
@@ -608,23 +622,27 @@ export default function AdminLayout() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <SectionSwitcher collapsed={false} onSelect={() => setDrawerOpen(false)} />
-              <NavItems collapsed={false} onSelect={() => setDrawerOpen(false)} />
-              <div className="flex-1 min-h-0 overflow-y-auto border-t border-nina-line/60 mt-1">
-                <AgentsNav
-                  onNavigate={(to) => {
-                    navigate(to)
-                    setDrawerOpen(false)
-                  }}
-                  isJunta={isJunta}
-                />
-                <ConversationHistory
-                  onNavigate={(to) => {
-                    navigate(to)
-                    setDrawerOpen(false)
-                  }}
-                />
-              </div>
+              <SectionSwitcher collapsed={false} active={workspace} onSelect={() => setDrawerOpen(false)} />
+              <NavItems items={WORKSPACE_NAV[workspace]} collapsed={false} onSelect={() => setDrawerOpen(false)} />
+              {workspace === 'agentes' ? (
+                <div className="flex-1 min-h-0 overflow-y-auto border-t border-nina-line/60 mt-1">
+                  <AgentsNav
+                    onNavigate={(to) => {
+                      navigate(to)
+                      setDrawerOpen(false)
+                    }}
+                    isJunta={isJunta}
+                  />
+                  <ConversationHistory
+                    onNavigate={(to) => {
+                      navigate(to)
+                      setDrawerOpen(false)
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="flex-1" />
+              )}
               <SidebarUserBlock
                 collapsed={false}
                 onOpenSettings={() => {
