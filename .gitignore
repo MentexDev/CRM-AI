@@ -23,3 +23,9 @@ id_ed25519
 credentials.json
 service-account*.json
 .npmrc
+
+# Graphify: el grafo es un artefacto regenerable (lo mantiene el hook post-commit
+# + `graphify update .`). No se versiona para evitar conflictos de merge entre
+# sesiones paralelas. Solo se versiona la config: .graphifyignore, CLAUDE.md,
+# .claude/settings.json (y los hooks viven en .git/, fuera del control de versiones).
+graphify-out/

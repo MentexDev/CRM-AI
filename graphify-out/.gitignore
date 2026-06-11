@@ -1,8 +1,0 @@
-# Local, pesado o regenerable — no versionar.
-# Se reconstruye con `graphify update .` / `graphify export html`.
-cache/
-graph.html
-manifest.json
-.graphify_python
-.graphify_root
-.needs_update
