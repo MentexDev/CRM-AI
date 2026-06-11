@@ -1,0 +1,35 @@
+# Dependencias y builds (no es código nuestro)
+node_modules/
+dist/
+build/
+.wrangler/
+**/__pycache__/
+**/.venv/
+**/venv/
+*.egg-info/
+
+# Salida del propio Graphify
+graphify-out/
+
+# Lockfiles y binarios
+package-lock.json
+*.lock
+
+# Secretos y entorno (NUNCA al grafo)
+.env
+.env.*
+!.env.example
+
+# Assets estáticos (imágenes, iconos, PWA) — no es lógica
+public/
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.svg
+*.ico
+
+# Ruido del sistema
+.DS_Store
+.git/
