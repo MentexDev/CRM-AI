@@ -8,6 +8,7 @@ import Tasks from './pages/admin/Tasks'
 import Approvals from './pages/admin/Approvals'
 import Biblioteca from './pages/admin/Biblioteca'
 import Brands from './pages/admin/Brands'
+import Produccion from './pages/admin/Produccion'
 import Team from './pages/admin/Team'
 
 function Protected({ children }) {
@@ -75,6 +76,7 @@ export default function App() {
         <Route path="tareas" element={<Tasks />} />
         <Route path="aprobaciones" element={<Approvals />} />
         <Route path="biblioteca" element={<Biblioteca />} />
+        <Route path="produccion" element={<Produccion />} />
         <Route path="marcas" element={<Brands />} />
         <Route path="equipo" element={<Team />} />
       </Route>

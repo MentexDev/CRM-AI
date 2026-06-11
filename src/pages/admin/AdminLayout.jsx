@@ -6,6 +6,7 @@ import {
   Calculator,
   Check,
   CheckCircle2,
+  Clapperboard,
   Crown,
   Library,
   ListFilter,
@@ -226,8 +227,71 @@ const tabs = [
   { to: '/admin/aprobaciones', icon: CheckCircle2, label: 'Aprobaciones' },
   { to: '/admin/biblioteca', icon: Library, label: 'Biblioteca' },
   { to: '/admin/marcas', icon: Sparkles, label: 'Marcas' },
+]
+
+// Switcher horizontal arriba del sidebar (estilo Chat/Cowork de Claude): el
+// activo se expande con label, los demás quedan en icono.
+const SECTIONS = [
+  { to: '/admin/produccion', icon: Clapperboard, label: 'Producción' },
   { to: '/admin/equipo', icon: Users, label: 'Equipo' },
 ]
+
+function SectionSwitcher({ collapsed, onSelect }) {
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const go = (to) => {
+    navigate(to)
+    onSelect?.()
+  }
+
+  if (collapsed) {
+    return (
+      <div className="px-2 pt-3 flex flex-col gap-1">
+        {SECTIONS.map((s) => {
+          const active = pathname.startsWith(s.to)
+          return (
+            <button
+              key={s.to}
+              onClick={() => go(s.to)}
+              title={s.label}
+              aria-label={s.label}
+              className={`h-9 grid place-items-center rounded-xl transition ${
+                active
+                  ? 'bg-silver-gradient text-nina-black shadow-chrome'
+                  : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'
+              }`}
+            >
+              <s.icon className="w-4 h-4" />
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-3 pt-3 flex gap-1.5">
+      {SECTIONS.map((s) => {
+        const active = pathname.startsWith(s.to)
+        return (
+          <button
+            key={s.to}
+            onClick={() => go(s.to)}
+            title={s.label}
+            className={`flex items-center justify-center gap-2 h-9 rounded-xl overflow-hidden border transition-all duration-300 ease-out ${
+              active
+                ? 'flex-1 px-3 bg-nina-line/50 border-nina-line text-nina-chrome'
+                : 'w-9 px-0 bg-nina-line/15 border-transparent text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35'
+            }`}
+          >
+            <s.icon className="w-4 h-4 shrink-0" />
+            {active && <span className="text-[13px] font-medium whitespace-nowrap">{s.label}</span>}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 // Nota: el estado colapsado NO se persiste a propósito — Brandon prefiere
 // que cada refresh arranque con el sidebar colapsado (icon-only) para
@@ -502,6 +566,7 @@ export default function AdminLayout() {
         }`}
       >
         <SidebarHeader collapsed={collapsed} onToggle={toggleCollapsed} />
+        <SectionSwitcher collapsed={collapsed} />
         <NavItems collapsed={collapsed} />
         {collapsed ? (
           <div className="flex-1" />
@@ -543,6 +608,7 @@ export default function AdminLayout() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
+              <SectionSwitcher collapsed={false} onSelect={() => setDrawerOpen(false)} />
               <NavItems collapsed={false} onSelect={() => setDrawerOpen(false)} />
               <div className="flex-1 min-h-0 overflow-y-auto border-t border-nina-line/60 mt-1">
                 <AgentsNav
