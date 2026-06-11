@@ -12,13 +12,14 @@
 // SHOPIFY_STORE_DOMAIN, SHOPIFY_ACCESS_TOKEN, TAVILY_API_KEY.
 // =====================================================================
 import { createClient } from 'jsr:@supabase/supabase-js@^2'
+import { requireEngineKey } from '../_shared/auth.ts'
 
 const SHOPIFY_API_VERSION = '2024-10'
 const INVENTORY_UNIT_THRESHOLD = 20
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-engine-key',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
@@ -138,6 +139,10 @@ async function tavilySearch(query: string, limit: number, depth: string, topic: 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+  // Auth máquina-a-máquina: exige X-Engine-Key (puede ejecutar ajustes reales en Shopify).
+  const denied = requireEngineKey(req)
+  if (denied) return denied
 
   let body: Record<string, unknown>
   try {

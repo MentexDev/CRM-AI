@@ -4,16 +4,21 @@
 // =====================================================================
 import { createClient } from 'jsr:@supabase/supabase-js@^2'
 import { runQueryPipeline, QueryError } from '../_shared/query.ts'
+import { requireEngineKey } from '../_shared/auth.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-engine-key',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'POST')    return json({ error: 'Method not allowed' }, 405)
+
+  // Auth máquina-a-máquina: exige X-Engine-Key (expone la inteligencia de marca con service_role).
+  const denied = requireEngineKey(req)
+  if (denied) return denied
 
   let body: Record<string, unknown>
   try {

@@ -40,8 +40,11 @@ class QueryBrainTool(BaseTool):
     def _run(self, query: str) -> str:
         base = os.environ.get("SUPABASE_URL", "").rstrip("/")
         anon = os.environ.get("SUPABASE_ANON_KEY", "")
+        engine_key = os.environ.get("ENGINE_API_KEY", "")
         if not base or not anon:
             return "[query_brain] Faltan SUPABASE_URL / SUPABASE_ANON_KEY en el entorno."
+        if not engine_key:
+            return "[query_brain] Falta ENGINE_API_KEY (clave interna motor↔Edge Functions)."
         if not self.brand_id:
             return "[query_brain] Esta herramienta no tiene brand_id asignado."
 
@@ -53,6 +56,7 @@ class QueryBrainTool(BaseTool):
                 headers={
                     "Authorization": f"Bearer {anon}",
                     "apikey": anon,
+                    "X-Engine-Key": engine_key,
                     "Content-Type": "application/json",
                 },
                 timeout=30,

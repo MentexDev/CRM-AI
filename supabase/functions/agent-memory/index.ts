@@ -9,6 +9,7 @@
 // Reusa embedText (OpenAI text-embedding-3-small) y el RPC search_agent_memory.
 // =====================================================================
 import { createClient } from 'jsr:@supabase/supabase-js@^2'
+import { requireEngineKey } from '../_shared/auth.ts'
 
 // Embedding inline (OpenAI text-embedding-3-small · 1536 dims) — mantiene la
 // función autocontenida, sin depender de _shared al desplegar.
@@ -27,13 +28,17 @@ async function embedText(text: string): Promise<number[]> {
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-engine-key',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+  // Auth máquina-a-máquina: exige X-Engine-Key (lee/escribe memoria de agentes con service_role).
+  const denied = requireEngineKey(req)
+  if (denied) return denied
 
   let body: Record<string, unknown>
   try {

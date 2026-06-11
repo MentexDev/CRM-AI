@@ -4,8 +4,22 @@ dist-ssr
 *.local
 .env
 .env.local
+.env.*
+!.env.example
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
 .idea
 *.log
+
+# Secretos: certificados, llaves y credenciales (nunca deben commitearse)
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa
+id_ed25519
+credentials.json
+service-account*.json
+.npmrc

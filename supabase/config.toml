@@ -1,0 +1,44 @@
+# =====================================================================
+# Config versionada de las Edge Functions (verify_jwt por función).
+#
+# IMPORTANTE: el control de acceso REAL de las funciones del motor ya no
+# depende de `verify_jwt` de plataforma, sino de la guardia en código:
+#   - Funciones máquina-a-máquina  → exigen la cabecera `X-Engine-Key`
+#     (ver supabase/functions/_shared/auth.ts). El motor (Railway) y el proxy
+#     run-engine envían esa clave; vive sólo en los secrets de Supabase/Railway.
+#   - run-agent-step               → JWT del usuario + rol 'junta' (o X-Engine-Key).
+#   - run-engine / chat-with-agent → verifican el JWT del usuario manualmente.
+#
+# Por eso `verify_jwt = false`: dejamos pasar la request para que NUESTRO código
+# haga la verificación (de lo contrario la plataforma rechazaría antes de correr
+# nuestra guardia, y además el nuevo formato de clave publishable no es un JWT).
+#
+# Si despliegas con el CLI de Supabase (`supabase functions deploy`), este
+# archivo aplica estos flags. Si despliegas por el dashboard, replica el mismo
+# `Verify JWT = false` ahí para estas funciones, y asegúrate de definir el secret
+# ENGINE_API_KEY en el proyecto (Project Settings → Edge Functions → Secrets).
+# =====================================================================
+
+[functions.agent-action]
+verify_jwt = false
+
+[functions.agent-tools]
+verify_jwt = false
+
+[functions.agent-memory]
+verify_jwt = false
+
+[functions.agent-run]
+verify_jwt = false
+
+[functions.query-brain]
+verify_jwt = false
+
+[functions.ingest-document]
+verify_jwt = false
+
+[functions.run-agent-step]
+verify_jwt = false
+
+[functions.run-engine]
+verify_jwt = false

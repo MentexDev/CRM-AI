@@ -58,7 +58,12 @@ Deno.serve(async (req) => {
       // Historial: no va al motor, sino a la BD (Edge Function agent-run).
       const r = await fetch(`${supabaseUrl}/functions/v1/agent-run`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${anonKey}`, apikey: anonKey, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${anonKey}`,
+          apikey: anonKey,
+          'Content-Type': 'application/json',
+          'X-Engine-Key': engineKey,
+        },
         body: JSON.stringify({ action: 'list', limit: (body.limit as number | undefined) ?? 10 }),
       })
       return passthrough(r)

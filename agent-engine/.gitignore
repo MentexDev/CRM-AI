@@ -1,6 +1,16 @@
 .env
+.env.*
+!.env.example
 .venv/
 venv/
 __pycache__/
 *.pyc
 .crewai/
+
+# Secretos: certificados, llaves y credenciales (nunca deben commitearse)
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json

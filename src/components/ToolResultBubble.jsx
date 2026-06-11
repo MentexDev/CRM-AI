@@ -387,11 +387,17 @@ function OrderList({ orders }) {
   )
 }
 
+// Sólo permite http(s). Neutraliza esquemas peligrosos (javascript:, data:)
+// en URLs que vienen de resultados del backend (datos no confiables) — CWE-601/79.
+function safeHref(url) {
+  return /^https?:\/\//i.test(url || '') ? url : '#'
+}
+
 function GeneratedImage({ url, index }) {
   const [state, setState] = useState('loading') // 'loading' | 'loaded' | 'error'
   return (
     <a
-      href={url}
+      href={safeHref(url)}
       target="_blank"
       rel="noopener noreferrer"
       className="group block relative rounded-lg overflow-hidden border border-emerald-500/20 bg-nina-black/40 hover:border-emerald-400/60 transition min-h-[140px]"
@@ -461,7 +467,7 @@ function SearchResultList({ results }) {
       {results.map((r, i) => (
         <a
           key={i}
-          href={r.url}
+          href={safeHref(r.url)}
           target="_blank"
           rel="noopener noreferrer"
           className="block rounded-md bg-nina-black/30 border border-nina-line/40 px-2.5 py-2 hover:border-emerald-400/40 transition group"

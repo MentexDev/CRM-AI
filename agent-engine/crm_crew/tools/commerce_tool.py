@@ -19,14 +19,18 @@ from crewai.tools import BaseTool
 def _post(payload: dict) -> dict:
     base = os.environ.get("SUPABASE_URL", "").rstrip("/")
     anon = os.environ.get("SUPABASE_ANON_KEY", "")
+    engine_key = os.environ.get("ENGINE_API_KEY", "")
     if not base or not anon:
         raise RuntimeError("Faltan SUPABASE_URL / SUPABASE_ANON_KEY")
+    if not engine_key:
+        raise RuntimeError("Falta ENGINE_API_KEY (clave interna motor↔Edge Functions)")
     resp = requests.post(
         f"{base}/functions/v1/agent-tools",
         json=payload,
         headers={
             "Authorization": f"Bearer {anon}",
             "apikey": anon,
+            "X-Engine-Key": engine_key,
             "Content-Type": "application/json",
         },
         timeout=40,

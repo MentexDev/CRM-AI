@@ -9,6 +9,7 @@
 // del usuario logueado en el front como el service_role key.
 //
 // Body acepta `{ agent_id: <uuid> }` o `{ agent_slug: <slug> }`.
+import { createClient } from 'jsr:@supabase/supabase-js@^2'
 import { runAgentStep } from '../_shared/agent_step.ts'
 import { adminDb } from '../_shared/db.ts'
 
@@ -19,8 +20,39 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
+    'authorization, x-client-info, apikey, content-type, x-engine-key',
   'Access-Control-Max-Age': '86400',
+}
+
+// Auth: acepta (a) la clave interna del motor (X-Engine-Key, para curl/heartbeat
+// externo) o (b) un usuario autenticado con rol 'junta'. Antes ejecutaba ticks
+// (que gastan LLM y disparan acciones) sin verificar identidad ni rol.
+async function authorize(req: Request): Promise<Response | null> {
+  const engineKey = req.headers.get('X-Engine-Key')
+  const expectedKey = Deno.env.get('ENGINE_API_KEY')
+  if (expectedKey && engineKey && engineKey === expectedKey) return null
+
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
+  if (!token) return json({ error: 'No autorizado' }, 401)
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
+  const caller = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  const { data: u, error: uErr } = await caller.auth.getUser(token)
+  if (uErr || !u?.user) return json({ error: 'Token inválido' }, 401)
+
+  const { data: profile } = await adminDb()
+    .from('profiles')
+    .select('role')
+    .eq('id', u.user.id)
+    .maybeSingle()
+  if (!profile || profile.role !== 'junta') {
+    return json({ error: 'Sólo la Junta puede ejecutar ticks de agente' }, 403)
+  }
+  return null
 }
 
 Deno.serve(async (req) => {
@@ -30,6 +62,9 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') {
     return new Response('Method not allowed', { status: 405, headers: CORS_HEADERS })
   }
+
+  const denied = await authorize(req)
+  if (denied) return denied
 
   let body: { agent_id?: string; agent_slug?: string }
   try {
