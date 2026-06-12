@@ -147,6 +147,15 @@ class OllamaProvider extends OpenAICompatProvider {
   }
 }
 
+// OpenRouter — agregador OpenAI-compatible (https://openrouter.ai/api/v1). Una
+// sola llave + créditos da acceso a muchos modelos (Kimi, Claude, GPT, Llama…).
+// Se paga por token con créditos: sin el límite por minuto del free tier de Groq.
+class OpenRouterProvider extends OpenAICompatProvider {
+  constructor(apiKey: string) {
+    super(apiKey, 'https://openrouter.ai/api/v1')
+  }
+}
+
 // =====================================================================
 // Anthropic (Claude) — proveedor con traducción de formato OpenAI ↔ Anthropic.
 //
@@ -343,6 +352,11 @@ export function makeProvider(name: string): LLMProvider {
     const key = Deno.env.get('OLLAMA_API_KEY')
     if (!key) throw new Error('OLLAMA_API_KEY no está definido')
     return new OllamaProvider(key)
+  }
+  if (name === 'openrouter') {
+    const key = Deno.env.get('OPENROUTER_API_KEY')
+    if (!key) throw new Error('OPENROUTER_API_KEY no está definido')
+    return new OpenRouterProvider(key)
   }
   throw new Error(`Provider no implementado: ${name}`)
 }
