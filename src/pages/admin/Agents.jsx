@@ -635,13 +635,65 @@ function quickPromptsFor(agent) {
 // Layout inspirado en NeuralOS: textarea arriba + toolbar abajo con
 // attach / settings / agent pill · ⌘K · model pill / mic / send.
 // =====================================================================
+// Catálogo de modelos elegibles desde la pastilla del chat. Cada entrada fija
+// provider + model JUNTOS (coherentes); al elegir uno se persiste en el agente.
+// El backend lee provider/model de la BD, así que el cambio aplica al siguiente turno.
+const MODEL_CATALOG = [
+  { provider: 'groq', model: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', hint: 'Groq · gratis · rápido' },
+  { provider: 'openrouter', model: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5', hint: 'OpenRouter · 262k · créditos' },
+  { provider: 'openrouter', model: 'moonshotai/kimi-k2.6', label: 'Kimi K2.6', hint: 'OpenRouter · más nuevo · créditos' },
+  { provider: 'ollama', model: 'gpt-oss:120b', label: 'GPT-OSS 120B', hint: 'Ollama · 128k · créditos' },
+]
+
+// Si el agente no trae `provider` explícito, lo inferimos del nombre del modelo
+// para marcar bien la opción activa en el menú (el backend ya defaultea a groq).
+function inferProvider(model) {
+  if (!model) return 'groq'
+  if (model.includes('/')) return 'openrouter'
+  if (model.includes(':')) return 'ollama'
+  if (model.startsWith('claude')) return 'anthropic'
+  return 'groq'
+}
+
 function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend, onSettled, bare = false }) {
+  const { isJunta } = useAuth()
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [voiceGhost, setVoiceGhost] = useState('')
   const [focused, setFocused] = useState(false)
   const taRef = useRef(null)
   const quickPrompts = quickPromptsFor(agent)
+
+  // Selector de modelo (provider + model coherentes). El backend lee de la BD,
+  // así que persistimos el cambio en el agente y el siguiente turno lo usa.
+  const [modelMenuOpen, setModelMenuOpen] = useState(false)
+  const [savingModel, setSavingModel] = useState(false)
+  const [modelSel, setModelSel] = useState({
+    provider: agent.provider ?? inferProvider(agent.model),
+    model: agent.model,
+  })
+  useEffect(() => {
+    setModelSel({ provider: agent.provider ?? inferProvider(agent.model), model: agent.model })
+  }, [agent.provider, agent.model])
+
+  const selectModel = async (opt) => {
+    setModelMenuOpen(false)
+    if (opt.provider === modelSel.provider && opt.model === modelSel.model) return
+    const prev = modelSel
+    setModelSel({ provider: opt.provider, model: opt.model }) // optimista
+    setSavingModel(true)
+    const { error } = await supabase
+      .from('agents')
+      .update({ provider: opt.provider, model: opt.model })
+      .eq('slug', agent.slug)
+    setSavingModel(false)
+    if (error) {
+      setModelSel(prev) // revertir si RLS/red falla
+      toast.error('No se pudo cambiar el modelo: ' + error.message)
+    } else {
+      toast.success(`Modelo: ${opt.label}`)
+    }
+  }
 
   // Hook de voz — bilingüe ES/EN con 12 capas de NLP (filler removal,
   // comandos por voz, normalización de números, etc).
@@ -847,16 +899,69 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
           >
             ⌘K
           </kbd>
-          <button
-            type="button"
-            onClick={stub(`Modelo actual: ${agent.model}. Cambio de proveedor próximamente.`)}
-            className="flex items-center gap-1.5 px-2.5 h-8 rounded-full bg-emerald-500/10 hover:bg-emerald-500/15 transition text-[11px] font-mono text-emerald-300"
-            title="Modelo"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span className="truncate max-w-[120px]">{shortModel(agent.model)}</span>
-            <ChevronDown className="w-3 h-3 opacity-60" />
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() =>
+                isJunta
+                  ? setModelMenuOpen((o) => !o)
+                  : toast(`Modelo: ${modelSel.model}. Solo la Junta puede cambiarlo.`, { icon: '🔒' })
+              }
+              className="flex items-center gap-1.5 px-2.5 h-8 rounded-full bg-emerald-500/10 hover:bg-emerald-500/15 transition text-[11px] font-mono text-emerald-300"
+              title={isJunta ? 'Cambiar modelo del agente' : `Modelo: ${modelSel.model}`}
+            >
+              {savingModel ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              )}
+              <span className="truncate max-w-[120px]">{shortModel(modelSel.model)}</span>
+              <ChevronDown className="w-3 h-3 opacity-60" />
+            </button>
+            <AnimatePresence>
+              {modelMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setModelMenuOpen(false)} />
+                  <motion.div
+                    initial={{ opacity: 0, y: 6, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute bottom-full right-0 mb-2 z-50 w-60 rounded-xl border border-nina-line bg-nina-panel shadow-xl shadow-black/40 p-1"
+                  >
+                    <div className="px-2.5 py-1.5 text-[10px] uppercase tracking-[0.18em] text-nina-mute">
+                      Modelo del agente
+                    </div>
+                    {MODEL_CATALOG.map((opt) => {
+                      const active = opt.provider === modelSel.provider && opt.model === modelSel.model
+                      return (
+                        <button
+                          key={opt.provider + opt.model}
+                          type="button"
+                          onClick={() => selectModel(opt)}
+                          className={`w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-start justify-between gap-2 ${
+                            active ? 'bg-emerald-500/10' : 'hover:bg-nina-line/40'
+                          }`}
+                        >
+                          <span className="min-w-0">
+                            <span
+                              className={`block text-[12px] truncate ${
+                                active ? 'text-emerald-300' : 'text-nina-chrome'
+                              }`}
+                            >
+                              {opt.label}
+                            </span>
+                            <span className="block text-[10px] text-nina-mute truncate">{opt.hint}</span>
+                          </span>
+                          {active && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />}
+                        </button>
+                      )
+                    })}
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
           <button
             type="button"
             onClick={toggleMic}
