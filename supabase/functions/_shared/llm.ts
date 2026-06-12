@@ -56,14 +56,13 @@ export interface LLMProvider {
   completeStream?(params: ChatCompleteParams, cb: StreamCallbacks): Promise<ChatCompleteResult>
 }
 
-class GroqProvider implements LLMProvider {
-  private client: OpenAI
+// Proveedor base para APIs compatibles con OpenAI (OpenAI, Groq, Ollama Cloud).
+// Solo cambia el baseURL. Soporta complete() y completeStream() (token a token).
+class OpenAICompatProvider implements LLMProvider {
+  protected client: OpenAI
 
-  constructor(apiKey: string) {
-    this.client = new OpenAI({
-      apiKey,
-      baseURL: 'https://api.groq.com/openai/v1',
-    })
+  constructor(apiKey: string, baseURL?: string) {
+    this.client = baseURL ? new OpenAI({ apiKey, baseURL }) : new OpenAI({ apiKey })
   }
 
   async complete(params: ChatCompleteParams): Promise<ChatCompleteResult> {
@@ -83,33 +82,68 @@ class GroqProvider implements LLMProvider {
       finish_reason: choice.finish_reason ?? 'stop',
       usage: resp.usage as ChatCompleteResult['usage'],
     }
+  }
+
+  async completeStream(params: ChatCompleteParams, cb: StreamCallbacks): Promise<ChatCompleteResult> {
+    const useTools = params.tools && params.tools.length > 0
+    const stream = await this.client.chat.completions.create({
+      model: params.model,
+      messages: params.messages as never,
+      tools: useTools ? (params.tools as never) : undefined,
+      tool_choice: useTools ? 'auto' : undefined,
+      temperature: params.temperature,
+      max_tokens: params.max_tokens,
+      stream: true,
+      stream_options: { include_usage: true },
+    })
+    let content = ''
+    let finish = 'stop'
+    let usage: ChatCompleteResult['usage'] | undefined
+    // Los tool_calls llegan fragmentados por índice → acumular.
+    const acc: Record<number, { id: string; name: string; args: string }> = {}
+    for await (const chunk of stream) {
+      const choice = chunk.choices?.[0]
+      const delta = choice?.delta
+      if (delta?.content) {
+        content += delta.content
+        cb.onText?.(delta.content)
+      }
+      for (const tc of delta?.tool_calls ?? []) {
+        const i = tc.index ?? 0
+        const a = (acc[i] ??= { id: '', name: '', args: '' })
+        if (tc.id) a.id = tc.id
+        if (tc.function?.name) a.name = tc.function.name
+        if (tc.function?.arguments) a.args += tc.function.arguments
+      }
+      if (choice?.finish_reason) finish = choice.finish_reason
+      if (chunk.usage) usage = chunk.usage as ChatCompleteResult['usage']
+    }
+    const tool_calls: ToolCallRequest[] = Object.values(acc)
+      .filter((t) => t.name)
+      .map((t) => ({ id: t.id, type: 'function' as const, function: { name: t.name, arguments: t.args } }))
+    return { content: content || null, tool_calls, finish_reason: finish, usage }
   }
 }
 
-class OpenAIProvider implements LLMProvider {
-  private client: OpenAI
-
+class OpenAIProvider extends OpenAICompatProvider {
   constructor(apiKey: string) {
-    this.client = new OpenAI({ apiKey })
+    super(apiKey)
   }
+}
 
-  async complete(params: ChatCompleteParams): Promise<ChatCompleteResult> {
-    const useTools = params.tools && params.tools.length > 0
-    const resp = await this.client.chat.completions.create({
-      model: params.model,
-      messages: params.messages as never,
-      tools: useTools ? (params.tools as never) : undefined,
-      tool_choice: useTools ? 'auto' : undefined,
-      temperature: params.temperature,
-      max_tokens: params.max_tokens,
-    })
-    const choice = resp.choices[0]
-    return {
-      content: choice.message.content ?? null,
-      tool_calls: (choice.message.tool_calls ?? []) as ToolCallRequest[],
-      finish_reason: choice.finish_reason ?? 'stop',
-      usage: resp.usage as ChatCompleteResult['usage'],
-    }
+class GroqProvider extends OpenAICompatProvider {
+  constructor(apiKey: string) {
+    super(apiKey, 'https://api.groq.com/openai/v1')
+  }
+}
+
+// Ollama Cloud — API compatible con OpenAI (https://ollama.com/v1). Key en
+// ollama.com/settings/keys. Mucho más barato que Anthropic; corre modelos
+// abiertos (llama, qwen, etc.). NOTA: el Ollama LOCAL no sirve desde la nube
+// (Supabase no alcanza tu localhost) — esto apunta a Ollama Cloud.
+class OllamaProvider extends OpenAICompatProvider {
+  constructor(apiKey: string) {
+    super(apiKey, 'https://ollama.com/v1')
   }
 }
 
@@ -284,6 +318,11 @@ export function makeProvider(name: string): LLMProvider {
     const key = Deno.env.get('ANTHROPIC_API_KEY')
     if (!key) throw new Error('ANTHROPIC_API_KEY no está definido')
     return new AnthropicProvider(key)
+  }
+  if (name === 'ollama') {
+    const key = Deno.env.get('OLLAMA_API_KEY')
+    if (!key) throw new Error('OLLAMA_API_KEY no está definido')
+    return new OllamaProvider(key)
   }
   throw new Error(`Provider no implementado: ${name}`)
 }
