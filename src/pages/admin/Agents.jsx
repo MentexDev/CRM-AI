@@ -923,11 +923,15 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setModelMenuOpen(false)} />
                   <motion.div
-                    initial={{ opacity: 0, y: 6, scale: 0.97 }}
+                    initial={{ opacity: 0, y: bare ? -6 : 6, scale: 0.97 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                    exit={{ opacity: 0, y: bare ? -6 : 6, scale: 0.97 }}
                     transition={{ duration: 0.12 }}
-                    className="absolute bottom-full right-0 mb-2 z-50 w-60 rounded-xl border border-nina-line bg-nina-panel shadow-xl shadow-black/40 p-1"
+                    // En el perfil (bare, composer arriba) el menú baja; en el chat
+                    // (composer abajo) sube — así nunca choca con el header.
+                    className={`absolute right-0 z-50 w-60 rounded-xl border border-nina-line bg-nina-panel shadow-xl shadow-black/40 p-1 ${
+                      bare ? 'top-full mt-2' : 'bottom-full mb-2'
+                    }`}
                   >
                     <div className="px-2.5 py-1.5 text-[10px] uppercase tracking-[0.18em] text-nina-mute">
                       Modelo del agente
