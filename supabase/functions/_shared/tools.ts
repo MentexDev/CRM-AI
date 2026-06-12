@@ -494,6 +494,7 @@ async function shopifyRecentOrders(
               displayFulfillmentStatus
               totalPriceSet { shopMoney { amount currencyCode } }
               subtotalPriceSet { shopMoney { amount } }
+              totalShippingPriceSet { shopMoney { amount } }
               totalDiscountsSet { shopMoney { amount } }
               customer { displayName email }
               lineItems(first: 10) {
@@ -517,6 +518,7 @@ async function shopifyRecentOrders(
         lineItems: { edges: Array<{ node: { title: string; quantity: number; sku: string } }> }
         totalPriceSet: { shopMoney: { amount: string; currencyCode: string } }
         subtotalPriceSet: { shopMoney: { amount: string } }
+        totalShippingPriceSet: { shopMoney: { amount: string } }
         totalDiscountsSet: { shopMoney: { amount: string } }
       }
       return {
@@ -527,6 +529,7 @@ async function shopifyRecentOrders(
         fulfillment_status: n.displayFulfillmentStatus as string,
         total: Number(n.totalPriceSet.shopMoney.amount),
         subtotal: Number(n.subtotalPriceSet.shopMoney.amount),
+        shipping: Number(n.totalShippingPriceSet.shopMoney.amount),
         discount: Number(n.totalDiscountsSet.shopMoney.amount),
         currency: n.totalPriceSet.shopMoney.currencyCode,
         customer_name: n.customer?.displayName ?? null,
