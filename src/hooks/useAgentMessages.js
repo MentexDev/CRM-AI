@@ -63,13 +63,21 @@ export function useAgentMessages(agentId, conversationId, limit = 200) {
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'messages',
           filter: `conversation_id=eq.${conversationId}`,
         },
         (payload) => {
           if (!active) return
+          // UPDATE: el mensaje se llena token a token (streaming en vivo)
+          if (payload.eventType === 'UPDATE') {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === payload.new.id ? payload.new : m)),
+            )
+            return
+          }
+          // INSERT: mensaje nuevo
           setMessages((prev) => {
             if (prev.some((m) => m.id === payload.new.id)) return prev
             return [...prev, payload.new].slice(-limit)

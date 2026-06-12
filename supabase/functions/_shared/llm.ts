@@ -45,8 +45,15 @@ export interface ChatCompleteResult {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
 }
 
+export interface StreamCallbacks {
+  onText?: (delta: string) => void
+}
+
 export interface LLMProvider {
   complete(params: ChatCompleteParams): Promise<ChatCompleteResult>
+  // Opcional: completa en streaming, llamando onText por cada delta de texto.
+  // Devuelve el MISMO resultado final que complete() (incl. tool_calls).
+  completeStream?(params: ChatCompleteParams, cb: StreamCallbacks): Promise<ChatCompleteResult>
 }
 
 class GroqProvider implements LLMProvider {
@@ -204,6 +211,51 @@ class AnthropicProvider implements LLMProvider {
       }
     }
 
+    return {
+      content: text || null,
+      tool_calls,
+      finish_reason: mapAnthropicStop(resp.stop_reason),
+      usage: {
+        prompt_tokens: resp.usage.input_tokens,
+        completion_tokens: resp.usage.output_tokens,
+        total_tokens: resp.usage.input_tokens + resp.usage.output_tokens,
+      },
+    }
+  }
+
+  async completeStream(params: ChatCompleteParams, cb: StreamCallbacks): Promise<ChatCompleteResult> {
+    const { system, msgs } = toAnthropic(params.messages)
+    const tools = params.tools?.map((t) => ({
+      name: t.function.name,
+      description: t.function.description,
+      input_schema: t.function.parameters,
+    }))
+
+    const stream = this.client.messages.stream({
+      model: params.model,
+      max_tokens: params.max_tokens ?? 1500,
+      system,
+      messages: msgs as never,
+      tools: tools && tools.length > 0 ? (tools as never) : undefined,
+      ...(params.temperature != null && !anthropicRejectsSampling(params.model)
+        ? { temperature: params.temperature }
+        : {}),
+    })
+    stream.on('text', (delta: string) => cb.onText?.(delta))
+    const resp = await stream.finalMessage()
+
+    let text = ''
+    const tool_calls: ToolCallRequest[] = []
+    for (const block of resp.content) {
+      if (block.type === 'text') text += block.text
+      else if (block.type === 'tool_use') {
+        tool_calls.push({
+          id: block.id,
+          type: 'function',
+          function: { name: block.name, arguments: JSON.stringify(block.input ?? {}) },
+        })
+      }
+    }
     return {
       content: text || null,
       tool_calls,

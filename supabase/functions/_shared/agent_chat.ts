@@ -4,7 +4,7 @@
 // se crea una nueva conversación y su título se deriva del primer mensaje.
 // El historial se carga filtrado por conversación (contexto limpio por hilo).
 import { adminDb } from './db.ts'
-import { makeProvider, type ChatMessage } from './llm.ts'
+import { makeProvider, type ChatMessage, type ChatCompleteResult } from './llm.ts'
 import { loadTools, runTool, toToolDefinitions } from './tools.ts'
 
 const MAX_TOOL_ITERATIONS = 4
@@ -114,20 +114,7 @@ export async function runAgentChatTurn(
 
     while (iterations < MAX_TOOL_ITERATIONS) {
       iterations++
-      const result = await provider.complete({
-        model: agent.model,
-        messages,
-        tools: toolDefs.length > 0 ? toolDefs : undefined,
-        temperature: cfg.temperature ?? 0.4,
-        max_tokens: cfg.max_tokens ?? 1500,
-      })
-
-      messages.push({
-        role: 'assistant',
-        content: result.content,
-        tool_calls: result.tool_calls.length > 0 ? result.tool_calls : undefined,
-      })
-
+      // 1) Insertar el mensaje del asistente VACÍO → habilita el "tipeo" en vivo
       const { data: ins } = await db
         .from('messages')
         .insert({
@@ -135,13 +122,59 @@ export async function runAgentChatTurn(
           task_id: null,
           conversation_id: convId,
           role: 'assistant',
-          content: result.content,
-          tool_calls: result.tool_calls.length > 0 ? result.tool_calls : null,
-          metadata: { source: 'chat', usage: result.usage, finish_reason: result.finish_reason },
+          content: '',
+          metadata: { source: 'chat', streaming: true },
         })
         .select('id')
         .single()
-      lastAssistantId = ins?.id ?? null
+      const assistantMsgId = ins?.id ?? null
+      lastAssistantId = assistantMsgId
+
+      // 2) Completar — en streaming si el proveedor lo soporta (Claude), con
+      //    updates throttled del contenido para el efecto de escritura en vivo.
+      const completeParams = {
+        model: agent.model,
+        messages,
+        tools: toolDefs.length > 0 ? toolDefs : undefined,
+        temperature: cfg.temperature ?? 0.4,
+        max_tokens: cfg.max_tokens ?? 1500,
+      }
+      let result: ChatCompleteResult
+      if (provider.completeStream && assistantMsgId) {
+        let streamed = ''
+        let lastFlush = 0
+        result = await provider.completeStream(completeParams, {
+          onText: (delta) => {
+            streamed += delta
+            const now = Date.now()
+            if (now - lastFlush > 180) {
+              lastFlush = now
+              // best-effort: si un update intermedio falla, no rompe el turno
+              db.from('messages').update({ content: streamed }).eq('id', assistantMsgId).then(() => {}, () => {})
+            }
+          },
+        })
+      } else {
+        result = await provider.complete(completeParams)
+      }
+
+      // 3) Finalizar el mensaje con contenido + tool_calls + metadata definitivos
+      if (assistantMsgId) {
+        await db
+          .from('messages')
+          .update({
+            content: result.content,
+            tool_calls: result.tool_calls.length > 0 ? result.tool_calls : null,
+            metadata: { source: 'chat', usage: result.usage, finish_reason: result.finish_reason },
+          })
+          .eq('id', assistantMsgId)
+      }
+
+      messages.push({
+        role: 'assistant',
+        content: result.content,
+        tool_calls: result.tool_calls.length > 0 ? result.tool_calls : undefined,
+      })
 
       if (result.tool_calls.length === 0) {
         finished = true
