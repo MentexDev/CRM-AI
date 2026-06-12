@@ -11,6 +11,8 @@ import { adminDb } from './db.ts'
 import { shopifyAdjustInventory, shopifyGetInventoryBySku, shopifyGraphQL, stripGid } from './shopify.ts'
 import { generateImage as generateImageMulti } from './imageGen.ts'
 import { tavilySearch } from './tavily.ts'
+import { defineTool, ToolRegistry } from './tool-kit.ts'
+import { TOOL_SPECS } from './tool-specs.ts'
 
 export interface ToolDescriptor {
   name: string
@@ -110,16 +112,22 @@ export function capToolContentString(content: string, maxChars = TOOL_RESULT_MAX
   }
 }
 
+// Fase 1.5: las tools se cargan del REGISTRY (código), ya no de la BD. Se
+// conserva la firma async + ToolDescriptor[] por compatibilidad con los callers.
 export async function loadTools(names: string[]): Promise<ToolDescriptor[]> {
   if (!names || names.length === 0) return []
-  const db = adminDb()
-  const { data, error } = await db
-    .from('tools_registry')
-    .select('*')
-    .in('name', names)
-    .eq('is_active', true)
-  if (error) throw error
-  return (data ?? []) as ToolDescriptor[]
+  const set = new Set(names)
+  return toolRegistry
+    .all()
+    .filter((t) => set.has(t.name))
+    .map((t) => ({
+      name: t.name,
+      description: t.description,
+      category: t.category,
+      args_schema: t.parameters,
+      requires_approval: t.requiresApproval,
+      is_active: t.isActive,
+    }))
 }
 
 export function toToolDefinitions(tools: ToolDescriptor[]): ToolDefinition[] {
@@ -133,32 +141,13 @@ export function toToolDefinitions(tools: ToolDescriptor[]): ToolDefinition[] {
   }))
 }
 
+// Fase 1.5: el despacho vive en el ToolRegistry (tool-kit.ts), que conserva la
+// misma defensa de args (`"null"`/`"undefined"`/JSON inválido → {} o error claro).
 export async function runTool(
   ctx: ToolContext,
   call: ToolCallRequest,
 ): Promise<ToolResult> {
-  const handler = HANDLERS[call.function.name]
-  if (!handler) {
-    return { ok: false, error: `Tool no implementada en runtime: ${call.function.name}` }
-  }
-  // Defensa: el LLM ocasionalmente manda `"null"` o `"undefined"` cuando no
-  // hay argumentos. JSON.parse('null') devuelve null, lo cual rompe cualquier
-  // handler que haga `args.foo`. Forzamos a un objeto vacío en esos casos.
-  let args: Record<string, unknown>
-  try {
-    const raw = call.function.arguments
-    const parsed = raw ? JSON.parse(raw) : {}
-    args = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {}
-  } catch {
-    return { ok: false, error: 'Argumentos JSON inválidos' }
-  }
-  try {
-    return await handler(ctx, args)
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) }
-  }
+  return toolRegistry.run(ctx, call)
 }
 
 // =====================================================================
@@ -1013,4 +1002,33 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   query_brain: queryBrain,
   ingest_document: ingestDocumentTool,
   create_agent: createAgentTool,
+}
+
+// =====================================================================
+// Registry de tools (Fase 1.5) — CÓDIGO = fuente de verdad
+// =====================================================================
+// Combina los SCHEMAS versionados (TOOL_SPECS, generados desde tools_registry)
+// con los HANDLERS de este archivo. Dos guards anti-drift se evalúan al cargar
+// el módulo: un spec sin handler, o un handler sin spec, FALLA ruidosamente —
+// imposible desincronizar registro y ejecución (el bug que motivó tool-kit.ts).
+export const toolRegistry = new ToolRegistry(
+  TOOL_SPECS.map((s) => {
+    const handler = HANDLERS[s.name]
+    if (!handler) throw new Error(`tool-registry: spec "${s.name}" sin handler en HANDLERS`)
+    return defineTool({
+      name: s.name,
+      description: s.description,
+      category: s.category,
+      parameters: s.parameters,
+      requiresApproval: s.requiresApproval,
+      isActive: s.isActive,
+      handler,
+    })
+  }),
+)
+
+for (const name of Object.keys(HANDLERS)) {
+  if (!toolRegistry.get(name)) {
+    throw new Error(`tool-registry: handler "${name}" sin spec en TOOL_SPECS`)
+  }
 }
