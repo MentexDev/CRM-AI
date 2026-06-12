@@ -5,7 +5,7 @@
 // vuelve a leer estado y continúa donde lo dejó.
 import { adminDb } from './db.ts'
 import { makeProvider, isRateOrSizeLimitError, type ChatMessage } from './llm.ts'
-import { loadTools, runTool, toToolDefinitions, capToolResultForContext } from './tools.ts'
+import { loadTools, runTool, toToolDefinitions, capToolResultForContext, capToolContentString } from './tools.ts'
 
 const MAX_TOOL_ITERATIONS = 5
 const HISTORY_WINDOW = 50
@@ -77,7 +77,11 @@ export async function runAgentStep(agentId: string): Promise<RunStepResult> {
     for (const m of historyAsc) {
       messages.push({
         role: m.role,
-        content: m.content,
+        // Los resultados de tool se guardan en JSON completo (lo lee la UI); al
+        // recargarlos al contexto del LLM los re-acotamos para no inflar el request.
+        content: m.role === 'tool' && typeof m.content === 'string'
+          ? capToolContentString(m.content)
+          : m.content,
         tool_call_id: m.tool_call_id ?? undefined,
         tool_calls: m.tool_calls ?? undefined,
       })
@@ -210,16 +214,16 @@ export async function runAgentStep(agentId: string): Promise<RunStepResult> {
           })
           .eq('id', tcRow?.id ?? '')
 
-        // Capamos lo que entra al CONTEXTO (el resultado completo ya quedó en
-        // `tool_calls.result`) para no exceder el límite de tokens del proveedor.
-        const toolContent = capToolResultForContext(toolRes)
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: toolContent })
+        // Al CONTEXTO del LLM va la versión acotada; a la tabla `messages` va el
+        // JSON COMPLETO y válido (lo lee la UI). El íntegro también va en tool_calls.
+        const fullContent = JSON.stringify(toolRes)
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: capToolResultForContext(toolRes) })
         await db.from('messages').insert({
           agent_id: agentId,
           task_id: activeTask.id,
           role: 'tool',
           tool_call_id: tc.id,
-          content: toolContent,
+          content: fullContent,
         })
 
         if (tc.function.name === 'finish_task' && toolRes.ok) {

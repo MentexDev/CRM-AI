@@ -317,7 +317,9 @@ export function isRateOrSizeLimitError(e: unknown): boolean {
     msg.includes('tokens per minute') ||
     msg.includes('context length') ||
     msg.includes('too many tokens') ||
-    msg.includes('reduce your message size')
+    msg.includes('reduce your message size') ||
+    msg.includes('prompt is too long') || // Anthropic 400 (overflow de contexto)
+    msg.includes('input is too long')
   )
 }
 

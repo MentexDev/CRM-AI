@@ -5,7 +5,7 @@
 // El historial se carga filtrado por conversación (contexto limpio por hilo).
 import { adminDb } from './db.ts'
 import { makeProvider, isRateOrSizeLimitError, type ChatMessage, type ChatCompleteResult } from './llm.ts'
-import { loadTools, runTool, toToolDefinitions, capToolResultForContext } from './tools.ts'
+import { loadTools, runTool, toToolDefinitions, capToolResultForContext, capToolContentString } from './tools.ts'
 
 const MAX_TOOL_ITERATIONS = 4
 const HISTORY_WINDOW = 40
@@ -103,7 +103,12 @@ export async function runAgentChatTurn(
     for (const m of historyAsc) {
       messages.push({
         role: m.role,
-        content: m.content,
+        // El historial guarda los resultados de tool en JSON COMPLETO (lo lee la
+        // UI). Al recargarlos al contexto del LLM los volvemos a acotar para no
+        // re-inflar el request (mismo motivo que el cap de los frescos).
+        content: m.role === 'tool' && typeof m.content === 'string'
+          ? capToolContentString(m.content)
+          : m.content,
         tool_call_id: m.tool_call_id ?? undefined,
         tool_calls: m.tool_calls ?? undefined,
       })
@@ -240,14 +245,14 @@ export async function runAgentChatTurn(
           })
           .eq('id', tcRow?.id ?? '')
 
-        // Capamos lo que entra al CONTEXTO (el resultado completo ya quedó en
-        // `tool_calls.result`). Esto evita que 50 productos/órdenes revienten el
-        // límite de tokens del proveedor en la siguiente iteración.
-        const tc2 = capToolResultForContext(toolRes)
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: tc2 })
+        // Al CONTEXTO del LLM va la versión acotada (evita reventar el límite de
+        // tokens); a la tabla `messages` va el JSON COMPLETO y válido, que es lo
+        // que lee la UI para pintar las tarjetas. El íntegro también va en tool_calls.
+        const fullContent = JSON.stringify(toolRes)
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: capToolResultForContext(toolRes) })
         await db.from('messages').insert({
           agent_id: agentId, task_id: null, conversation_id: convId,
-          role: 'tool', tool_call_id: tc.id, content: tc2, metadata: { source: 'chat' },
+          role: 'tool', tool_call_id: tc.id, content: fullContent, metadata: { source: 'chat' },
         })
 
         if (tc.function.name === 'request_approval' || tc.function.name === 'escalate_to_ceo') didBlock = true
@@ -261,7 +266,9 @@ export async function runAgentChatTurn(
 
     // Si es conversación nueva, mejoramos el título con un resumen del LLM
     // (corto, una frase). Best-effort: si falla, queda el título provisional.
-    if (isNewConversation) {
+    // No generamos título si el turno se cortó por límite de tokens: sería otra
+    // llamada al MISMO proveedor recién saturado (casi seguro vuelve a fallar).
+    if (isNewConversation && !stopReason) {
       generateTitle(agent, userText, lastAssistantId, convId, db).catch(() => null)
     }
 

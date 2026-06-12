@@ -35,28 +35,79 @@ export interface ToolResult {
   side_effect?: { kind: string; id: string }
 }
 
-// Tope de tamaño del resultado de una tool al REINYECTARLO al contexto del LLM.
-// El resultado completo se guarda íntegro en la tabla `tool_calls` (para la UI y
-// la auditoría); al modelo solo le pasamos una versión acotada para no reventar
-// el límite de tokens del proveedor (p. ej. Groq free tier = 12k tokens/min).
-// Solo recortamos el CONTENIDO del mensaje role='tool'; nunca quitamos el
-// mensaje, así el emparejamiento tool_call↔tool_result queda intacto.
+// Tope del resultado de una tool al REINYECTARLO al CONTEXTO del LLM.
+//
+// IMPORTANTE: esto SOLO acota lo que se mete al array `messages` que se manda al
+// modelo. En la tabla `messages` se guarda el JSON COMPLETO y válido (lo lee la
+// UI para pintar las tarjetas) y el resultado íntegro también vive en
+// `tool_calls.result`. Capear aquí evita reventar el límite de tokens del
+// proveedor (Groq free tier = 12k tok/min) SIN degradar la UI ni perder datos.
+//
+// El recorte es ESTRUCTURAL (por items del array, no cortando el string), así el
+// modelo recibe siempre JSON VÁLIDO y honesto: los primeros K elementos + cuántos
+// se omitieron (`_truncated_items`), conservando campos como `count`/`filters`.
 const TOOL_RESULT_MAX_CHARS = 5000
 
-export function capToolResultForContext(result: unknown, maxChars = TOOL_RESULT_MAX_CHARS): string {
-  let s: string
+function safeStringify(v: unknown): string {
   try {
-    s = JSON.stringify(result)
+    return JSON.stringify(v) ?? String(v)
   } catch {
-    s = String(result)
+    return String(v)
   }
-  if (s.length <= maxChars) return s
-  const omitted = s.length - maxChars
-  return (
-    s.slice(0, maxChars) +
-    `\n\n…[resultado recortado: se omiten ${omitted} de ${s.length} caracteres para no exceder el límite de tokens del proveedor. ` +
-    `Si necesitas más detalle, repite la consulta con un 'limit' menor o un filtro más específico.]`
-  )
+}
+
+// Reduce un ToolResult para que su serialización quepa en `maxChars` devolviendo
+// SIEMPRE un objeto serializable a JSON válido. Maneja `data: [..]` (array directo)
+// y `data: { <array>, ... }` (array dentro de un objeto). Si no calza, cae a un
+// wrapper válido con un preview textual.
+function shrinkResultToFit(result: unknown, maxChars: number): unknown {
+  if (!result || typeof result !== 'object') {
+    return { _truncated: true, preview: safeStringify(result).slice(0, maxChars) }
+  }
+  const r = result as Record<string, unknown>
+  const data = r.data
+
+  if (Array.isArray(data)) {
+    for (let k = data.length - 1; k >= 0; k--) {
+      const candidate = { ...r, data: data.slice(0, k), _truncated_items: data.length - k }
+      if (safeStringify(candidate).length <= maxChars) return candidate
+    }
+  } else if (data && typeof data === 'object') {
+    const d = data as Record<string, unknown>
+    const arrayKey = Object.keys(d).find((k) => Array.isArray(d[k]))
+    if (arrayKey) {
+      const arr = d[arrayKey] as unknown[]
+      for (let k = arr.length - 1; k >= 0; k--) {
+        const candidate = { ...r, data: { ...d, [arrayKey]: arr.slice(0, k), _truncated_items: arr.length - k } }
+        if (safeStringify(candidate).length <= maxChars) return candidate
+      }
+    }
+  }
+  // Fallback: ni con el array vacío cabe (otros campos enormes) o forma inesperada.
+  return {
+    ok: (r as { ok?: unknown }).ok ?? true,
+    _truncated: true,
+    preview: safeStringify(r).slice(0, Math.max(0, maxChars - 200)),
+  }
+}
+
+// Versión acotada de un ToolResult (objeto) para el contexto del LLM. JSON válido.
+export function capToolResultForContext(result: unknown, maxChars = TOOL_RESULT_MAX_CHARS): string {
+  const full = safeStringify(result)
+  if (full.length <= maxChars) return full
+  return safeStringify(shrinkResultToFit(result, maxChars))
+}
+
+// Igual, pero partiendo del `content` ya serializado de un mensaje role='tool'
+// del historial. Lo re-parsea para recortar estructuralmente; si no es JSON,
+// recorta por string con un marcador (caso de filas viejas/no-JSON).
+export function capToolContentString(content: string, maxChars = TOOL_RESULT_MAX_CHARS): string {
+  if (content.length <= maxChars) return content
+  try {
+    return capToolResultForContext(JSON.parse(content), maxChars)
+  } catch {
+    return content.slice(0, maxChars) + '\n\n…[contenido recortado para el contexto]'
+  }
 }
 
 export async function loadTools(names: string[]): Promise<ToolDescriptor[]> {
