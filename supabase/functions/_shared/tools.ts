@@ -5,7 +5,7 @@
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@^2'
 import type { ToolCallRequest, ToolDefinition } from './llm.ts'
 import { embedText } from './llm.ts'
-import { ingestDocument } from './ingest.ts'
+import { runIngestPipeline } from './ingest.ts'
 import { runQueryPipeline, formatForAgent } from './query.ts'
 import { adminDb } from './db.ts'
 import { shopifyAdjustInventory, shopifyGetInventoryBySku, shopifyGraphQL, stripGid } from './shopify.ts'
@@ -821,22 +821,17 @@ async function ingestDocumentTool(ctx: ToolContext, args: Record<string, unknown
   if (!ctx.brandId) return { ok: false, error: 'Este agente no está asociado a una marca' }
 
   try {
-    const { data: brand } = await ctx.db
-      .from('brands')
-      .select('name')
-      .eq('id', ctx.brandId)
-      .maybeSingle()
-
-    const result = await ingestDocument({
-      db: ctx.db,
-      brandId: ctx.brandId,
-      brandName: brand?.name ?? 'la marca',
-      title,
-      content,
-      sourceKind,
-      sourceUri,
-      agentId: ctx.agentId,
-    })
+    const result = await runIngestPipeline(
+      {
+        brandId: ctx.brandId,
+        title,
+        content,
+        sourceKind: sourceKind as Parameters<typeof runIngestPipeline>[0]['sourceKind'],
+        sourceUri,
+        agentId: ctx.agentId,
+      },
+      ctx.db,
+    )
 
     return {
       ok: true,
