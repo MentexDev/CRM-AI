@@ -559,5 +559,34 @@ export const TOOL_SPECS: ToolSpecData[] = [
     },
     "requiresApproval": false,
     "isActive": true
+  },
+  {
+    "name": "send_email",
+    "description": "Envía un correo electrónico real vía Resend. Úsala para notificar a clientes o al equipo: confirmaciones, alertas, resúmenes, seguimientos. Indica 'to' (email del destinatario; varios separados por coma), 'subject' y 'body' (texto plano o HTML simple). Envía DE VERDAD — úsala con criterio.",
+    "category": "communication",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string",
+          "description": "Email del destinatario. Para varios, sepáralos por coma."
+        },
+        "subject": {
+          "type": "string",
+          "description": "Asunto del correo."
+        },
+        "body": {
+          "type": "string",
+          "description": "Cuerpo del correo. Texto plano, o HTML simple si necesitas formato."
+        }
+      },
+      "required": [
+        "to",
+        "subject",
+        "body"
+      ]
+    },
+    "requiresApproval": false,
+    "isActive": true
   }
 ]

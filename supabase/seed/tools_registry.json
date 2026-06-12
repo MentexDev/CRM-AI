@@ -367,6 +367,35 @@
     "is_active": true
   },
   {
+    "name": "send_email",
+    "description": "Envía un correo electrónico real vía Resend. Úsala para notificar a clientes o al equipo: confirmaciones, alertas, resúmenes, seguimientos. Indica 'to' (email del destinatario; varios separados por coma), 'subject' y 'body' (texto plano o HTML simple). Envía DE VERDAD — úsala con criterio.",
+    "category": "communication",
+    "args_schema": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string",
+          "description": "Email del destinatario. Para varios, sepáralos por coma."
+        },
+        "subject": {
+          "type": "string",
+          "description": "Asunto del correo."
+        },
+        "body": {
+          "type": "string",
+          "description": "Cuerpo del correo. Texto plano, o HTML simple si necesitas formato."
+        }
+      },
+      "required": [
+        "to",
+        "subject",
+        "body"
+      ]
+    },
+    "requires_approval": false,
+    "is_active": true
+  },
+  {
     "name": "shopify_adjust_inventory",
     "description": "Ajustar el inventario disponible de un SKU en una location específica. El delta es relativo (positivo suma, negativo resta). Si |delta| ≤ 20 unidades, se ejecuta directo. Si supera 20, crea una aprobación pendiente y NO ejecuta — cuando la Junta apruebe, se ejecuta automáticamente. Antes de invocar, llama primero a shopify_get_inventory para conocer el location_id.",
     "category": "shopify",

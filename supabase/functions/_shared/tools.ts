@@ -983,6 +983,49 @@ async function createAgentTool(ctx: ToolContext, args: Record<string, unknown>):
   }
 }
 
+// =====================================================================
+// Comunicación · send_email (Resend)
+// =====================================================================
+
+async function sendEmail(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const to = (args.to as string)?.trim()
+  const subject = (args.subject as string)?.trim()
+  const body = (args.body as string)?.trim()
+  if (!to || !subject || !body) return { ok: false, error: 'Faltan campos: to, subject y body son requeridos' }
+
+  const apiKey = Deno.env.get('RESEND_API_KEY')
+  if (!apiKey) return { ok: false, error: 'RESEND_API_KEY no está configurado en el servidor' }
+
+  // Remitente: en producción usa un dominio verificado (RESEND_FROM, p. ej.
+  // "NINA <noreply@tudominio.com>"). Si falta, usamos el remitente de prueba de
+  // Resend, que SOLO entrega al email dueño de la cuenta Resend (sirve para probar).
+  const from = Deno.env.get('RESEND_FROM') ?? 'NINA <onboarding@resend.dev>'
+
+  const recipients = to.split(',').map((s) => s.trim()).filter(Boolean)
+  if (recipients.length === 0) return { ok: false, error: 'No hay destinatarios válidos en "to"' }
+  const isHtml = /<[a-z][\s\S]*>/i.test(body)
+
+  try {
+    const resp = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: recipients, subject, ...(isHtml ? { html: body } : { text: body }) }),
+    })
+    const data = await resp.json().catch(() => ({} as Record<string, unknown>))
+    if (!resp.ok) {
+      return { ok: false, error: `Resend ${resp.status}: ${JSON.stringify(data).slice(0, 300)}` }
+    }
+    const id = (data as { id?: string }).id ?? 'unknown'
+    return {
+      ok: true,
+      data: { email_id: id, to: recipients, subject, from },
+      side_effect: { kind: 'email_sent', id },
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>) => Promise<ToolResult>> = {
   delegate_task: delegateTask,
   request_approval: requestApproval,
@@ -1002,6 +1045,7 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   query_brain: queryBrain,
   ingest_document: ingestDocumentTool,
   create_agent: createAgentTool,
+  send_email: sendEmail,
 }
 
 // =====================================================================
