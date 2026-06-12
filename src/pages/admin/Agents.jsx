@@ -294,6 +294,10 @@ function AgentWorkspace({
   onNewTask,
 }) {
   const [view, setView] = useState('main')
+  // Mensaje enviado desde el perfil que sembramos en el chat al navegar, para
+  // que se vea de inmediato (sin el flash de "Sin mensajes todavía") mientras
+  // llega por realtime. El dedup de MessagesTab lo reemplaza por el real.
+  const [pendingMsg, setPendingMsg] = useState(null)
   const { tasks } = useAgentTasks(agent.id)
   const { conversations } = useConversations({ agentId: agent.id })
   const activeConv = conversations.find((c) => c.id === conversationId) ?? null
@@ -394,9 +398,11 @@ function AgentWorkspace({
               conversation={activeConv}
               onConversationCreated={onOpenConversation}
               onGoHome={onGoHome}
+              seedMessage={pendingMsg}
+              onSeedConsumed={() => setPendingMsg(null)}
             />
           ) : (
-            <AgentHome agent={agent} onOpenConversation={onOpenConversation} />
+            <AgentHome agent={agent} onOpenConversation={onOpenConversation} onUserSend={setPendingMsg} />
           ))}
         {view === 'tasks' && <TasksBoard agentId={agent.id} embedded />}
         {view === 'instructions' && (
@@ -416,7 +422,7 @@ function AgentWorkspace({
 // Home del agente — composer para iniciar + historial de conversaciones
 // (réplica del "project view" de Manus, pero por perfil de agente).
 // =====================================================================
-function AgentHome({ agent, onOpenConversation }) {
+function AgentHome({ agent, onOpenConversation, onUserSend }) {
   const { conversations, loading } = useConversations({ agentId: agent.id })
   const Icon = agentIcon(agent)
 
@@ -440,7 +446,13 @@ function AgentHome({ agent, onOpenConversation }) {
         </div>
 
         {/* Composer para iniciar una conversación */}
-        <ChatComposer agent={agent} conversationId={null} onConversationCreated={onOpenConversation} bare />
+        <ChatComposer
+          agent={agent}
+          conversationId={null}
+          onConversationCreated={onOpenConversation}
+          onUserSend={onUserSend}
+          bare
+        />
 
         {/* Historial de conversaciones del agente */}
         <div className="mt-8">
@@ -480,7 +492,7 @@ function AgentHome({ agent, onOpenConversation }) {
 // =====================================================================
 // Tab · Mensajes (chat real-time + composer para hablarle al agente)
 // =====================================================================
-function MessagesTab({ agent, conversationId, conversation, onConversationCreated, onGoHome }) {
+function MessagesTab({ agent, conversationId, conversation, onConversationCreated, onGoHome, seedMessage, onSeedConsumed }) {
   const { messages, loading } = useAgentMessages(agent.id, conversationId, 200)
   const [optimistic, setOptimistic] = useState([])
   const [thinking, setThinking] = useState(false)
@@ -496,10 +508,26 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     )
   }, [messages])
 
-  // Al cambiar de conversación, limpiamos optimista + thinking.
+  // Al cambiar de conversación, limpiamos thinking y sembramos (si venimos del
+  // perfil) el mensaje del usuario como optimista, para verlo al instante sin el
+  // flash de "Sin mensajes todavía". El dedup de arriba lo reemplaza por el real.
   useEffect(() => {
-    setOptimistic([])
     setThinking(false)
+    if (seedMessage) {
+      setOptimistic([
+        {
+          id: `opt-seed-${conversationId}`,
+          role: 'user',
+          content: seedMessage,
+          created_at: new Date().toISOString(),
+          optimistic: true,
+        },
+      ])
+      onSeedConsumed?.()
+    } else {
+      setOptimistic([])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId])
 
   const addOptimistic = (content) => {
@@ -735,16 +763,22 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
     setVoiceGhost('')
     // Pintar el mensaje del usuario al instante (optimistic UI). Si el bot
     // tarda en responder no importa — lo tuyo ya aparece.
+    // Si es una conversación NUEVA, generamos su id en el cliente y navegamos al
+    // chat de inmediato — así ves tu mensaje y la respuesta EN VIVO (streaming),
+    // en vez de esperar en el perfil a que el agente termine todo el turno.
+    const isNewConvo = !conversationId
+    const targetConvId = conversationId ?? crypto.randomUUID()
+    if (isNewConvo) onConversationCreated?.(targetConvId)
     onUserSend?.(content)
     try {
       const { data, error } = await supabase.functions.invoke('chat-with-agent', {
-        body: { agent_slug: agent.slug, content, conversation_id: conversationId ?? null },
+        body: { agent_slug: agent.slug, content, conversation_id: targetConvId },
       })
       if (error) throw error
       if (data?.error) throw new Error(data.error)
-      // Si era una conversación nueva, adoptamos el id devuelto para que los
-      // siguientes mensajes continúen el mismo hilo (y aparezca en el historial).
-      if (data?.conversation_id && data.conversation_id !== conversationId) {
+      // Fallback defensivo: si el backend devolviera OTRO id (no debería: honra el
+      // nuestro), lo adoptamos para no perder el hilo.
+      if (data?.conversation_id && data.conversation_id !== targetConvId) {
         onConversationCreated?.(data.conversation_id)
       }
     } catch (e) {

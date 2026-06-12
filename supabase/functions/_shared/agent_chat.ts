@@ -42,7 +42,23 @@ export async function runAgentChatTurn(
       .select('id, agent_id')
       .eq('id', convId)
       .maybeSingle()
-    if (!conv || conv.agent_id !== agentId) convId = null // inválida → crear nueva
+    if (conv) {
+      if (conv.agent_id !== agentId) convId = null // existe pero de otro agente → nueva
+    } else {
+      // No existe: el cliente la pre-creó con este id para navegar AL INSTANTE
+      // (y ver el streaming en vivo). La creamos CON ese id para que los mensajes
+      // caigan en el chat correcto. Si falla (id inválido/colisión), caemos al
+      // fallback de generar un id en el servidor.
+      const provisionalTitle = userText.trim().slice(0, 60) || 'Nueva conversación'
+      const { error: cErr } = await db.from('conversations').insert({
+        id: convId,
+        agent_id: agentId,
+        brand_id: agent.brand_id ?? null,
+        title: provisionalTitle,
+      })
+      if (cErr) convId = null
+      else isNewConversation = true
+    }
   }
   if (!convId) {
     const provisionalTitle = userText.trim().slice(0, 60) || 'Nueva conversación'
