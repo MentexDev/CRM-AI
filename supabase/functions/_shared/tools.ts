@@ -35,6 +35,30 @@ export interface ToolResult {
   side_effect?: { kind: string; id: string }
 }
 
+// Tope de tamaño del resultado de una tool al REINYECTARLO al contexto del LLM.
+// El resultado completo se guarda íntegro en la tabla `tool_calls` (para la UI y
+// la auditoría); al modelo solo le pasamos una versión acotada para no reventar
+// el límite de tokens del proveedor (p. ej. Groq free tier = 12k tokens/min).
+// Solo recortamos el CONTENIDO del mensaje role='tool'; nunca quitamos el
+// mensaje, así el emparejamiento tool_call↔tool_result queda intacto.
+const TOOL_RESULT_MAX_CHARS = 5000
+
+export function capToolResultForContext(result: unknown, maxChars = TOOL_RESULT_MAX_CHARS): string {
+  let s: string
+  try {
+    s = JSON.stringify(result)
+  } catch {
+    s = String(result)
+  }
+  if (s.length <= maxChars) return s
+  const omitted = s.length - maxChars
+  return (
+    s.slice(0, maxChars) +
+    `\n\n…[resultado recortado: se omiten ${omitted} de ${s.length} caracteres para no exceder el límite de tokens del proveedor. ` +
+    `Si necesitas más detalle, repite la consulta con un 'limit' menor o un filtro más específico.]`
+  )
+}
+
 export async function loadTools(names: string[]): Promise<ToolDescriptor[]> {
   if (!names || names.length === 0) return []
   const db = adminDb()
@@ -344,7 +368,7 @@ async function shopifySearchProducts(
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
   const query = (args.query as string) || ''
-  const limit = Math.min((args.limit as number) || 10, 50)
+  const limit = Math.min((args.limit as number) || 10, 25)
   try {
     const data = await shopifyGraphQL<{
       products: { edges: Array<{ node: Record<string, unknown> }> }
@@ -446,7 +470,7 @@ async function shopifyRecentOrders(
   _ctx: ToolContext,
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
-  const limit = Math.min((args.limit as number) || 20, 50)
+  const limit = Math.min((args.limit as number) || 20, 25)
   const status = (args.status as string) || ''
   const sinceRaw = args.since as string | undefined
   const since = parseDateExpression(sinceRaw)
@@ -532,7 +556,7 @@ async function shopifySearchCustomers(
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
   const query = (args.query as string) || ''
-  const limit = Math.min((args.limit as number) || 10, 50)
+  const limit = Math.min((args.limit as number) || 10, 25)
   try {
     const data = await shopifyGraphQL<{
       customers: { edges: Array<{ node: Record<string, unknown> }> }

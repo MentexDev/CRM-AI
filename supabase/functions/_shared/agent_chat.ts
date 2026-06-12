@@ -4,8 +4,8 @@
 // se crea una nueva conversación y su título se deriva del primer mensaje.
 // El historial se carga filtrado por conversación (contexto limpio por hilo).
 import { adminDb } from './db.ts'
-import { makeProvider, type ChatMessage, type ChatCompleteResult } from './llm.ts'
-import { loadTools, runTool, toToolDefinitions } from './tools.ts'
+import { makeProvider, isRateOrSizeLimitError, type ChatMessage, type ChatCompleteResult } from './llm.ts'
+import { loadTools, runTool, toToolDefinitions, capToolResultForContext } from './tools.ts'
 
 const MAX_TOOL_ITERATIONS = 4
 const HISTORY_WINDOW = 40
@@ -59,6 +59,10 @@ export async function runAgentChatTurn(
     convId = created.id
     isNewConversation = true
   }
+  // A partir de aquí convId siempre es un string (conversación existente válida
+  // o recién creada). Este guard narrowiza el tipo para TS y documenta el
+  // invariante: nunca insertamos mensajes con conversation_id null.
+  if (!convId) throw new Error('No se pudo resolver la conversación')
 
   // ── Persistir el mensaje del usuario ──
   const { data: userMsg, error: insErr } = await db
@@ -110,6 +114,7 @@ export async function runAgentChatTurn(
 
     let iterations = 0
     let finished = false
+    let stopReason: string | undefined
     let lastAssistantId: string | null = null
 
     while (iterations < MAX_TOOL_ITERATIONS) {
@@ -140,22 +145,41 @@ export async function runAgentChatTurn(
         max_tokens: cfg.max_tokens ?? 1500,
       }
       let result: ChatCompleteResult
-      if (provider.completeStream && assistantMsgId) {
-        let streamed = ''
-        let lastFlush = 0
-        result = await provider.completeStream(completeParams, {
-          onText: (delta) => {
-            streamed += delta
-            const now = Date.now()
-            if (now - lastFlush > 180) {
-              lastFlush = now
-              // best-effort: si un update intermedio falla, no rompe el turno
-              db.from('messages').update({ content: streamed }).eq('id', assistantMsgId).then(() => {}, () => {})
-            }
-          },
-        })
-      } else {
-        result = await provider.complete(completeParams)
+      try {
+        if (provider.completeStream && assistantMsgId) {
+          let streamed = ''
+          let lastFlush = 0
+          result = await provider.completeStream(completeParams, {
+            onText: (delta) => {
+              streamed += delta
+              const now = Date.now()
+              if (now - lastFlush > 180) {
+                lastFlush = now
+                // best-effort: si un update intermedio falla, no rompe el turno
+                db.from('messages').update({ content: streamed }).eq('id', assistantMsgId).then(() => {}, () => {})
+              }
+            },
+          })
+        } else {
+          result = await provider.complete(completeParams)
+        }
+      } catch (e) {
+        // Si NO es un límite de tokens, propaga (lo maneja index.ts como 500).
+        if (!isRateOrSizeLimitError(e)) throw e
+        // Degradación con gracia: el agente responde en el chat con un mensaje
+        // claro en vez de reventar con un 500 opaco.
+        const friendly =
+          '⚠️ Esta consulta generó más datos de los que entran en el límite de tokens por minuto del proveedor actual. ' +
+          'Acota el alcance (por ejemplo, menos productos u órdenes a la vez, o un filtro más específico) y vuelve a intentar.'
+        if (assistantMsgId) {
+          await db
+            .from('messages')
+            .update({ content: friendly, metadata: { source: 'chat', error: 'rate_or_size_limit' } })
+            .eq('id', assistantMsgId)
+        }
+        stopReason = 'rate_or_size_limit'
+        finished = true
+        break
       }
 
       // 3) Finalizar el mensaje con contenido + tool_calls + metadata definitivos
@@ -216,7 +240,10 @@ export async function runAgentChatTurn(
           })
           .eq('id', tcRow?.id ?? '')
 
-        const tc2 = JSON.stringify(toolRes)
+        // Capamos lo que entra al CONTEXTO (el resultado completo ya quedó en
+        // `tool_calls.result`). Esto evita que 50 productos/órdenes revienten el
+        // límite de tokens del proveedor en la siguiente iteración.
+        const tc2 = capToolResultForContext(toolRes)
         messages.push({ role: 'tool', tool_call_id: tc.id, content: tc2 })
         await db.from('messages').insert({
           agent_id: agentId, task_id: null, conversation_id: convId,
@@ -245,6 +272,7 @@ export async function runAgentChatTurn(
       assistant_message_id: lastAssistantId,
       iterations,
       finished,
+      reason: stopReason,
     }
   } finally {
     await db.from('agents').update({ status: 'idle' }).eq('id', agentId)

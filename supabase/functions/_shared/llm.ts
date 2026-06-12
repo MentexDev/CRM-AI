@@ -1,6 +1,6 @@
 // Capa de proveedores LLM. Interfaz genérica + Groq + OpenAI + Anthropic (Claude).
 import OpenAI from 'npm:openai@^4'
-import Anthropic from 'npm:@anthropic-ai/sdk'
+import Anthropic from 'npm:@anthropic-ai/sdk@^0.104.1'
 
 export type ChatRole = 'system' | 'user' | 'assistant' | 'tool'
 
@@ -301,6 +301,24 @@ class AnthropicProvider implements LLMProvider {
       },
     }
   }
+}
+
+// ¿El error del proveedor es por límite de tokens (request demasiado grande o
+// rate-limit por minuto)? Groq free tier devuelve 413 "Request too large ... TPM";
+// otros devuelven 429 o "context length". Lo usamos para degradar con gracia
+// (mensaje claro al usuario) en vez de un 500 opaco.
+export function isRateOrSizeLimitError(e: unknown): boolean {
+  const anyE = e as { status?: number; message?: string }
+  if (anyE?.status === 413 || anyE?.status === 429) return true
+  const msg = (anyE?.message ?? String(e)).toLowerCase()
+  return (
+    msg.includes('request too large') ||
+    msg.includes('rate limit') ||
+    msg.includes('tokens per minute') ||
+    msg.includes('context length') ||
+    msg.includes('too many tokens') ||
+    msg.includes('reduce your message size')
+  )
 }
 
 export function makeProvider(name: string): LLMProvider {

@@ -4,8 +4,8 @@
 // Es idempotente a nivel de "tick": si una invocación cae a mitad, la siguiente
 // vuelve a leer estado y continúa donde lo dejó.
 import { adminDb } from './db.ts'
-import { makeProvider, type ChatMessage } from './llm.ts'
-import { loadTools, runTool, toToolDefinitions } from './tools.ts'
+import { makeProvider, isRateOrSizeLimitError, type ChatMessage } from './llm.ts'
+import { loadTools, runTool, toToolDefinitions, capToolResultForContext } from './tools.ts'
 
 const MAX_TOOL_ITERATIONS = 5
 const HISTORY_WINDOW = 50
@@ -110,13 +110,30 @@ export async function runAgentStep(agentId: string): Promise<RunStepResult> {
     while (iterations < MAX_TOOL_ITERATIONS) {
       iterations++
 
-      const result = await provider.complete({
-        model: agent.model,
-        messages,
-        tools: toolDefs.length > 0 ? toolDefs : undefined,
-        temperature: cfg.temperature ?? 0.4,
-        max_tokens: cfg.max_tokens ?? 1500,
-      })
+      let result
+      try {
+        result = await provider.complete({
+          model: agent.model,
+          messages,
+          tools: toolDefs.length > 0 ? toolDefs : undefined,
+          temperature: cfg.temperature ?? 0.4,
+          max_tokens: cfg.max_tokens ?? 1500,
+        })
+      } catch (e) {
+        if (!isRateOrSizeLimitError(e)) throw e
+        // Degradación con gracia: dejamos nota y cerramos el tick sin crashear.
+        // La tarea sigue 'in_progress' → el próximo tick reintenta con menos contexto.
+        await db.from('messages').insert({
+          agent_id: agentId,
+          task_id: activeTask.id,
+          role: 'assistant',
+          content:
+            '⚠️ Límite de tokens por minuto del proveedor alcanzado en este tick. ' +
+            'Reintentaré en el próximo ciclo; conviene acotar el alcance de la tarea.',
+          metadata: { error: 'rate_or_size_limit' },
+        })
+        return { agent_id: agentId, iterations, finished: false, reason: 'rate_or_size_limit' }
+      }
 
       const assistantTurn: ChatMessage = {
         role: 'assistant',
@@ -193,7 +210,9 @@ export async function runAgentStep(agentId: string): Promise<RunStepResult> {
           })
           .eq('id', tcRow?.id ?? '')
 
-        const toolContent = JSON.stringify(toolRes)
+        // Capamos lo que entra al CONTEXTO (el resultado completo ya quedó en
+        // `tool_calls.result`) para no exceder el límite de tokens del proveedor.
+        const toolContent = capToolResultForContext(toolRes)
         messages.push({ role: 'tool', tool_call_id: tc.id, content: toolContent })
         await db.from('messages').insert({
           agent_id: agentId,
