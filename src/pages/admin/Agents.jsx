@@ -564,6 +564,29 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     if (emailArtifact) setCanvasOpen(true)
   }, [emailArtifact?.key])
 
+  // Marcamos ?canvas=1 en la URL cuando el canvas está abierto → el layout oculta
+  // el sidebar y le da más espacio. Lo limpiamos al cerrar y al salir del chat.
+  const [, setSearchParams] = useSearchParams()
+  const hasArtifact = !!emailArtifact
+  useEffect(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (canvasOpen && hasArtifact) next.set('canvas', '1')
+      else next.delete('canvas')
+      return next
+    }, { replace: true })
+  }, [canvasOpen, hasArtifact])
+  useEffect(
+    () => () => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('canvas')
+        return next
+      }, { replace: true })
+    },
+    [],
+  )
+
   useEffect(() => {
     if (!scrollRef.current) return
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -644,7 +667,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
 // correo HTML (artefacto de compose_email); luego se le suman pestañas (browser, docs).
 function EmailCanvas({ artifact, onClose }) {
   return (
-    <div className="hidden md:flex w-1/2 max-w-[680px] border-l border-nina-line bg-nina-panel/40 flex-col min-w-0">
+    <div className="hidden md:flex md:w-[58%] max-w-[1200px] border-l border-nina-line bg-nina-panel/40 flex-col min-w-0">
       {/* Barra de pestañas estilo Chrome */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-nina-line/60 shrink-0">
         <div className="flex items-center gap-2 pl-2 pr-3 h-8 rounded-lg bg-nina-line/40 text-[12px] text-nina-chrome min-w-0">

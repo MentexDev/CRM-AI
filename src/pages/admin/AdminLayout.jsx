@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Bot,
   Brain,
@@ -566,6 +566,10 @@ export default function AdminLayout() {
   const navigate = useNavigate()
   const { isJunta } = useAuth()
   const workspace = getWorkspace(location.pathname)
+  // El chat marca ?canvas=1 cuando abre el split-view → ocultamos el sidebar
+  // para darle todo el espacio al canvas.
+  const [searchParams] = useSearchParams()
+  const canvasOpen = searchParams.get('canvas') === '1'
 
   useEffect(() => {
     setDrawerOpen(false)
@@ -577,7 +581,7 @@ export default function AdminLayout() {
     <div className="h-screen overflow-hidden flex">
       {/* Sidebar desktop fijo · ancho dependiente del modo collapsed */}
       <aside
-        className={`hidden lg:flex flex-col border-r border-nina-line bg-nina-panel/95 sticky top-0 h-screen transition-[width] duration-200 ease-out ${
+        className={`hidden ${canvasOpen ? '' : 'lg:flex'} flex-col border-r border-nina-line bg-nina-panel/95 sticky top-0 h-screen transition-[width] duration-200 ease-out ${
           collapsed ? 'w-16' : 'w-64'
         }`}
       >
