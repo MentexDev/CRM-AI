@@ -618,6 +618,10 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
 
   return (
     <div className="h-full flex flex-row">
+      {/* Capa transparente durante el arrastre: cubre el iframe del canvas para
+          que NO se trague los eventos del puntero (si no, al mover rápido el cursor
+          entra al iframe y el resize pierde el rastro). */}
+      {dragging && <div className="fixed inset-0 z-50 cursor-col-resize select-none" />}
       <div className="flex-1 flex flex-col min-w-0">
       {/* Header de conversación — volver al home + nueva conversación */}
       <div className="px-3 sm:px-5 py-2 border-b border-nina-line/60 flex items-center justify-between gap-2 shrink-0">
