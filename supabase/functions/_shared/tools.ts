@@ -1026,6 +1026,19 @@ async function sendEmail(_ctx: ToolContext, args: Record<string, unknown>): Prom
   }
 }
 
+// =====================================================================
+// Canvas (F3) · compose_email — artefacto HTML previsualizable en el split-view
+// =====================================================================
+
+async function composeEmail(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const subject = (args.subject as string)?.trim()
+  const html = (args.html as string)?.trim()
+  if (!subject || !html) return { ok: false, error: 'Faltan subject o html' }
+  // No envía nada: produce un artefacto que el canvas del chat renderiza en vivo
+  // (kind:'email') para previsualizar/iterar antes de lanzar la campaña con send_email.
+  return { ok: true, data: { kind: 'email', subject, html } }
+}
+
 const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>) => Promise<ToolResult>> = {
   delegate_task: delegateTask,
   request_approval: requestApproval,
@@ -1046,6 +1059,7 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   ingest_document: ingestDocumentTool,
   create_agent: createAgentTool,
   send_email: sendEmail,
+  compose_email: composeEmail,
 }
 
 // =====================================================================

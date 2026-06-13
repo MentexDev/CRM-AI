@@ -540,13 +540,38 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
 
   const allMessages = [...messages, ...optimistic]
 
+  // Canvas (F3): detecta el ÚLTIMO artefacto de email (de la tool compose_email)
+  // en el hilo para mostrarlo en el split-view a la derecha. Lee el JSON COMPLETO
+  // de messages.content (por eso importa guardar el resultado íntegro en la BD).
+  const emailArtifact = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.role !== 'tool' || typeof m.content !== 'string') continue
+      try {
+        const p = JSON.parse(m.content)
+        if (p?.ok && p?.data?.kind === 'email' && p.data.html) {
+          return { subject: p.data.subject ?? '(sin asunto)', html: String(p.data.html), key: m.id }
+        }
+      } catch {
+        /* no es JSON / no es artefacto */
+      }
+    }
+    return null
+  }, [messages])
+  const [canvasOpen, setCanvasOpen] = useState(false)
+  // Abrimos el canvas automáticamente cuando llega un artefacto nuevo.
+  useEffect(() => {
+    if (emailArtifact) setCanvasOpen(true)
+  }, [emailArtifact?.key])
+
   useEffect(() => {
     if (!scrollRef.current) return
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [allMessages.length, thinking])
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-row">
+      <div className="flex-1 flex flex-col min-w-0">
       {/* Header de conversación — volver al home + nueva conversación */}
       <div className="px-3 sm:px-5 py-2 border-b border-nina-line/60 flex items-center justify-between gap-2 shrink-0">
         <button
@@ -607,6 +632,50 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         onUserSend={addOptimistic}
         onSettled={() => setThinking(false)}
       />
+      </div>
+      {canvasOpen && emailArtifact && (
+        <EmailCanvas artifact={emailArtifact} onClose={() => setCanvasOpen(false)} />
+      )}
+    </div>
+  )
+}
+
+// Canvas (F3) — split-view tipo NeuralOS. Hoy renderiza el preview en vivo del
+// correo HTML (artefacto de compose_email); luego se le suman pestañas (browser, docs).
+function EmailCanvas({ artifact, onClose }) {
+  return (
+    <div className="hidden md:flex w-1/2 max-w-[680px] border-l border-nina-line bg-nina-panel/40 flex-col min-w-0">
+      {/* Barra de pestañas estilo Chrome */}
+      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-nina-line/60 shrink-0">
+        <div className="flex items-center gap-2 pl-2 pr-3 h-8 rounded-lg bg-nina-line/40 text-[12px] text-nina-chrome min-w-0">
+          <span className="w-4 h-4 rounded grid place-items-center bg-silver-gradient text-nina-black shrink-0">
+            <MessageSquare className="w-2.5 h-2.5" />
+          </span>
+          <span className="truncate">{artifact.subject}</span>
+        </div>
+        <div className="flex-1" />
+        <button
+          onClick={onClose}
+          className="w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
+          title="Cerrar canvas"
+          aria-label="Cerrar canvas"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      {/* Preview del correo en un iframe aislado (sin scripts) */}
+      <div className="flex-1 min-h-0 bg-nina-ink p-3">
+        <iframe
+          title="Preview del correo NINA"
+          srcDoc={artifact.html}
+          sandbox=""
+          className="w-full h-full rounded-lg bg-white border border-nina-line"
+        />
+      </div>
+      <div className="px-3 py-2 border-t border-nina-line/60 text-[11px] text-nina-mute shrink-0">
+        Vista previa en vivo · cuando esté lista, pídele al agente que la envíe con{' '}
+        <span className="text-nina-chrome">send_email</span>.
+      </div>
     </div>
   )
 }

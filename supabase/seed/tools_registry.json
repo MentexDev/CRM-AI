@@ -1,5 +1,29 @@
 [
   {
+    "name": "compose_email",
+    "description": "Compone un correo en HTML y lo muestra EN EL CANVAS del chat para previsualizar e iterar (NO envía nada). Pasa 'subject' y 'html' (HTML completo y atractivo, estilo marketing de NINA: header, cuerpo, CTA, footer, con estilos inline). Tras aprobarlo visualmente, usa send_email para lanzar la campaña a los clientes.",
+    "category": "communication",
+    "args_schema": {
+      "type": "object",
+      "properties": {
+        "subject": {
+          "type": "string",
+          "description": "Asunto del correo."
+        },
+        "html": {
+          "type": "string",
+          "description": "HTML completo del correo, con estilos inline (se renderiza en un iframe sandboxed)."
+        }
+      },
+      "required": [
+        "subject",
+        "html"
+      ]
+    },
+    "requires_approval": false,
+    "is_active": true
+  },
+  {
     "name": "create_agent",
     "description": "Solicita la creación de un nuevo agente especializado. Exclusivo del CEO Global. Requiere aprobación de la Junta antes de activarse.",
     "category": "system",
