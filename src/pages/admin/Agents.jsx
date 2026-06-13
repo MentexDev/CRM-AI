@@ -9,6 +9,7 @@ import {
   Calculator,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Crown,
   Database,
@@ -587,6 +588,29 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     [],
   )
 
+  // Ancho del canvas (px) ajustable arrastrando el divisor. Con límites para que
+  // ni el chat ni el canvas queden inservibles. `dragging` desactiva la animación
+  // de ancho mientras arrastras (para que siga al puntero sin lag).
+  const [canvasWidth, setCanvasWidth] = useState(() =>
+    Math.min(760, Math.max(420, Math.round((typeof window !== 'undefined' ? window.innerWidth : 1280) * 0.5))),
+  )
+  const [dragging, setDragging] = useState(false)
+  const startResize = (e) => {
+    e.preventDefault()
+    setDragging(true)
+    const onMove = (ev) => {
+      const w = window.innerWidth - ev.clientX
+      setCanvasWidth(Math.max(420, Math.min(w, window.innerWidth - 460)))
+    }
+    const onUp = () => {
+      setDragging(false)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   useEffect(() => {
     if (!scrollRef.current) return
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -606,11 +630,13 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
           <span className="truncate">{agent.name}</span>
         </button>
         <div className="flex items-center gap-1 shrink-0">
-          {emailArtifact && !canvasOpen && (
+          {emailArtifact && (
             <button
-              onClick={() => setCanvasOpen(true)}
-              className="btn-ghost !py-1 !px-2 text-[11px] flex items-center gap-1"
-              title="Ver el avance en el canvas"
+              onClick={() => setCanvasOpen((o) => !o)}
+              className={`btn-ghost !py-1 !px-2 text-[11px] flex items-center gap-1 ${
+                canvasOpen ? 'text-nina-chrome bg-nina-line/40' : ''
+              }`}
+              title={canvasOpen ? 'Ocultar el canvas' : 'Ver el avance en el canvas'}
             >
               <ImageIcon className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Avance</span>
@@ -666,9 +692,31 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         onSettled={() => setThinking(false)}
       />
       </div>
-      {canvasOpen && emailArtifact && (
-        <EmailCanvas artifact={emailArtifact} onClose={() => setCanvasOpen(false)} />
-      )}
+      <AnimatePresence>
+        {canvasOpen && emailArtifact && (
+          <motion.aside
+            key="canvas"
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: canvasWidth, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: dragging ? 0 : 0.32, ease: 'easeOut' }}
+            className="hidden md:flex shrink-0 relative overflow-hidden border-l border-nina-line bg-nina-panel/40 flex-col min-w-0"
+          >
+            {/* Divisor arrastrable — ajusta el ancho chat↔canvas (con límites) */}
+            <div
+              onPointerDown={startResize}
+              className="absolute left-0 top-0 h-full w-1.5 z-20 cursor-col-resize hover:bg-nina-silver/20 transition-colors"
+              title="Arrastra para ajustar el ancho"
+            >
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center text-nina-mute/70">
+                <ChevronLeft className="w-3 h-3 -mr-1.5" />
+                <ChevronRight className="w-3 h-3 -ml-1.5" />
+              </div>
+            </div>
+            <EmailCanvas artifact={emailArtifact} onClose={() => setCanvasOpen(false)} />
+          </motion.aside>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -677,7 +725,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
 // correo HTML (artefacto de compose_email); luego se le suman pestañas (browser, docs).
 function EmailCanvas({ artifact, onClose }) {
   return (
-    <div className="hidden md:flex md:w-[58%] max-w-[1200px] border-l border-nina-line bg-nina-panel/40 flex-col min-w-0">
+    <div className="flex flex-col min-w-0 w-full h-full">
       {/* Barra de pestañas estilo Chrome */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-nina-line/60 shrink-0">
         <div className="flex items-center gap-2 pl-2 pr-3 h-8 rounded-lg bg-nina-line/40 text-[12px] text-nina-chrome min-w-0">
