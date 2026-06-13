@@ -570,6 +570,9 @@ export default function AdminLayout() {
   // para darle todo el espacio al canvas.
   const [searchParams] = useSearchParams()
   const canvasOpen = searchParams.get('canvas') === '1'
+  // Con el canvas abierto, el sidebar se fuerza a COLAPSADO (solo iconos) para
+  // dar espacio sin ocultarlo del todo.
+  const sidebarCollapsed = collapsed || canvasOpen
 
   useEffect(() => {
     setDrawerOpen(false)
@@ -581,14 +584,14 @@ export default function AdminLayout() {
     <div className="h-screen overflow-hidden flex">
       {/* Sidebar desktop fijo · ancho dependiente del modo collapsed */}
       <aside
-        className={`hidden ${canvasOpen ? '' : 'lg:flex'} flex-col border-r border-nina-line bg-nina-panel/95 sticky top-0 h-screen transition-[width] duration-200 ease-out ${
-          collapsed ? 'w-16' : 'w-64'
+        className={`hidden lg:flex flex-col border-r border-nina-line bg-nina-panel/95 sticky top-0 h-screen transition-[width] duration-200 ease-out ${
+          sidebarCollapsed ? 'w-16' : 'w-64'
         }`}
       >
-        <SidebarHeader collapsed={collapsed} onToggle={toggleCollapsed} />
-        <SectionSwitcher collapsed={collapsed} active={workspace} />
-        <NavItems items={WORKSPACE_NAV[workspace]} collapsed={collapsed} />
-        {workspace === 'agentes' && !collapsed ? (
+        <SidebarHeader collapsed={sidebarCollapsed} onToggle={toggleCollapsed} />
+        <SectionSwitcher collapsed={sidebarCollapsed} active={workspace} />
+        <NavItems items={WORKSPACE_NAV[workspace]} collapsed={sidebarCollapsed} />
+        {workspace === 'agentes' && !sidebarCollapsed ? (
           <div className="flex-1 min-h-0 overflow-y-auto border-t border-nina-line/60 mt-1">
             <AgentsNav onNavigate={(to) => navigate(to)} isJunta={isJunta} />
             <ConversationHistory onNavigate={(to) => navigate(to)} />
@@ -596,7 +599,7 @@ export default function AdminLayout() {
         ) : (
           <div className="flex-1" />
         )}
-        <SidebarUserBlock collapsed={collapsed} onOpenSettings={() => setSettingsOpen(true)} />
+        <SidebarUserBlock collapsed={sidebarCollapsed} onOpenSettings={() => setSettingsOpen(true)} />
       </aside>
 
       {/* Sidebar mobile como drawer — siempre expandido */}

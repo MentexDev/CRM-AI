@@ -606,6 +606,16 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
           <span className="truncate">{agent.name}</span>
         </button>
         <div className="flex items-center gap-1 shrink-0">
+          {emailArtifact && !canvasOpen && (
+            <button
+              onClick={() => setCanvasOpen(true)}
+              className="btn-ghost !py-1 !px-2 text-[11px] flex items-center gap-1"
+              title="Ver el avance en el canvas"
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Avance</span>
+            </button>
+          )}
           <button
             onClick={onGoHome}
             className="btn-ghost !py-1 !px-2 text-[11px] flex items-center gap-1"
