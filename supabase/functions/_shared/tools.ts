@@ -1003,6 +1003,19 @@ async function sendEmail(_ctx: ToolContext, args: Record<string, unknown>): Prom
 
   const recipients = to.split(',').map((s) => s.trim()).filter(Boolean)
   if (recipients.length === 0) return { ok: false, error: 'No hay destinatarios válidos en "to"' }
+  // Seguridad: validamos formato y limitamos el número de destinatarios. Acota el
+  // radio de abuso si una prompt-injection intentara enviar a direcciones arbitrarias
+  // o en masa. Para campañas grandes se usará un flujo dedicado (BCC/individual).
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  const invalid = recipients.filter((r) => !EMAIL_RE.test(r))
+  if (invalid.length > 0) {
+    return { ok: false, error: `Destinatarios con formato inválido: ${invalid.slice(0, 3).join(', ')}` }
+  }
+  const MAX_RECIPIENTS = 25
+  if (recipients.length > MAX_RECIPIENTS) {
+    return { ok: false, error: `Demasiados destinatarios (${recipients.length}). Máximo ${MAX_RECIPIENTS} por envío.` }
+  }
+  if (subject.length > 200) return { ok: false, error: 'El asunto es demasiado largo (máx. 200 chars)' }
   const isHtml = /<[a-z][\s\S]*>/i.test(body)
 
   try {

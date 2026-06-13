@@ -25,6 +25,7 @@ export async function runAgentChatTurn(
   agentId: string,
   userText: string,
   conversationId?: string | null,
+  callerId: string | null = null,
 ): Promise<ChatTurnResult> {
   const db = adminDb()
 
@@ -55,6 +56,7 @@ export async function runAgentChatTurn(
         agent_id: agentId,
         brand_id: agent.brand_id ?? null,
         title: provisionalTitle,
+        created_by: callerId,
       })
       if (cErr) convId = null
       else isNewConversation = true
@@ -68,6 +70,7 @@ export async function runAgentChatTurn(
         agent_id: agentId,
         brand_id: agent.brand_id ?? null,
         title: provisionalTitle,
+        created_by: callerId,
       })
       .select('id')
       .single()

@@ -65,8 +65,20 @@ Deno.serve(async (req) => {
   }
   if (!agentId) return json({ error: 'agent_id o agent_slug requerido' }, 400)
 
+  // Autorización: el caller debe poder LEER el agente con SU sesión (RLS
+  // agents_read_by_access, acotada por marca con has_brand_access). Bloquea que
+  // un usuario dispare turnos / inyecte mensajes en agentes o hilos de una marca
+  // a la que no pertenece (aislamiento multi-tenant). El turno corre con
+  // service_role, así que ESTE chequeo es la única barrera de acceso por marca.
+  const { data: allowedAgent } = await callerClient
+    .from('agents')
+    .select('id')
+    .eq('id', agentId)
+    .maybeSingle()
+  if (!allowedAgent) return json({ error: 'No tienes acceso a este agente' }, 403)
+
   try {
-    const result = await runAgentChatTurn(agentId, content, body.conversation_id ?? null)
+    const result = await runAgentChatTurn(agentId, content, body.conversation_id ?? null, userData.user.id)
     return json(result)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
