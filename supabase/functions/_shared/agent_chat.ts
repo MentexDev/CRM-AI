@@ -268,7 +268,7 @@ export async function runAgentChatTurn(
           .select('id')
           .single()
 
-        const toolRes = await runTool({ db, agentId, taskId: null, brandId: agent.brand_id ?? null }, tc)
+        const toolRes = await runTool({ db, agentId, taskId: null, brandId: agent.brand_id ?? null, conversationId: convId }, tc)
         const durationMs = Date.now() - startedAt
 
         await db

@@ -28,6 +28,7 @@ export interface ToolContext {
   agentId: string
   taskId: string | null
   brandId: string | null
+  conversationId?: string | null
 }
 
 export interface ToolResult {
@@ -1072,11 +1073,57 @@ export async function deliverEmail(
   }
 }
 
+// Busca el último correo COMPUESTO (compose_email → canvas) en el hilo, para que
+// send_email reutilice su HTML sin que el modelo tenga que re-serializar el HTML
+// grande en el JSON del tool-call (fallaba con "Argumentos JSON inválidos").
+async function lastComposedEmail(ctx: ToolContext): Promise<{ subject: string; html: string } | null> {
+  let q = ctx.db
+    .from('messages')
+    .select('content')
+    .eq('role', 'tool')
+    .order('created_at', { ascending: false })
+    .limit(12)
+  // Acotamos al hilo correcto: por conversación en el chat, por tarea en lo autónomo.
+  if (ctx.conversationId) q = q.eq('conversation_id', ctx.conversationId)
+  else if (ctx.taskId) q = q.eq('task_id', ctx.taskId)
+  else q = q.eq('agent_id', ctx.agentId)
+  const { data } = await q
+  for (const m of (data ?? []) as { content: unknown }[]) {
+    if (typeof m.content !== 'string') continue
+    try {
+      const p = JSON.parse(m.content)
+      if (p?.ok && p?.data?.kind === 'email' && p.data.html) {
+        return { subject: String(p.data.subject ?? '(sin asunto)'), html: String(p.data.html) }
+      }
+    } catch { /* no es JSON / no es artefacto */ }
+  }
+  return null
+}
+
 async function sendEmail(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const to = (args.to as string)?.trim()
-  const subject = (args.subject as string)?.trim()
-  const body = (args.body as string)?.trim()
-  if (!to || !subject || !body) return { ok: false, error: 'Faltan campos: to, subject y body son requeridos' }
+  let subject = (args.subject as string)?.trim()
+  let body = (args.body as string)?.trim()
+
+  // Si el modelo no pasó cuerpo (o asunto), reutilizamos el último correo COMPUESTO del
+  // hilo (compose_email → canvas). Es EL flujo de campañas (componer → previsualizar →
+  // enviar) y evita el fallo de re-serializar el HTML grande como argumento JSON.
+  if (!body || !subject) {
+    const composed = await lastComposedEmail(ctx)
+    if (composed) {
+      if (!body) body = composed.html
+      if (!subject) subject = composed.subject
+    }
+  }
+
+  if (!to) return { ok: false, error: 'Falta el destinatario: "to" es requerido.' }
+  if (!body) {
+    return {
+      ok: false,
+      error: 'No hay cuerpo para enviar. Compón el correo con compose_email (queda en el canvas) y luego llama send_email con solo "to"; o pasa "body" explícito.',
+    }
+  }
+  if (!subject) return { ok: false, error: 'Falta el asunto (subject).' }
 
   const recipients = to.split(',').map((s) => s.trim()).filter(Boolean)
   if (recipients.length === 0) return { ok: false, error: 'No hay destinatarios válidos en "to"' }

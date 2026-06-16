@@ -392,7 +392,7 @@
   },
   {
     "name": "send_email",
-    "description": "Envía un correo electrónico real vía Resend. Úsala para notificar a clientes o al equipo: confirmaciones, alertas, resúmenes, seguimientos. Indica 'to' (email del destinatario; varios separados por coma), 'subject' y 'body' (texto plano o HTML simple). Envía DE VERDAD — úsala con criterio.",
+    "description": "Envía un correo electrónico real vía Resend. Úsala para notificar a clientes o al equipo: confirmaciones, alertas, resúmenes, seguimientos. Envía DE VERDAD — úsala con criterio. FLUJO DE CAMPAÑAS: si ya compusiste el correo con compose_email (se ve en el canvas), NO repitas el HTML aquí — llama send_email SOLO con 'to' y reutilizo automáticamente el asunto y el HTML compuesto. Para correos simples ad-hoc, pasa 'subject' y 'body'.",
     "category": "communication",
     "args_schema": {
       "type": "object",
@@ -403,17 +403,15 @@
         },
         "subject": {
           "type": "string",
-          "description": "Asunto del correo."
+          "description": "Asunto del correo. OPCIONAL si ya hay un correo compuesto (se reutiliza el suyo)."
         },
         "body": {
           "type": "string",
-          "description": "Cuerpo del correo. Texto plano, o HTML simple si necesitas formato."
+          "description": "Cuerpo del correo (texto plano o HTML). OPCIONAL: si lo omites y ya compusiste el correo con compose_email, reutilizo ese HTML. No re-escribas HTML grande aquí."
         }
       },
       "required": [
-        "to",
-        "subject",
-        "body"
+        "to"
       ]
     },
     "requires_approval": false,
