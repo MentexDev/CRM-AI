@@ -15,6 +15,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@^2'
 import { adminDb } from '../_shared/db.ts'
 import { shopifyAdjustInventory } from '../_shared/shopify.ts'
+import { deliverEmail } from '../_shared/tools.ts'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -133,6 +134,9 @@ Deno.serve(async (req) => {
           }
         }
       }
+    } else if (toolName === 'send_email') {
+      const recipients = String(args.to ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+      toolResult = await deliverEmail(recipients, String(args.subject ?? ''), String(args.body ?? ''))
     } else {
       toolResult = { ok: false, error: `tool_name no soportado en execute-approval: ${toolName}` }
     }

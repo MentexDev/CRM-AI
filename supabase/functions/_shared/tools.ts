@@ -987,37 +987,18 @@ async function createAgentTool(ctx: ToolContext, args: Record<string, unknown>):
 // Comunicación · send_email (Resend)
 // =====================================================================
 
-async function sendEmail(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
-  const to = (args.to as string)?.trim()
-  const subject = (args.subject as string)?.trim()
-  const body = (args.body as string)?.trim()
-  if (!to || !subject || !body) return { ok: false, error: 'Faltan campos: to, subject y body son requeridos' }
-
+// Envío real vía Resend, SIN gate. Lo reusan sendEmail (chat) y execute-approval
+// (cuando la Junta aprueba un envío autónomo). Remitente: dominio verificado en
+// RESEND_FROM; si falta, el de prueba de Resend (solo entrega al dueño de la cuenta).
+export async function deliverEmail(
+  recipients: string[],
+  subject: string,
+  body: string,
+): Promise<ToolResult> {
   const apiKey = Deno.env.get('RESEND_API_KEY')
   if (!apiKey) return { ok: false, error: 'RESEND_API_KEY no está configurado en el servidor' }
-
-  // Remitente: en producción usa un dominio verificado (RESEND_FROM, p. ej.
-  // "NINA <noreply@tudominio.com>"). Si falta, usamos el remitente de prueba de
-  // Resend, que SOLO entrega al email dueño de la cuenta Resend (sirve para probar).
   const from = Deno.env.get('RESEND_FROM') ?? 'NINA <onboarding@resend.dev>'
-
-  const recipients = to.split(',').map((s) => s.trim()).filter(Boolean)
-  if (recipients.length === 0) return { ok: false, error: 'No hay destinatarios válidos en "to"' }
-  // Seguridad: validamos formato y limitamos el número de destinatarios. Acota el
-  // radio de abuso si una prompt-injection intentara enviar a direcciones arbitrarias
-  // o en masa. Para campañas grandes se usará un flujo dedicado (BCC/individual).
-  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  const invalid = recipients.filter((r) => !EMAIL_RE.test(r))
-  if (invalid.length > 0) {
-    return { ok: false, error: `Destinatarios con formato inválido: ${invalid.slice(0, 3).join(', ')}` }
-  }
-  const MAX_RECIPIENTS = 25
-  if (recipients.length > MAX_RECIPIENTS) {
-    return { ok: false, error: `Demasiados destinatarios (${recipients.length}). Máximo ${MAX_RECIPIENTS} por envío.` }
-  }
-  if (subject.length > 200) return { ok: false, error: 'El asunto es demasiado largo (máx. 200 chars)' }
   const isHtml = /<[a-z][\s\S]*>/i.test(body)
-
   try {
     const resp = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -1029,14 +1010,60 @@ async function sendEmail(_ctx: ToolContext, args: Record<string, unknown>): Prom
       return { ok: false, error: `Resend ${resp.status}: ${JSON.stringify(data).slice(0, 300)}` }
     }
     const id = (data as { id?: string }).id ?? 'unknown'
-    return {
-      ok: true,
-      data: { email_id: id, to: recipients, subject, from },
-      side_effect: { kind: 'email_sent', id },
-    }
+    return { ok: true, data: { email_id: id, to: recipients, subject, from }, side_effect: { kind: 'email_sent', id } }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
+}
+
+async function sendEmail(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const to = (args.to as string)?.trim()
+  const subject = (args.subject as string)?.trim()
+  const body = (args.body as string)?.trim()
+  if (!to || !subject || !body) return { ok: false, error: 'Faltan campos: to, subject y body son requeridos' }
+
+  const recipients = to.split(',').map((s) => s.trim()).filter(Boolean)
+  if (recipients.length === 0) return { ok: false, error: 'No hay destinatarios válidos en "to"' }
+  // Seguridad: formato + tope de destinatarios + largo del asunto (acota una prompt-injection).
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  const invalid = recipients.filter((r) => !EMAIL_RE.test(r))
+  if (invalid.length > 0) {
+    return { ok: false, error: `Destinatarios con formato inválido: ${invalid.slice(0, 3).join(', ')}` }
+  }
+  if (recipients.length > 25) {
+    return { ok: false, error: `Demasiados destinatarios (${recipients.length}). Máximo 25 por envío.` }
+  }
+  if (subject.length > 200) return { ok: false, error: 'El asunto es demasiado largo (máx. 200 chars)' }
+
+  // Aprobación: en contexto AUTÓNOMO (una tarea, ctx.taskId presente) enviar correo
+  // requiere aprobación de la Junta — evita que una prompt-injection en los datos de
+  // una tarea dispare correos sin supervisión. En el CHAT (sin task, el usuario está
+  // presente y lo pidió) se envía directo (ya validado). execute-approval lo manda al aprobar.
+  if (ctx.taskId) {
+    const { data: approval, error } = await ctx.db
+      .from('approvals')
+      .insert({
+        agent_id: ctx.agentId,
+        task_id: ctx.taskId,
+        brand_id: ctx.brandId ?? null,
+        trigger: 'send_email',
+        summary: `Enviar correo "${subject}" a ${recipients.length} destinatario(s) — requiere aprobación de la Junta.`,
+        payload: { tool_name: 'send_email', args: { to: recipients.join(','), subject, body } },
+        status: 'pending',
+      })
+      .select('id')
+      .single()
+    if (error) return { ok: false, error: error.message }
+    await ctx.db.from('tasks').update({ status: 'blocked' }).eq('id', ctx.taskId)
+    return {
+      ok: false,
+      data: { pending_approval: true, approval_id: approval.id },
+      error: `Envío pendiente de aprobación de la Junta. No reintentes — al aprobarse se envía solo.`,
+      side_effect: { kind: 'approval_created', id: approval.id },
+    }
+  }
+
+  return deliverEmail(recipients, subject, body)
 }
 
 // =====================================================================
