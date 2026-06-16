@@ -202,9 +202,16 @@ async function delegateTask(ctx: ToolContext, args: Record<string, unknown>): Pr
     .single()
   if (e2) return { ok: false, error: e2.message }
 
+  // F4: si delegamos DENTRO de una tarea (no en chat), la tarea del que delega
+  // queda BLOQUEADA esperando a los subordinados. finish_task del hijo la reactiva
+  // cuando TODOS los hijos terminan, para que el padre agregue los resultados.
+  if (ctx.taskId) {
+    await ctx.db.from('tasks').update({ status: 'blocked' }).eq('id', ctx.taskId)
+  }
+
   return {
     ok: true,
-    data: { task_id: task.id, assigned_to: agentSlug },
+    data: { task_id: task.id, assigned_to: agentSlug, parent_waiting: !!ctx.taskId },
     side_effect: { kind: 'task_created', id: task.id },
   }
 }
@@ -330,6 +337,41 @@ async function finishTask(ctx: ToolContext, args: Record<string, unknown>): Prom
     })
     .eq('id', taskId)
   if (e2) return { ok: false, error: e2.message }
+
+  // F4: si esta tarea era un subtask delegado, avisamos al PADRE con el resultado
+  // y, si TODOS los hermanos ya terminaron, reactivamos la tarea del padre para que
+  // el agente superior agregue los resultados y cierre. Así la delegación es de ida y vuelta.
+  if (task.parent_task_id) {
+    const { data: parent } = await ctx.db
+      .from('tasks')
+      .select('id, agent_id')
+      .eq('id', task.parent_task_id)
+      .maybeSingle()
+    if (parent) {
+      const { data: me } = await ctx.db.from('agents').select('name').eq('id', ctx.agentId).maybeSingle()
+      await ctx.db.from('messages').insert({
+        agent_id: parent.agent_id,
+        task_id: parent.id,
+        role: 'user',
+        content: `[Subordinado ${me?.name ?? ctx.agentId}] completó su subtarea: ${summary}`,
+        metadata: { from_subtask: taskId },
+      })
+      const { count } = await ctx.db
+        .from('tasks')
+        .select('id', { count: 'exact', head: true })
+        .eq('parent_task_id', task.parent_task_id)
+        .neq('status', 'done')
+      if ((count ?? 0) === 0) {
+        await ctx.db.from('messages').insert({
+          agent_id: parent.agent_id,
+          task_id: parent.id,
+          role: 'user',
+          content: 'Todos tus subordinados terminaron sus subtareas (resultados arriba). Agrégalos y finaliza tu tarea con finish_task.',
+        })
+        await ctx.db.from('tasks').update({ status: 'in_progress' }).eq('id', task.parent_task_id)
+      }
+    }
+  }
 
   return { ok: true, data: { task_id: taskId, status: 'done' } }
 }

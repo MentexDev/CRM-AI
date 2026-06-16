@@ -232,6 +232,9 @@ export async function runAgentStep(agentId: string): Promise<RunStepResult> {
           triggerAutoDistill(agentId, activeTask.id, agent.brand_id ?? null).catch(() => null)
         }
         if (tc.function.name === 'request_approval' || tc.function.name === 'escalate_to_ceo') didBlock = true
+        // F4: delegar cierra el turno — el agente queda esperando a los subordinados
+        // (delegate_task ya dejó esta tarea en 'blocked'); finish_task del último hijo la reactiva.
+        if (tc.function.name === 'delegate_task' && toolRes.ok) didBlock = true
       }
 
       if (didFinishTask || didBlock) {
