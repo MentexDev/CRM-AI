@@ -54,6 +54,7 @@ import Modal from '../../components/Modal'
 import NewAgentModal from '../../components/NewAgentModal'
 import AgentActionsMenu from '../../components/AgentActionsMenu'
 import ToolResultBubble from '../../components/ToolResultBubble'
+import Markdown from '../../components/Markdown'
 import VoiceOverlay from '../../components/VoiceOverlay'
 import { supabase } from '../../lib/supabase'
 
@@ -1751,7 +1752,11 @@ function MessageBubble({ message }) {
                 : 'bg-nina-line/60 text-nina-chrome rounded-bl-md border border-nina-line'
             }`}
           >
-            <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{content}</div>
+            {isUser ? (
+              <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{content}</div>
+            ) : (
+              <Markdown className="text-sm leading-relaxed">{content}</Markdown>
+            )}
           </div>
         )}
         {hasTools && (
