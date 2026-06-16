@@ -4,7 +4,7 @@
 // el cap estructural produce JSON válido, el detector de límite, y el ToolRegistry
 // (carga sin drift). NO son evals de comportamiento del LLM (eso es una iniciativa
 // aparte: golden tasks + judge); son guardas de regresión del código del motor.
-import { capToolContentString, capToolResultForContext, toolRegistry } from './tools.ts'
+import { capToolContentString, capToolResultForContext, dailyBudgetExceeded, toolRegistry } from './tools.ts'
 import { isRateOrSizeLimitError } from './llm.ts'
 
 function assert(cond: boolean, msg: string) {
@@ -56,6 +56,15 @@ Deno.test('isRateOrSizeLimitError: detecta límites, no errores normales', () =>
   assert(isRateOrSizeLimitError({ status: 400, message: '400 prompt is too long: 250000 tokens' }), 'Anthropic 400')
   assert(!isRateOrSizeLimitError({ status: 400, message: 'invalid api key' }), 'NO marca 400 normal')
   assert(!isRateOrSizeLimitError(new Error('network timeout')), 'NO marca error de red')
+})
+
+Deno.test('F5 dailyBudgetExceeded: tope por agente (default 3M, configurable)', () => {
+  assert(dailyBudgetExceeded(3_000_000, null) === true, 'iguala el default → excedido')
+  assert(dailyBudgetExceeded(2_999_999, null) === false, 'bajo el default → ok')
+  assert(dailyBudgetExceeded(0, null) === false, '0 → ok')
+  assert(dailyBudgetExceeded('500', { daily_token_budget: 400 }) === true, 'spent string + budget configurado')
+  assert(dailyBudgetExceeded(100, { daily_token_budget: 50 }) === true, 'budget custom excedido')
+  assert(dailyBudgetExceeded(null, null) === false, 'null → 0 → ok (el error de RPC lo gestiona el caller, fail-closed)')
 })
 
 Deno.test('toolRegistry: carga sin drift y con las tools clave', () => {

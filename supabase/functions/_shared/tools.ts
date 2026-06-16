@@ -93,6 +93,17 @@ function shrinkResultToFit(result: unknown, maxChars: number): unknown {
   }
 }
 
+// F5 tope de costo: ¿el agente superó su presupuesto de tokens del día? Pura y
+// testeable. budgetExceeded NO cubre el caso de error de la RPC (eso lo maneja el
+// caller, fail-closed). Default generoso (3M); configurable en agent.config.
+export function dailyBudgetExceeded(
+  spentRaw: unknown,
+  config: { daily_token_budget?: number } | null | undefined,
+): boolean {
+  const budget = (config ?? {}).daily_token_budget ?? 3_000_000
+  return Number(spentRaw ?? 0) >= budget
+}
+
 // Versión acotada de un ToolResult (objeto) para el contexto del LLM. JSON válido.
 export function capToolResultForContext(result: unknown, maxChars = TOOL_RESULT_MAX_CHARS): string {
   const full = safeStringify(result)

@@ -5,7 +5,7 @@
 // El historial se carga filtrado por conversación (contexto limpio por hilo).
 import { adminDb } from './db.ts'
 import { makeProvider, isRateOrSizeLimitError, type ChatMessage, type ChatCompleteResult } from './llm.ts'
-import { loadTools, runTool, toToolDefinitions, capToolResultForContext, capToolContentString } from './tools.ts'
+import { loadTools, runTool, toToolDefinitions, capToolResultForContext, capToolContentString, dailyBudgetExceeded } from './tools.ts'
 
 const MAX_TOOL_ITERATIONS = 4
 const HISTORY_WINDOW = 40
@@ -98,18 +98,20 @@ export async function runAgentChatTurn(
     .single()
   if (insErr) throw new Error(`No se pudo guardar tu mensaje: ${insErr.message}`)
 
-  // F5 tope de costo (fail-closed): si el agente agotó su presupuesto de tokens del
-  // día, no llamamos al LLM. Default generoso (3M); configurable en agent.config.daily_token_budget.
+  // F5 tope de costo (fail-CLOSED real): consultamos el gasto del día y, si la RPC
+  // FALLA, cortamos igual (no proceder a ciegas). Si supera el presupuesto, también.
   const dailyBudget = ((agent.config ?? {}) as { daily_token_budget?: number }).daily_token_budget ?? 3_000_000
-  const { data: spentRaw } = await db.rpc('agent_tokens_today', { p_agent_id: agentId })
-  if (Number(spentRaw ?? 0) >= dailyBudget) {
-    const warn = `⚠️ Alcancé mi presupuesto de tokens de hoy (${Number(spentRaw).toLocaleString()}/${dailyBudget.toLocaleString()}). Reanudo mañana, o súbeme el límite en mi configuración.`
+  const { data: spentRaw, error: budgetErr } = await db.rpc('agent_tokens_today', { p_agent_id: agentId })
+  if (budgetErr || dailyBudgetExceeded(spentRaw, agent.config as { daily_token_budget?: number })) {
+    const warn = budgetErr
+      ? '⚠️ No pude verificar mi presupuesto de tokens (error de control). Reintenta en un momento.'
+      : `⚠️ Alcancé mi presupuesto de tokens de hoy (${Number(spentRaw).toLocaleString()}/${dailyBudget.toLocaleString()}). Reanudo mañana, o súbeme el límite en mi configuración.`
     const { data: ins } = await db
       .from('messages')
-      .insert({ agent_id: agentId, task_id: null, conversation_id: convId, role: 'assistant', content: warn, metadata: { source: 'chat', error: 'token_budget_exceeded' } })
+      .insert({ agent_id: agentId, task_id: null, conversation_id: convId, role: 'assistant', content: warn, metadata: { source: 'chat', error: budgetErr ? 'budget_check_failed' : 'token_budget_exceeded' } })
       .select('id')
       .single()
-    return { agent_id: agentId, conversation_id: convId, user_message_id: userMsg.id, assistant_message_id: ins?.id ?? null, iterations: 0, finished: true, reason: 'token_budget_exceeded' }
+    return { agent_id: agentId, conversation_id: convId, user_message_id: userMsg.id, assistant_message_id: ins?.id ?? null, iterations: 0, finished: true, reason: budgetErr ? 'budget_check_failed' : 'token_budget_exceeded' }
   }
 
   await db

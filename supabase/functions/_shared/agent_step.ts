@@ -5,7 +5,7 @@
 // vuelve a leer estado y continúa donde lo dejó.
 import { adminDb } from './db.ts'
 import { makeProvider, isRateOrSizeLimitError, type ChatMessage } from './llm.ts'
-import { loadTools, runTool, toToolDefinitions, capToolResultForContext, capToolContentString } from './tools.ts'
+import { loadTools, runTool, toToolDefinitions, capToolResultForContext, capToolContentString, dailyBudgetExceeded } from './tools.ts'
 
 const MAX_TOOL_ITERATIONS = 5
 const HISTORY_WINDOW = 50
@@ -56,16 +56,19 @@ export async function runAgentStep(agentId: string): Promise<RunStepResult> {
       await db.from('tasks').update({ status: 'in_progress' }).eq('id', activeTask.id)
     }
 
-    // F5 tope de costo (fail-closed): si el agente agotó su presupuesto de tokens del
-    // día, paramos y marcamos la tarea para revisión humana (no quema más tokens).
+    // F5 tope de costo (fail-CLOSED real): si la RPC FALLA o se superó el presupuesto,
+    // paramos y marcamos la tarea para revisión (no quema más tokens a ciegas).
     const dailyBudget = ((agent.config ?? {}) as { daily_token_budget?: number }).daily_token_budget ?? 3_000_000
-    const { data: spentRaw } = await db.rpc('agent_tokens_today', { p_agent_id: agentId })
-    if (Number(spentRaw ?? 0) >= dailyBudget) {
+    const { data: spentRaw, error: budgetErr } = await db.rpc('agent_tokens_today', { p_agent_id: agentId })
+    if (budgetErr || dailyBudgetExceeded(spentRaw, agent.config as { daily_token_budget?: number })) {
+      const note = budgetErr
+        ? 'no se pudo verificar el presupuesto de tokens (error de control)'
+        : `tope de tokens del día alcanzado (${Number(spentRaw)}/${dailyBudget})`
       await db
         .from('tasks')
-        .update({ status: 'needs_review', result: { governance: `tope de tokens del día alcanzado (${Number(spentRaw)}/${dailyBudget})` } })
+        .update({ status: 'needs_review', result: { ...((activeTask.result ?? {}) as Record<string, unknown>), governance: note } })
         .eq('id', activeTask.id)
-      return { agent_id: agentId, iterations: 0, finished: false, reason: 'token_budget_exceeded' }
+      return { agent_id: agentId, iterations: 0, finished: false, reason: budgetErr ? 'budget_check_failed' : 'token_budget_exceeded' }
     }
 
     // Historia de mensajes del agente (todos los hilos, los últimos N).

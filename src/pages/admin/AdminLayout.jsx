@@ -568,6 +568,8 @@ export default function AdminLayout() {
   const navigate = useNavigate()
   const { isJunta } = useAuth()
   const workspace = getWorkspace(location.pathname)
+  // F5: la entrada "Salud" del nav es solo para la Junta (un no-junta vería el panel vacío).
+  const navItems = (WORKSPACE_NAV[workspace] ?? []).filter((it) => it.to !== '/admin/salud' || isJunta)
   // El chat marca ?canvas=1 cuando abre el split-view → ocultamos el sidebar
   // para darle todo el espacio al canvas.
   const [searchParams] = useSearchParams()
@@ -595,7 +597,7 @@ export default function AdminLayout() {
       >
         <SidebarHeader collapsed={collapsed} onToggle={toggleCollapsed} />
         <SectionSwitcher collapsed={collapsed} active={workspace} />
-        <NavItems items={WORKSPACE_NAV[workspace]} collapsed={collapsed} />
+        <NavItems items={navItems} collapsed={collapsed} />
         {workspace === 'agentes' && !collapsed ? (
           <div className="flex-1 min-h-0 overflow-y-auto border-t border-nina-line/60 mt-1">
             <AgentsNav onNavigate={(to) => navigate(to)} isJunta={isJunta} />
@@ -637,7 +639,7 @@ export default function AdminLayout() {
                 </button>
               </div>
               <SectionSwitcher collapsed={false} active={workspace} onSelect={() => setDrawerOpen(false)} />
-              <NavItems items={WORKSPACE_NAV[workspace]} collapsed={false} onSelect={() => setDrawerOpen(false)} />
+              <NavItems items={navItems} collapsed={false} onSelect={() => setDrawerOpen(false)} />
               {workspace === 'agentes' ? (
                 <div className="flex-1 min-h-0 overflow-y-auto border-t border-nina-line/60 mt-1">
                   <AgentsNav
