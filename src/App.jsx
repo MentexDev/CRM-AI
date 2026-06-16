@@ -11,6 +11,7 @@ import Cerebro from './pages/admin/Cerebro'
 import Brands from './pages/admin/Brands'
 import Produccion from './pages/admin/Produccion'
 import Team from './pages/admin/Team'
+import Salud from './pages/admin/Salud'
 
 function Protected({ children }) {
   const { user, loading } = useAuth()
@@ -80,6 +81,7 @@ export default function App() {
         <Route path="cerebro" element={<Cerebro />} />
         <Route path="produccion" element={<Produccion />} />
         <Route path="marcas" element={<Brands />} />
+        <Route path="salud" element={<Salud />} />
         <Route path="equipo" element={<Team />} />
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />

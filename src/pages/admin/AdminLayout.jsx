@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
+  Activity,
   Bot,
   Brain,
   Calculator,
@@ -252,6 +253,7 @@ const WORKSPACE_NAV = {
     { to: '/admin/biblioteca', icon: Library, label: 'Biblioteca' },
     { to: '/admin/cerebro', icon: Brain, label: 'Cerebro' },
     { to: '/admin/marcas', icon: Sparkles, label: 'Marcas' },
+    { to: '/admin/salud', icon: Activity, label: 'Salud' },
   ],
   produccion: [], // se llenará cuando definamos Producción
   equipo: [],
