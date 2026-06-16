@@ -31,9 +31,13 @@ Deno.serve(async (req) => {
   const startedAt = Date.now()
   const db = adminDb()
 
-  // F4 backstop: reconcilia tareas padre 'blocked' cuyos hijos YA terminaron (todos
-  // fuera de to_do/in_progress) y sin aprobación pendiente → las reactiva. Auto-sana
-  // carreras (dos hijos terminando a la vez) o reactivaciones perdidas. No rompe el tick si falla.
+  // F5 gobernanza + F4 backstop (cada tick, best-effort):
+  // 1) reconcile_stuck_tasks: tareas sin progreso >45min o en loop (>50 turnos del
+  //    agente) → 'needs_review' (no cuelgan ni queman tokens; un humano las mira).
+  // 2) reconcile_blocked_parents: padres 'blocked' cuyos hijos ya quedaron terminales
+  //    (incluye los recién marcados) y sin aprobación pendiente → reactivados.
+  //    Auto-sana atascos (hijo que no termina) y carreras (hijos concurrentes).
+  await db.rpc('reconcile_stuck_tasks')
   await db.rpc('reconcile_blocked_parents')
 
   const { data: rows, error } = await db
