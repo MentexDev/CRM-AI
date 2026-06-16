@@ -1,5 +1,6 @@
-import { Children, useState } from 'react'
+import { Children, useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
+import { supabase } from '../lib/supabase'
 import {
   AlertCircle,
   CheckCircle2,
@@ -241,18 +242,10 @@ export default function ToolResultBubble({ message }) {
     )
   }
 
-  // Atajo: aprobación creada
+  // Atajo: aprobación creada → estado EN VIVO. Al aprobar/rechazar en el panel, esta
+  // burbuja pasa sola a "Aprobado/Rechazado" (sin que el usuario le avise al agente).
   if (data.approval_id) {
-    return (
-      <Wrap kind="ok">
-        <Header
-          icon={<Clock className="w-3.5 h-3.5" />}
-          title="Aprobación pendiente"
-          subtitle={`Tu tarea queda bloqueada hasta que la Junta decida`}
-          tone="pending"
-        />
-      </Wrap>
-    )
+    return <ApprovalBubble approvalId={data.approval_id} />
   }
 
   // Atajo: memory guardada
@@ -273,6 +266,70 @@ export default function ToolResultBubble({ message }) {
     <Wrap kind="ok">
       <Header icon={<Wrench className="w-3.5 h-3.5" />} title="Tool ejecutada" />
       <RawJson data={data} />
+    </Wrap>
+  )
+}
+
+// Burbuja de aprobación con estado EN VIVO: lee el approval y se suscribe a sus
+// cambios. Cuando la Junta decide en el panel (status → approved/rejected), esta línea
+// se actualiza sola en el chat — el resultado y el cierre del agente llegan por aparte.
+function ApprovalBubble({ approvalId }) {
+  const [status, setStatus] = useState('pending')
+
+  useEffect(() => {
+    if (!approvalId) return
+    let active = true
+    supabase
+      .from('approvals')
+      .select('status')
+      .eq('id', approvalId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (active && data?.status) setStatus(data.status)
+      })
+    const ch = supabase
+      .channel(`approval-${approvalId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'approvals', filter: `id=eq.${approvalId}` },
+        (payload) => {
+          if (active && payload.new?.status) setStatus(payload.new.status)
+        },
+      )
+      .subscribe()
+    return () => {
+      active = false
+      try {
+        supabase.removeChannel(ch)
+      } catch {}
+    }
+  }, [approvalId])
+
+  if (status === 'approved') {
+    return (
+      <Wrap kind="ok">
+        <Header
+          icon={<CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+          title="Aprobado por la Junta"
+          subtitle="El agente continúa"
+        />
+      </Wrap>
+    )
+  }
+  if (status === 'rejected') {
+    return (
+      <Wrap kind="error">
+        <Header icon={<AlertCircle className="w-3.5 h-3.5" />} title="Rechazado por la Junta" subtitle="No se ejecutó" />
+      </Wrap>
+    )
+  }
+  return (
+    <Wrap kind="ok">
+      <Header
+        icon={<Clock className="w-3.5 h-3.5" />}
+        title="Aprobación pendiente"
+        subtitle="Esperando la decisión de la Junta…"
+      />
     </Wrap>
   )
 }

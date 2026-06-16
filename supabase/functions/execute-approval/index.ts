@@ -168,14 +168,32 @@ Deno.serve(async (req) => {
   await admin.from('messages').insert({
     agent_id: approval.agent_id,
     task_id: approval.task_id,
+    // Si la aprobación nació de un chat, el resultado vuelve AL HILO (visible por realtime).
+    conversation_id: approval.conversation_id ?? null,
     role: 'tool',
     content: toolMsg,
     metadata: { from_approval: approval.id, tool_call_id: tcRow?.id ?? null },
   })
 
-  // Desbloquear la task del agente para que el cron la reprocese
+  // Desbloquear la task del agente para que el cron la reprocese (flujo autónomo).
   if (approval.task_id) {
     await admin.from('tasks').update({ status: 'in_progress' }).eq('id', approval.task_id)
+  }
+
+  // Aprobación nacida de un CHAT: el agente "continúa solo" — posteamos su cierre al
+  // hilo para que el usuario NO tenga que avisarle que ya lo aprobaron. Aparece por
+  // realtime junto al resultado. (En flujo autónomo lo retoma el cron con la task.)
+  if (approval.conversation_id) {
+    const closing = toolResult.ok
+      ? `✅ La Junta aprobó la solicitud. ${summarizeDone(toolName, args)}`
+      : `⚠️ La Junta aprobó, pero la ejecución falló: ${toolResult.error ?? 'error desconocido'}`
+    await admin.from('messages').insert({
+      agent_id: approval.agent_id,
+      conversation_id: approval.conversation_id,
+      role: 'assistant',
+      content: closing,
+      metadata: { source: 'chat', from_approval: approval.id },
+    })
   }
 
   return json({
@@ -185,6 +203,16 @@ Deno.serve(async (req) => {
     result: toolResult,
   })
 })
+
+// Resumen humano de lo que se ejecutó tras la aprobación (para el cierre en el chat).
+function summarizeDone(toolName: string, args: Record<string, unknown>): string {
+  if (toolName === 'send_email') return `Envié el correo a ${String(args.to ?? '')}.`
+  if (toolName === 'create_agent') return `Creé el agente "${String(args.name ?? '')}".`
+  if (toolName === 'shopify_adjust_inventory') {
+    return `Ajusté el inventario (${String(args.sku ?? '')}, Δ${String(args.delta ?? '')}).`
+  }
+  return 'Ejecuté la acción aprobada.'
+}
 
 function json(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
