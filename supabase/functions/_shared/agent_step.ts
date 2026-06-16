@@ -56,6 +56,18 @@ export async function runAgentStep(agentId: string): Promise<RunStepResult> {
       await db.from('tasks').update({ status: 'in_progress' }).eq('id', activeTask.id)
     }
 
+    // F5 tope de costo (fail-closed): si el agente agotó su presupuesto de tokens del
+    // día, paramos y marcamos la tarea para revisión humana (no quema más tokens).
+    const dailyBudget = ((agent.config ?? {}) as { daily_token_budget?: number }).daily_token_budget ?? 3_000_000
+    const { data: spentRaw } = await db.rpc('agent_tokens_today', { p_agent_id: agentId })
+    if (Number(spentRaw ?? 0) >= dailyBudget) {
+      await db
+        .from('tasks')
+        .update({ status: 'needs_review', result: { governance: `tope de tokens del día alcanzado (${Number(spentRaw)}/${dailyBudget})` } })
+        .eq('id', activeTask.id)
+      return { agent_id: agentId, iterations: 0, finished: false, reason: 'token_budget_exceeded' }
+    }
+
     // Historia de mensajes del agente (todos los hilos, los últimos N).
     // Para brand managers / CEO el contexto se consolida así. En el futuro
     // podríamos limitar por task_id si la conversación crece mucho.

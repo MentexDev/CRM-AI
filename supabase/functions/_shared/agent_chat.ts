@@ -98,6 +98,20 @@ export async function runAgentChatTurn(
     .single()
   if (insErr) throw new Error(`No se pudo guardar tu mensaje: ${insErr.message}`)
 
+  // F5 tope de costo (fail-closed): si el agente agotó su presupuesto de tokens del
+  // día, no llamamos al LLM. Default generoso (3M); configurable en agent.config.daily_token_budget.
+  const dailyBudget = ((agent.config ?? {}) as { daily_token_budget?: number }).daily_token_budget ?? 3_000_000
+  const { data: spentRaw } = await db.rpc('agent_tokens_today', { p_agent_id: agentId })
+  if (Number(spentRaw ?? 0) >= dailyBudget) {
+    const warn = `⚠️ Alcancé mi presupuesto de tokens de hoy (${Number(spentRaw).toLocaleString()}/${dailyBudget.toLocaleString()}). Reanudo mañana, o súbeme el límite en mi configuración.`
+    const { data: ins } = await db
+      .from('messages')
+      .insert({ agent_id: agentId, task_id: null, conversation_id: convId, role: 'assistant', content: warn, metadata: { source: 'chat', error: 'token_budget_exceeded' } })
+      .select('id')
+      .single()
+    return { agent_id: agentId, conversation_id: convId, user_message_id: userMsg.id, assistant_message_id: ins?.id ?? null, iterations: 0, finished: true, reason: 'token_budget_exceeded' }
+  }
+
   await db
     .from('agents')
     .update({ status: 'running', last_heartbeat_at: new Date().toISOString() })
