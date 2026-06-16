@@ -16,6 +16,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@^2'
 import { adminDb } from '../_shared/db.ts'
 import { shopifyAdjustInventory } from '../_shared/shopify.ts'
 import { deliverEmail } from '../_shared/tools.ts'
+import { runAgentChatTurn } from '../_shared/agent_chat.ts'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -78,6 +79,31 @@ Deno.serve(async (req) => {
   const payload = approval.payload as { tool_name?: string; args?: Record<string, unknown> } | null
   const toolName = payload?.tool_name
   const args = (payload?.args ?? {}) as Record<string, unknown>
+
+  // CHAT: la aprobación nació de una conversación → el agente "continúa solo". Le
+  // re-invocamos un turno con un aviso de aprobación; él ejecuta lo solicitado (p.ej.
+  // send_email, reutilizando el correo ya compuesto) y postea el resultado + su cierre
+  // AL HILO (runAgentChatTurn escribe con conversation_id; el chat lo ve por realtime).
+  // Esto AUTOMATIZA exactamente lo que el usuario hacía a mano ("ya lo aprobaron").
+  if (approval.conversation_id) {
+    const note =
+      `✅ La Junta aprobó tu solicitud${approval.summary ? `: «${approval.summary}»` : ''}. ` +
+      'Procede a ejecutarla ahora mismo (si es un correo, envíalo).'
+    try {
+      const result = await runAgentChatTurn(
+        approval.agent_id,
+        note,
+        approval.conversation_id,
+        userData.user.id,
+      )
+      return json({ ok: true, mode: 'chat_resume', result })
+    } catch (e) {
+      return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500)
+    }
+  }
+
+  // AUTÓNOMO (tarea): la aprobación trae la acción en el payload. La ejecutamos aquí y
+  // reactivamos la task para que el cron continúe.
   if (!toolName) {
     return json({ ok: true, skipped: true, note: 'Approval sin tool_name en payload — nada que ejecutar' })
   }
@@ -180,22 +206,6 @@ Deno.serve(async (req) => {
     await admin.from('tasks').update({ status: 'in_progress' }).eq('id', approval.task_id)
   }
 
-  // Aprobación nacida de un CHAT: el agente "continúa solo" — posteamos su cierre al
-  // hilo para que el usuario NO tenga que avisarle que ya lo aprobaron. Aparece por
-  // realtime junto al resultado. (En flujo autónomo lo retoma el cron con la task.)
-  if (approval.conversation_id) {
-    const closing = toolResult.ok
-      ? `✅ La Junta aprobó la solicitud. ${summarizeDone(toolName, args)}`
-      : `⚠️ La Junta aprobó, pero la ejecución falló: ${toolResult.error ?? 'error desconocido'}`
-    await admin.from('messages').insert({
-      agent_id: approval.agent_id,
-      conversation_id: approval.conversation_id,
-      role: 'assistant',
-      content: closing,
-      metadata: { source: 'chat', from_approval: approval.id },
-    })
-  }
-
   return json({
     ok: true,
     executed: toolResult.ok,
@@ -203,16 +213,6 @@ Deno.serve(async (req) => {
     result: toolResult,
   })
 })
-
-// Resumen humano de lo que se ejecutó tras la aprobación (para el cierre en el chat).
-function summarizeDone(toolName: string, args: Record<string, unknown>): string {
-  if (toolName === 'send_email') return `Envié el correo a ${String(args.to ?? '')}.`
-  if (toolName === 'create_agent') return `Creé el agente "${String(args.name ?? '')}".`
-  if (toolName === 'shopify_adjust_inventory') {
-    return `Ajusté el inventario (${String(args.sku ?? '')}, Δ${String(args.delta ?? '')}).`
-  }
-  return 'Ejecuté la acción aprobada.'
-}
 
 function json(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {

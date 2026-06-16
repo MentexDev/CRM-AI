@@ -73,25 +73,30 @@ export default function Approvals() {
         .eq('id', item.id)
       if (error) throw error
 
-      // Si se aprobó Y el payload tiene un tool_name (operación pendiente
-      // de ejecutar), invocamos execute-approval para que el runtime haga
-      // la operación real y le notifique al agente.
+      // Al aprobar, SIEMPRE invocamos execute-approval. La función decide qué hacer:
+      // si nació de un chat → re-invoca al agente para que continúe solo (chat_resume);
+      // si trae tool_name (tarea autónoma) → ejecuta la operación y reactiva la task;
+      // si no hay nada que hacer → skipped. Así el agente nunca espera a que le avisen.
       const payload = item.payload || {}
-      if (decision === 'approved' && payload.tool_name) {
-        toast.loading(`Ejecutando ${payload.tool_name}…`, { id: t })
+      if (decision === 'approved') {
+        toast.loading('Aplicando aprobación…', { id: t })
         const { data: execData, error: execErr } = await supabase.functions.invoke(
           'execute-approval',
           { body: { approval_id: item.id } },
         )
         if (execErr) throw execErr
         if (execData?.error) throw new Error(execData.error)
-        if (execData?.executed === false) {
+        if (execData?.mode === 'chat_resume') {
+          toast.success('Aprobado · el agente continúa en el chat', { id: t })
+        } else if (execData?.skipped) {
+          toast.success('Aprobado', { id: t })
+        } else if (execData?.executed === false) {
           toast.error(`Aprobado, pero la ejecución falló: ${execData?.result?.error || 'desconocido'}`, { id: t })
         } else {
-          toast.success(`Aprobado y ejecutado · ${payload.tool_name}`, { id: t })
+          toast.success(`Aprobado y ejecutado${payload.tool_name ? ` · ${payload.tool_name}` : ''}`, { id: t })
         }
       } else {
-        toast.success(decision === 'approved' ? 'Aprobado' : 'Rechazado', { id: t })
+        toast.success('Rechazado', { id: t })
       }
     } catch (err) {
       toast.error(err.message || 'No se pudo guardar la decisión', { id: t })
