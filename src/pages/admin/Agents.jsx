@@ -128,6 +128,7 @@ export default function Agents() {
   const goHome = () => {
     const next = new URLSearchParams(searchParams)
     next.delete('c')
+    next.delete('canvas') // salir del chat cierra el canvas — no dejar ?canvas pegado (re-abría el avance)
     setSearchParams(next, { replace: true })
   }
 
@@ -560,10 +561,23 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     return null
   }, [messages])
   const [canvasOpen, setCanvasOpen] = useState(false)
-  // Abrimos el canvas automáticamente cuando llega un artefacto nuevo.
+  // Auto-abrimos el canvas SOLO cuando el agente genera un email NUEVO mientras miramos
+  // el hilo. Entrar o VOLVER a un hilo que ya traía un email NO fuerza el avance (para
+  // eso está el botón "Avance") — antes se reabría en cada visita y "secuestraba" la vista.
+  const initialArtifactKey = useRef(undefined)
   useEffect(() => {
-    if (emailArtifact) setCanvasOpen(true)
-  }, [emailArtifact?.key])
+    // Fijamos el artefacto "que ya venía en el hilo" en la primera carga de historia.
+    if (initialArtifactKey.current === undefined && messages.length > 0) {
+      initialArtifactKey.current = emailArtifact?.key ?? null
+    }
+    if (
+      initialArtifactKey.current !== undefined &&
+      emailArtifact &&
+      emailArtifact.key !== initialArtifactKey.current
+    ) {
+      setCanvasOpen(true)
+    }
+  }, [emailArtifact?.key, messages.length])
 
   // Marcamos ?canvas=1 en la URL cuando el canvas está abierto → el layout oculta
   // el sidebar y le da más espacio. Lo limpiamos al cerrar y al salir del chat.
