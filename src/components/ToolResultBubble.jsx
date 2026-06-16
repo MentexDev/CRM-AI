@@ -279,14 +279,18 @@ function ApprovalBubble({ approvalId }) {
   useEffect(() => {
     if (!approvalId) return
     let active = true
-    supabase
-      .from('approvals')
-      .select('status')
-      .eq('id', approvalId)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (active && data?.status) setStatus(data.status)
-      })
+    const sync = () =>
+      supabase
+        .from('approvals')
+        .select('status')
+        .eq('id', approvalId)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (active && data?.status) setStatus(data.status)
+        })
+    // Suscribir PRIMERO y re-sincronizar al confirmarse (SUBSCRIBED): así no se pierde un
+    // UPDATE que ocurra entre el fetch inicial y el handshake del canal (no queda clavada
+    // en 'pending'). El sync() extra de abajo da el valor inicial sin esperar el handshake.
     const ch = supabase
       .channel(`approval-${approvalId}`)
       .on(
@@ -296,7 +300,10 @@ function ApprovalBubble({ approvalId }) {
           if (active && payload.new?.status) setStatus(payload.new.status)
         },
       )
-      .subscribe()
+      .subscribe((s) => {
+        if (s === 'SUBSCRIBED') sync()
+      })
+    sync()
     return () => {
       active = false
       try {
@@ -305,13 +312,26 @@ function ApprovalBubble({ approvalId }) {
     }
   }, [approvalId])
 
-  if (status === 'approved') {
+  // 'executing'/'executed' = aprobado y en/post ejecución; 'failed' = aprobado pero la
+  // ejecución falló. Todos los positivos se ven como "Aprobado".
+  if (status === 'approved' || status === 'executing' || status === 'executed') {
     return (
       <Wrap kind="ok">
         <Header
           icon={<CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
           title="Aprobado por la Junta"
           subtitle="El agente continúa"
+        />
+      </Wrap>
+    )
+  }
+  if (status === 'failed') {
+    return (
+      <Wrap kind="error">
+        <Header
+          icon={<AlertCircle className="w-3.5 h-3.5" />}
+          title="Aprobado · la ejecución falló"
+          subtitle="Revísalo e intenta de nuevo"
         />
       </Wrap>
     )

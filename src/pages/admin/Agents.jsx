@@ -701,6 +701,8 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
             groupTimeline(allMessages).map((it) =>
               it.kind === 'steps' ? (
                 <StepsGroup key={it.key} steps={it.steps} />
+              ) : it.kind === 'note' ? (
+                <SystemNote key={it.key} message={it.message} />
               ) : (
                 <MessageBubble key={it.key} message={it.message} hideTools />
               ),
@@ -1733,6 +1735,14 @@ function groupTimeline(messages) {
   }
   for (const m of messages) {
     if (m.role === 'system') continue
+    // Nota de sistema (p.ej. el auto-resume de aprobación). Aunque se persiste como
+    // role:'user' (para que el agente la procese), la pintamos como chip centrado y NO
+    // como burbuja del usuario: la decisión la tomó la Junta en el panel, no este chat.
+    if (m.metadata?.source === 'approval_resume') {
+      flush()
+      items.push({ kind: 'note', message: m, key: m.id })
+      continue
+    }
     if (m.role === 'tool') {
       buf.push({ kind: 'result', message: m, key: m.id })
       continue
@@ -1812,6 +1822,18 @@ function StepRow({ step }) {
   if (step.result) return <ToolResultBubble message={step.result} />
   if (step.call) return <ToolCallChip call={step.call} />
   return null
+}
+
+// Nota de sistema centrada (no atribuible al usuario ni al agente). P.ej. el aviso de
+// que la Junta aprobó una solicitud desde el panel de Aprobaciones.
+function SystemNote({ message }) {
+  return (
+    <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="flex justify-center">
+      <div className="text-[11px] text-nina-mute bg-nina-line/30 border border-nina-line/40 rounded-full px-3 py-1 max-w-[85%] text-center break-words">
+        {message.content}
+      </div>
+    </motion.div>
+  )
 }
 
 function MessageBubble({ message, hideTools = false }) {

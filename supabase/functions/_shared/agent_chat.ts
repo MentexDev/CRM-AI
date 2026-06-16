@@ -26,6 +26,10 @@ export async function runAgentChatTurn(
   userText: string,
   conversationId?: string | null,
   callerId: string | null = null,
+  // Metadata extra para el mensaje disparador. P.ej. el auto-resume de aprobaciones pasa
+  // { source: 'approval_resume' } para que el front lo pinte como nota de sistema y NO como
+  // una burbuja del usuario (la nota la generó la Junta en el panel, no el usuario del chat).
+  triggerMeta: Record<string, unknown> = {},
 ): Promise<ChatTurnResult> {
   const db = adminDb()
 
@@ -92,7 +96,7 @@ export async function runAgentChatTurn(
       conversation_id: convId,
       role: 'user',
       content: userText,
-      metadata: { source: 'chat' },
+      metadata: { source: 'chat', ...triggerMeta },
     })
     .select('id')
     .single()

@@ -63,39 +63,36 @@ export default function Approvals() {
     setBusyId(item.id)
     const t = toast.loading(decision === 'approved' ? 'Aprobando…' : 'Rechazando…')
     try {
-      const { error } = await supabase
-        .from('approvals')
-        .update({
-          status: decision,
-          decided_by: user?.id,
-          decided_at: new Date().toISOString(),
-        })
-        .eq('id', item.id)
-      if (error) throw error
-
-      // Al aprobar, SIEMPRE invocamos execute-approval. La función decide qué hacer:
-      // si nació de un chat → re-invoca al agente para que continúe solo (chat_resume);
-      // si trae tool_name (tarea autónoma) → ejecuta la operación y reactiva la task;
-      // si no hay nada que hacer → skipped. Así el agente nunca espera a que le avisen.
-      const payload = item.payload || {}
       if (decision === 'approved') {
-        toast.loading('Aplicando aprobación…', { id: t })
+        // execute-approval es la ÚNICA vía: reclama el approval atómicamente
+        // (pending→executing), ejecuta y fija el estado final. NO marcamos 'approved'
+        // desde el cliente — si el invoke falla, el approval sigue 'pending' y es
+        // reintentable (cierra el limbo "aprobado-pero-no-ejecutado"). La función decide:
+        // chat → re-invoca al agente; tarea con tool_name → ejecuta + reactiva; si no, skip.
+        const payload = item.payload || {}
         const { data: execData, error: execErr } = await supabase.functions.invoke(
           'execute-approval',
           { body: { approval_id: item.id } },
         )
         if (execErr) throw execErr
         if (execData?.error) throw new Error(execData.error)
-        if (execData?.mode === 'chat_resume') {
+        if (execData?.skipped) {
+          toast.success('Ya estaba resuelta', { id: t })
+        } else if (execData?.mode === 'chat_resume') {
           toast.success('Aprobado · el agente continúa en el chat', { id: t })
-        } else if (execData?.skipped) {
-          toast.success('Aprobado', { id: t })
         } else if (execData?.executed === false) {
           toast.error(`Aprobado, pero la ejecución falló: ${execData?.result?.error || 'desconocido'}`, { id: t })
         } else {
           toast.success(`Aprobado y ejecutado${payload.tool_name ? ` · ${payload.tool_name}` : ''}`, { id: t })
         }
       } else {
+        // Rechazo: transición atómica solo desde 'pending' (evita doble-decisión).
+        const { error } = await supabase
+          .from('approvals')
+          .update({ status: 'rejected', decided_by: user?.id, decided_at: new Date().toISOString() })
+          .eq('id', item.id)
+          .eq('status', 'pending')
+        if (error) throw error
         toast.success('Rechazado', { id: t })
       }
     } catch (err) {
