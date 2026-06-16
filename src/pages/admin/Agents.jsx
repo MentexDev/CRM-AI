@@ -698,7 +698,13 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               Sin mensajes en esta conversación todavía.
             </div>
           ) : (
-            allMessages.map((m) => <MessageBubble key={m.id} message={m} />)
+            groupTimeline(allMessages).map((it) =>
+              it.kind === 'steps' ? (
+                <StepsGroup key={it.key} steps={it.steps} />
+              ) : (
+                <MessageBubble key={it.key} message={it.message} hideTools />
+              ),
+            )
           )}
           {thinking && <ThinkingIndicator name={agent.name} />}
         </div>
@@ -1711,7 +1717,104 @@ const TOOL_LABELS = {
 }
 const humanTool = (name) => TOOL_LABELS[name] || name
 
-function MessageBubble({ message }) {
+// Agrupa la actividad de tools (llamadas + resultados) consecutiva en UN panel
+// colapsable estilo Runable: una sola línea "N pasos ▸" que se despliega al hacer
+// click, en vez de muchas líneas sueltas (antes el chip de llamada y la burbuja de
+// resultado salían por separado → se veía duplicado y disperso). El texto del agente
+// y del usuario sigue como burbuja normal.
+function groupTimeline(messages) {
+  const items = []
+  let buf = []
+  const flush = () => {
+    if (buf.length) {
+      items.push({ kind: 'steps', steps: buildSteps(buf), key: `steps-${buf[0].key}` })
+      buf = []
+    }
+  }
+  for (const m of messages) {
+    if (m.role === 'system') continue
+    if (m.role === 'tool') {
+      buf.push({ kind: 'result', message: m, key: m.id })
+      continue
+    }
+    const hasContent = !!(m.content && String(m.content).trim())
+    const hasTools = Array.isArray(m.tool_calls) && m.tool_calls.length > 0
+    if (m.role === 'assistant') {
+      if (hasContent) {
+        flush()
+        items.push({ kind: 'message', message: m, key: m.id })
+      }
+      if (hasTools) for (const tc of m.tool_calls) buf.push({ kind: 'call', call: tc, key: tc.id || m.id })
+      continue
+    }
+    // user (o cualquier otro con texto)
+    flush()
+    items.push({ kind: 'message', message: m, key: m.id })
+  }
+  flush()
+  return items
+}
+
+// Empareja cada resultado con su llamada (por tool_call_id) → un "paso" por acción.
+function buildSteps(buf) {
+  const steps = []
+  const byCallId = new Map()
+  for (const it of buf) {
+    if (it.kind === 'call') {
+      const step = { call: it.call, result: null }
+      steps.push(step)
+      if (it.call?.id) byCallId.set(it.call.id, step)
+    } else {
+      const cid = it.message.tool_call_id
+      const owner = cid ? byCallId.get(cid) : null
+      if (owner && !owner.result) owner.result = it.message
+      else steps.push({ call: null, result: it.message })
+    }
+  }
+  return steps
+}
+
+function StepsGroup({ steps }) {
+  const [open, setOpen] = useState(false)
+  const n = steps.length
+  const lastCall = [...steps].reverse().find((s) => s.call)?.call
+  const lastLabel = lastCall ? humanTool(lastCall.function.name) : 'resultado'
+  return (
+    <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start">
+      <div className="w-full max-w-[90%] sm:max-w-[80%]">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-1.5 py-0.5 text-[11.5px] text-nina-mute hover:text-nina-chrome transition select-none"
+        >
+          <ListTodo className="w-3.5 h-3.5 opacity-70 shrink-0" />
+          <span className="font-medium">
+            {n} paso{n === 1 ? '' : 's'}
+          </span>
+          {!open && <span className="opacity-60 truncate max-w-[220px]">· {lastLabel}</span>}
+          <ChevronRight className={`w-3 h-3 opacity-50 transition ${open ? 'rotate-90' : ''}`} />
+        </button>
+        {open && (
+          <div className="mt-1 ml-1.5 border-l border-nina-line/50 pl-3 space-y-1">
+            {steps.map((s, i) => (
+              <StepRow key={i} step={s} />
+            ))}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
+// Un paso = una acción. Si ya tiene resultado, mostramos la burbuja de resultado
+// (colapsable, con su detalle); si sigue corriendo, el chip de la llamada.
+function StepRow({ step }) {
+  if (step.result) return <ToolResultBubble message={step.result} />
+  if (step.call) return <ToolCallChip call={step.call} />
+  return null
+}
+
+function MessageBubble({ message, hideTools = false }) {
   const { role, content, tool_calls, created_at } = message
 
   if (role === 'system') return null
@@ -1722,6 +1825,7 @@ function MessageBubble({ message }) {
 
   // Asistente que SOLO ejecuta tools (sin texto) → líneas sutiles, sin burbuja
   if (!isUser && !content && hasTools) {
+    if (hideTools) return null // en el timeline agrupado los pinta StepsGroup
     return (
       <motion.div
         initial={{ opacity: 0, y: 4 }}
@@ -1759,7 +1863,7 @@ function MessageBubble({ message }) {
             )}
           </div>
         )}
-        {hasTools && (
+        {!hideTools && hasTools && (
           <div className="space-y-0.5 pl-1">
             {tool_calls.map((tc) => (
               <ToolCallChip key={tc.id} call={tc} />
