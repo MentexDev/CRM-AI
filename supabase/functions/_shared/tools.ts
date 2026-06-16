@@ -356,11 +356,14 @@ async function finishTask(ctx: ToolContext, args: Record<string, unknown>): Prom
         content: `[Subordinado ${me?.name ?? ctx.agentId}] completó su subtarea: ${summary}`,
         metadata: { from_subtask: taskId },
       })
+      // Reactivamos si NINGÚN hijo sigue ACTIVO (to_do/in_progress) — así un hijo
+      // bloqueado/fallido no deja al padre colgado para siempre (no exigimos que
+      // TODOS estén 'done'). El backstop del heartbeat cubre además las carreras.
       const { count } = await ctx.db
         .from('tasks')
         .select('id', { count: 'exact', head: true })
         .eq('parent_task_id', task.parent_task_id)
-        .neq('status', 'done')
+        .in('status', ['to_do', 'in_progress'])
       if ((count ?? 0) === 0) {
         await ctx.db.from('messages').insert({
           agent_id: parent.agent_id,
