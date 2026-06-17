@@ -31,6 +31,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useAgents } from '../../hooks/useAgents'
 import { useConversations } from '../../hooks/useConversations'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase'
+import { useConnectionStatus } from '../../lib/useConnectionStatus'
 
 function fmtConvTime(ts) {
   if (!ts) return ''
@@ -352,54 +353,9 @@ function SectionSwitcher({ collapsed, active, onSelect }) {
 // maximizar el espacio del chat. Si el usuario lo expande, dura sólo
 // dentro de la sesión visual.
 
-// Hook · estado de conexión (ping a profiles cada 30s).
-function useConnectionState() {
-  const { user } = useAuth()
-  const [conn, setConn] = useState(() => {
-    if (!isSupabaseConfigured) return 'local'
-    return user ? 'online' : 'idle'
-  })
-  useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setConn('local')
-      return
-    }
-    let alive = true
-    let consecutiveFailures = 0
-    const ping = async () => {
-      try {
-        const { error } = await supabase.from('profiles').select('id').limit(1)
-        if (!alive) return
-        if (error) {
-          consecutiveFailures += 1
-          if (consecutiveFailures >= 2) setConn('offline')
-        } else {
-          consecutiveFailures = 0
-          setConn('online')
-        }
-      } catch {
-        consecutiveFailures += 1
-        if (alive && consecutiveFailures >= 2) setConn('offline')
-      }
-    }
-    ping()
-    const onOnline = () => {
-      consecutiveFailures = 0
-      ping()
-    }
-    const onOffline = () => alive && setConn('offline')
-    window.addEventListener('online', onOnline)
-    window.addEventListener('offline', onOffline)
-    const interval = setInterval(ping, 30000)
-    return () => {
-      alive = false
-      clearInterval(interval)
-      window.removeEventListener('online', onOnline)
-      window.removeEventListener('offline', onOffline)
-    }
-  }, [user?.id])
-  return conn
-}
+// Estado de conexión: poller COMPARTIDO global (un solo ping para toda la app, no uno
+// por componente). Ver lib/useConnectionStatus.
+const useConnectionState = useConnectionStatus
 
 const INDICATOR = {
   online: { dot: 'bg-emerald-400', label: 'En línea', shadow: 'shadow-[0_0_8px_rgba(52,211,153,0.6)]' },

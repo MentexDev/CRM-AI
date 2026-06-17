@@ -2,58 +2,14 @@ import { useEffect, useState } from 'react'
 import { LogOut, Menu } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { isSupabaseConfigured, supabase } from '../lib/supabase'
+import { useConnectionStatus } from '../lib/useConnectionStatus'
 
 export default function TopBar({ onMenuClick }) {
   const { user, logout } = useAuth()
   const nav = useNavigate()
 
-  // Estado de conexión: idle | online | offline | local
-  const [conn, setConn] = useState(() => {
-    if (!isSupabaseConfigured) return 'local'
-    return user ? 'online' : 'idle'
-  })
-
-  useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setConn('local')
-      return
-    }
-    let alive = true
-    let consecutiveFailures = 0
-
-    const ping = async () => {
-      try {
-        const { error } = await supabase.from('profiles').select('id').limit(1)
-        if (!alive) return
-        if (error) {
-          consecutiveFailures += 1
-          if (consecutiveFailures >= 2) setConn('offline')
-        } else {
-          consecutiveFailures = 0
-          setConn('online')
-        }
-      } catch {
-        consecutiveFailures += 1
-        if (alive && consecutiveFailures >= 2) setConn('offline')
-      }
-    }
-    ping()
-    const onlineHandler = () => {
-      consecutiveFailures = 0
-      ping()
-    }
-    const offlineHandler = () => alive && setConn('offline')
-    window.addEventListener('online', onlineHandler)
-    window.addEventListener('offline', offlineHandler)
-    const interval = setInterval(ping, 30000)
-    return () => {
-      alive = false
-      clearInterval(interval)
-      window.removeEventListener('online', onlineHandler)
-      window.removeEventListener('offline', offlineHandler)
-    }
-  }, [user?.id])
+  // Estado de conexión (poller COMPARTIDO global — ver lib/useConnectionStatus).
+  const conn = useConnectionStatus()
 
   const handleLogout = async () => {
     await logout()
