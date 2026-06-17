@@ -32,14 +32,18 @@ Deno.serve(async (req) => {
   const { data: userData, error: userErr } = await callerClient.auth.getUser(token)
   if (userErr || !userData?.user) return json({ error: 'Token inválido' }, 401)
 
-  let body: { message_id?: string; hidden?: boolean }
+  let body: { message_id?: string | number; hidden?: boolean }
   try {
     body = await req.json()
   } catch {
     return json({ error: 'Body JSON inválido' }, 400)
   }
-  const messageId = body.message_id?.trim()
-  if (!messageId) return json({ error: 'Falta message_id' }, 400)
+  // message_id puede venir como bigint (los ids de public.messages son bigint) o string;
+  // NO usar .trim() (rompe con números → TypeError → 500).
+  const messageId = body.message_id
+  if (messageId === undefined || messageId === null || messageId === '') {
+    return json({ error: 'Falta message_id' }, 400)
+  }
   const hidden = body.hidden !== false // default true
 
   // Autorización por marca/hilo: si el caller puede LEER el mensaje con SU sesión (RLS),
