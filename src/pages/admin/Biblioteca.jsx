@@ -37,6 +37,10 @@ const KIND_META = {
 }
 const kindMeta = (k) => KIND_META[k] ?? KIND_META.other
 
+// ¿El contenido es HTML (p.ej. un correo de campaña)? → lo renderizamos en un iframe
+// aislado (preview real) en vez de mostrar el código fuente.
+const isHtmlContent = (c) => typeof c === 'string' && /<[a-z!][\s\S]*>/i.test(c)
+
 export default function Biblioteca() {
   const { assets, loading } = useLibraryAssets()
   const { agents } = useAgents()
@@ -300,7 +304,17 @@ function AssetCard({ asset, sourceLabel, onOpen }) {
         <span className="absolute top-2 left-2 z-10 chip !px-2 !py-0.5 text-[10px] bg-nina-ink/80 border-nina-line text-nina-mute">
           {m.label}
         </span>
-        {asset.content ? (
+        {isHtmlContent(asset.content) ? (
+          <iframe
+            title={asset.title}
+            srcDoc={asset.content}
+            sandbox=""
+            scrolling="no"
+            tabIndex={-1}
+            aria-hidden="true"
+            className="absolute inset-0 w-full h-full bg-white pointer-events-none"
+          />
+        ) : asset.content ? (
           <div
             className="absolute inset-0 px-3 pt-9 pb-2 text-[8.5px] leading-[1.5] text-nina-mute/70 whitespace-pre-wrap overflow-hidden group-hover:text-nina-mute transition-colors"
             style={{
@@ -375,7 +389,17 @@ function AssetDetailModal({ asset, sourceLabel, onClose }) {
           <span>{formatTimeAgo(asset.created_at)}</span>
         </div>
 
-        {asset.content ? (
+        {isHtmlContent(asset.content) ? (
+          <div className="rounded-lg border border-nina-line bg-white overflow-hidden">
+            <iframe
+              title={asset.title}
+              srcDoc={asset.content}
+              sandbox=""
+              className="w-full"
+              style={{ height: '60vh' }}
+            />
+          </div>
+        ) : asset.content ? (
           <div className="max-h-[52vh] overflow-y-auto rounded-lg border border-nina-line bg-nina-ink/40 px-3 py-2.5 text-[13px] text-nina-chrome whitespace-pre-wrap leading-relaxed">
             {asset.content}
           </div>

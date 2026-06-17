@@ -34,6 +34,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Thermometer,
+  Trash2,
   TrendingUp,
   UserPlus,
   Wrench,
@@ -547,12 +548,18 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // Canvas (F3): detecta el ÚLTIMO artefacto de email (de la tool compose_email)
   // en el hilo para mostrarlo en el split-view a la derecha. Lee el JSON COMPLETO
   // de messages.content (por eso importa guardar el resultado íntegro en la BD).
+  // Avances eliminados del canvas (optimista). El soft-hide persistente vive en
+  // metadata.canvas_hidden (lo marca la Edge Function canvas-hide-artifact).
+  const [hiddenKeys, setHiddenKeys] = useState(() => new Set())
+
   // TODOS los artefactos de email del hilo (cada compose_email), en orden cronológico.
   // Cada uno es una PESTAÑA del canvas → al crear uno nuevo NO se pierde el anterior.
+  // Excluimos los ocultados (soft-hide persistente o eliminación optimista en curso).
   const emailArtifacts = useMemo(() => {
     const out = []
     for (const m of messages) {
       if (m.role !== 'tool' || typeof m.content !== 'string') continue
+      if (m.metadata?.canvas_hidden || hiddenKeys.has(m.id)) continue
       try {
         const p = JSON.parse(m.content)
         if (p?.ok && p?.data?.kind === 'email' && p.data.html) {
@@ -563,7 +570,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
       }
     }
     return out
-  }, [messages])
+  }, [messages, hiddenKeys])
   const latestArtifact = emailArtifacts.length ? emailArtifacts[emailArtifacts.length - 1] : null
 
   const [canvasOpen, setCanvasOpen] = useState(false)
@@ -610,6 +617,27 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
       toast.success('Guardado en la biblioteca', { id: t })
     } catch (e) {
       toast.error(e?.message || 'No se pudo guardar', { id: t })
+    }
+  }
+
+  // Eliminar el avance del canvas (soft-hide persistente vía Edge Function). Optimista:
+  // lo ocultamos ya; si falla, lo restauramos. Si era el activo, vuelve al más reciente.
+  const deleteArtifact = async (artifact) => {
+    if (!artifact) return
+    setHiddenKeys((s) => new Set(s).add(artifact.key))
+    if (activeKey === artifact.key) setActiveKey(null)
+    const { data, error } = await supabase.functions.invoke('canvas-hide-artifact', {
+      body: { message_id: artifact.key },
+    })
+    if (error || data?.error) {
+      setHiddenKeys((s) => {
+        const n = new Set(s)
+        n.delete(artifact.key)
+        return n
+      })
+      toast.error('No se pudo eliminar el avance')
+    } else {
+      toast.success('Avance eliminado del canvas')
     }
   }
 
@@ -776,6 +804,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               onSelect={setActiveKey}
               onClose={() => setCanvasOpen(false)}
               onSave={() => saveToLibrary(activeArtifact)}
+              onDelete={() => deleteArtifact(activeArtifact)}
               saved={activeArtifact ? savedKeys.has(activeArtifact.key) : false}
             />
           </motion.aside>
@@ -787,7 +816,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
 
 // Canvas (F3) — split-view tipo NeuralOS. Hoy renderiza el preview en vivo del
 // correo HTML (artefacto de compose_email); luego se le suman pestañas (browser, docs).
-function EmailCanvas({ artifacts, active, onSelect, onClose, onSave, saved }) {
+function EmailCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, saved }) {
   return (
     <div className="flex flex-col min-w-0 w-full h-full">
       {/* Barra de pestañas estilo Chrome: la activa muestra el título; las demás colapsan
@@ -828,6 +857,14 @@ function EmailCanvas({ artifacts, active, onSelect, onClose, onSave, saved }) {
         >
           {saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
           <span className="hidden lg:inline">{saved ? 'Guardado' : 'Guardar'}</span>
+        </button>
+        <button
+          onClick={onDelete}
+          className="h-8 px-2.5 rounded-lg text-[11px] flex items-center gap-1.5 text-nina-mute hover:text-red-300 hover:bg-red-500/10 transition shrink-0"
+          title="Eliminar este avance del canvas"
+        >
+          <Trash2 className="w-4 h-4" />
+          <span className="hidden lg:inline">Eliminar</span>
         </button>
         <button
           onClick={onClose}
