@@ -66,6 +66,20 @@ function sidebarAgentIcon(a) {
 function AgentsNav({ onNavigate, isJunta }) {
   const { agents } = useAgents()
   const { slug } = useParams()
+  const [showAll, setShowAll] = useState(false)
+  const MAX_VISIBLE = 4
+  // Máximo 4 agentes visibles; el resto detrás de un "+N" que despliega al hacer click
+  // (para que el historial de conversaciones no quede empujado fuera de vista). Mantenemos
+  // visible el agente ACTIVO aunque quede más allá del tope.
+  const shown = (() => {
+    if (showAll || agents.length <= MAX_VISIBLE) return agents
+    const head = agents.slice(0, MAX_VISIBLE)
+    if (slug && !head.some((a) => a.slug === slug)) {
+      const active = agents.find((a) => a.slug === slug)
+      if (active) return [active, ...head.slice(0, MAX_VISIBLE - 1)]
+    }
+    return head
+  })()
 
   return (
     <div className="pt-1">
@@ -86,30 +100,44 @@ function AgentsNav({ onNavigate, isJunta }) {
         {agents.length === 0 ? (
           <div className="px-3 py-2 text-[11px] text-nina-mute">Sin agentes aún</div>
         ) : (
-          agents.map((a) => {
-            const Icon = sidebarAgentIcon(a)
-            const isActive = a.slug === slug
-            return (
-              <button
-                key={a.id}
-                onClick={() => onNavigate(`/admin/agentes/${a.slug}`)}
-                className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition text-left ${
-                  isActive ? 'bg-nina-line/40' : 'hover:bg-nina-line/25'
-                }`}
-                title={a.name}
-              >
-                <div className="relative shrink-0">
-                  <div className="w-7 h-7 rounded-full grid place-items-center bg-silver-gradient text-nina-black shadow-chrome">
-                    <Icon className="w-3.5 h-3.5" />
+          <>
+            {shown.map((a) => {
+              const Icon = sidebarAgentIcon(a)
+              const isActive = a.slug === slug
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => onNavigate(`/admin/agentes/${a.slug}`)}
+                  className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition text-left ${
+                    isActive ? 'bg-nina-line/40' : 'hover:bg-nina-line/25'
+                  }`}
+                  title={a.name}
+                >
+                  <div className="relative shrink-0">
+                    <div className="w-7 h-7 rounded-full grid place-items-center bg-silver-gradient text-nina-black shadow-chrome">
+                      <Icon className="w-3.5 h-3.5" />
+                    </div>
+                    <span
+                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-nina-panel ${AGENT_STATUS_DOT[a.status] ?? AGENT_STATUS_DOT.idle}`}
+                    />
                   </div>
-                  <span
-                    className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-nina-panel ${AGENT_STATUS_DOT[a.status] ?? AGENT_STATUS_DOT.idle}`}
-                  />
+                  <span className="text-[12.5px] text-nina-chrome truncate flex-1">{a.name}</span>
+                </button>
+              )
+            })}
+            {agents.length > MAX_VISIBLE && (
+              <button
+                onClick={() => setShowAll((v) => !v)}
+                className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition text-left hover:bg-nina-line/25 text-nina-mute hover:text-nina-chrome"
+                title={showAll ? 'Ver menos agentes' : 'Ver todos los agentes'}
+              >
+                <div className="w-7 h-7 rounded-full grid place-items-center bg-nina-line/40 text-nina-mute shrink-0 text-[12px] font-medium">
+                  {showAll ? '−' : `+${agents.length - MAX_VISIBLE}`}
                 </div>
-                <span className="text-[12.5px] text-nina-chrome truncate flex-1">{a.name}</span>
+                <span className="text-[12.5px] flex-1">{showAll ? 'Ver menos' : 'Ver todos'}</span>
               </button>
-            )
-          })
+            )}
+          </>
         )}
       </div>
     </div>
