@@ -1926,7 +1926,9 @@ function groupTimeline(messages) {
         flush()
         items.push({ kind: 'message', message: m, key: m.id })
       }
-      if (hasTools) for (const tc of m.tool_calls) buf.push({ kind: 'call', call: tc, key: tc.id || m.id })
+      // El key incluye el id del MENSAJE (único) porque tc.id NO es único entre turnos:
+      // el proveedor reutiliza ids tipo "functions.request_approval:13" → keys duplicadas.
+      if (hasTools) m.tool_calls.forEach((tc, ti) => buf.push({ kind: 'call', call: tc, key: `${m.id}:${tc.id || ti}` }))
       continue
     }
     // user (o cualquier otro con texto)
