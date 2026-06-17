@@ -9,14 +9,18 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import {
+  Activity,
   AlertTriangle,
   Bot,
   Calculator,
   CheckCircle2,
   ChevronDown,
   Circle,
+  Clock,
+  Coins,
   Crown,
   ExternalLink,
+  FileText,
   Hammer,
   LayoutGrid,
   List as ListIcon,
@@ -42,6 +46,7 @@ import Modal from '../../components/Modal'
 import { useAuth } from '../../context/AuthContext'
 import { useConfirm } from '../../components/ConfirmDialog'
 import { supabase } from '../../lib/supabase'
+import { useTaskActivity } from '../../hooks/useTaskActivity'
 
 // ─────────────────────────────────────────────────────────────────────
 // Constantes
@@ -417,8 +422,8 @@ function TasksToolbar({
       )}
 
       <div className="flex items-center gap-2 flex-wrap">
-        {/* Search */}
-        <div className="flex-1 min-w-[200px] max-w-md flex items-center gap-2 px-3 h-9 rounded-xl bg-nina-line/20 border border-nina-line focus-within:border-nina-silver/40 transition-colors">
+        {/* Search — capado a la izquierda; un spacer empuja los controles a la derecha */}
+        <div className="min-w-[200px] w-full sm:w-80 flex items-center gap-2 px-3 h-9 rounded-xl bg-nina-line/20 border border-nina-line focus-within:border-nina-silver/40 transition-colors">
           <Search className="w-3.5 h-3.5 text-nina-mute shrink-0" />
           <input
             value={search}
@@ -437,6 +442,9 @@ function TasksToolbar({
             </button>
           )}
         </div>
+
+        {/* Spacer: empuja filtro / vista / nueva tarea al borde derecho */}
+        <div className="hidden sm:block flex-1" />
 
         {/* Filter button + dropdown */}
         <FilterButton
@@ -914,13 +922,178 @@ function ListRow({ task, agent, brand, onSelect }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Drawer del detalle de tarea — slide-in desde la derecha
+// Drawer del detalle de tarea — Fase A estilo NeuralOS (pestañas + actividad)
 // ─────────────────────────────────────────────────────────────────────
+const STATUS_PROGRESS = { to_do: 5, in_progress: 50, blocked: 40, needs_review: 85, done: 100 }
+const COST_PER_MILLION_USD = 0.6 // estimación blended sólo para mostrar ~$; el dato real son los tokens
+
+// Parte la descripción (formato de delegate_task) en secciones Objetivo/Contexto/Criterio.
+function parseTaskBrief(description) {
+  const raw = (description || '').trim()
+  if (!raw) return { sections: [], raw: '' }
+  const labels = [
+    { key: 'Objetivo', re: /Objetivo\s*:/i },
+    { key: 'Contexto', re: /Contexto\s*:/i },
+    { key: 'Criterio de éxito', re: /Criterio de [eé]xito\s*:/i },
+  ]
+  const found = []
+  for (const l of labels) {
+    const m = raw.match(l.re)
+    if (m) found.push({ key: l.key, contentStart: m.index + m[0].length, start: m.index })
+  }
+  if (found.length === 0) return { sections: [], raw }
+  found.sort((a, b) => a.start - b.start)
+  const sections = found
+    .map((f, i) => ({
+      key: f.key,
+      value: raw.slice(f.contentStart, i + 1 < found.length ? found[i + 1].start : raw.length).trim(),
+    }))
+    .filter((s) => s.value)
+  return { sections, raw: '' }
+}
+
+function sumTokens(messages) {
+  let t = 0
+  for (const m of messages) {
+    const v = m?.metadata?.usage?.total_tokens
+    if (v != null) t += Number(v) || 0
+  }
+  return t
+}
+
+function fmtDuration(ms) {
+  if (!ms || ms < 0) return '—'
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.round(s / 60)
+  if (m < 60) return `${m}min`
+  return `${(m / 60).toFixed(1)}h`
+}
+
+const truncate = (s, n = 280) => {
+  const str = String(s || '').trim()
+  return str.length > n ? str.slice(0, n) + '…' : str
+}
+
+// Eventos del timeline a partir de los mensajes de la tarea (+ estado final).
+function buildTimeline(messages, task, agentName) {
+  const ev = [
+    { kind: 'created', title: 'Tarea creada', detail: agentName ? `Asignada a ${agentName}` : null, at: task.created_at },
+  ]
+  for (const m of messages) {
+    if (m.role === 'user') {
+      // La inyección autónoma de la tarea ("[Tarea <id>] …") ya está representada por
+      // "Tarea creada" + el bloque Details; no la repetimos como evento.
+      if (/^\[Tarea\s/i.test(String(m.content || ''))) continue
+      ev.push({ kind: 'instruction', title: 'Instrucción', detail: truncate(m.content), at: m.created_at })
+    } else if (m.role === 'assistant') {
+      if (m.content && String(m.content).trim()) {
+        ev.push({ kind: 'reasoning', title: 'Razonamiento', detail: truncate(m.content), at: m.created_at })
+      }
+      const calls = Array.isArray(m.tool_calls) ? m.tool_calls : []
+      for (const c of calls) {
+        ev.push({ kind: 'tool', title: 'Herramienta', detail: c?.function?.name || c?.name || 'herramienta', at: m.created_at })
+      }
+    } else if (m.role === 'tool') {
+      let ok = true
+      try { ok = JSON.parse(m.content)?.ok !== false } catch { /* contenido no-JSON */ }
+      ev.push({ kind: 'result', title: 'Resultado', detail: ok ? 'ok' : 'error', at: m.created_at, ok })
+    }
+  }
+  if (task.status === 'done') {
+    ev.push({ kind: 'done', title: 'Completada', detail: truncate(task.result?.summary), at: task.updated_at })
+  } else if (task.status === 'blocked') {
+    ev.push({ kind: 'blocked', title: 'Bloqueada', detail: 'Esperando aprobación o subordinados', at: task.updated_at })
+  }
+  return ev
+}
+
+function MetaRow({ icon: Icon, label, children }) {
+  return (
+    <div className="flex items-start gap-2 min-w-0">
+      <Icon className="w-3.5 h-3.5 text-nina-mute mt-0.5 shrink-0" />
+      <div className="min-w-0">
+        <div className="text-[10px] uppercase tracking-[0.14em] text-nina-mute">{label}</div>
+        <div className="text-sm text-nina-chrome truncate">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+const TL_STYLE = {
+  created: { dot: 'bg-nina-silver', Icon: Sparkles, label: 'text-nina-chrome' },
+  instruction: { dot: 'bg-sky-400', Icon: MessageSquare, label: 'text-sky-300' },
+  reasoning: { dot: 'bg-violet-400', Icon: Sparkles, label: 'text-violet-300' },
+  tool: { dot: 'bg-amber-400', Icon: Hammer, label: 'text-amber-300' },
+  result: { dot: 'bg-emerald-400', Icon: CheckCircle2, label: 'text-emerald-300' },
+  done: { dot: 'bg-emerald-400', Icon: CheckCircle2, label: 'text-emerald-300' },
+  blocked: { dot: 'bg-red-400', Icon: AlertTriangle, label: 'text-red-300' },
+}
+
+function ActivityTimeline({ events, live, loading }) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-nina-mute">
+        <Loader2 className="w-4 h-4 animate-spin" /> Cargando actividad…
+      </div>
+    )
+  }
+  if (events.length === 0) {
+    return <p className="text-sm text-nina-mute">Aún no hay actividad registrada para esta tarea.</p>
+  }
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-[11px] uppercase tracking-[0.16em] text-nina-mute">{events.length} eventos</span>
+        {live && (
+          <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-red-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> En vivo
+          </span>
+        )}
+      </div>
+      <ol className="relative space-y-4 before:absolute before:left-[5px] before:top-2 before:bottom-2 before:w-px before:bg-nina-line/70">
+        {events.map((e, i) => {
+          const st = TL_STYLE[e.kind] ?? TL_STYLE.reasoning
+          const Icon = st.Icon
+          return (
+            <li key={i} className="relative pl-6">
+              <span className={`absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full ${st.dot} ring-4 ring-nina-panel`} />
+              <div className="flex items-center gap-2">
+                <Icon className={`w-3 h-3 ${st.label} shrink-0`} />
+                <span className={`text-[10px] uppercase tracking-[0.14em] ${st.label}`}>{e.title}</span>
+                {e.kind === 'tool' && e.detail && (
+                  <span className="text-[11px] text-nina-mute truncate">· {e.detail}</span>
+                )}
+                <span className="ml-auto text-[10px] text-nina-mute shrink-0">{fmtRelative(e.at)}</span>
+              </div>
+              {e.detail && e.kind !== 'tool' && e.kind !== 'created' && (
+                <p className="text-sm text-nina-chrome/90 leading-relaxed mt-1 whitespace-pre-wrap">{e.detail}</p>
+              )}
+              {e.kind === 'created' && e.detail && <p className="text-[11px] text-nina-mute mt-0.5">{e.detail}</p>}
+            </li>
+          )
+        })}
+      </ol>
+    </div>
+  )
+}
+
 function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
   const { isJunta } = useAuth()
   const navigate = useNavigate()
   const confirm = useConfirm()
   const [updating, setUpdating] = useState(false)
+  const [tab, setTab] = useState('details')
+
+  // Mensajes de la tarea, en vivo (timeline de Activity + tokens). Devuelve [] si task es null.
+  const { messages, loading: activityLoading } = useTaskActivity(task?.id)
+
+  const brief = useMemo(() => parseTaskBrief(task?.description), [task?.description])
+  const tokens = useMemo(() => sumTokens(messages), [messages])
+  const events = useMemo(
+    () => (task ? buildTimeline(messages, task, agentsById[task.agent_id]?.name) : []),
+    [messages, task, agentsById],
+  )
 
   // Close on Escape
   useEffect(() => {
@@ -940,6 +1113,13 @@ function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
   const prio = PRIORITY[task.priority] ?? PRIORITY[3]
   const StatusIcon = status?.icon ?? Circle
   const AgentIcon = agentIcon(agent)
+
+  const progress = STATUS_PROGRESS[task.status] ?? 0
+  const elapsedMs =
+    (task.status === 'done' ? new Date(task.updated_at).getTime() : Date.now()) -
+    new Date(task.created_at).getTime()
+  const costEst = tokens > 0 ? (tokens / 1_000_000) * COST_PER_MILLION_USD : 0
+  const live = task.status === 'in_progress'
 
   const changeStatus = async (newStatus) => {
     if (updating || newStatus === task.status) return
@@ -1033,70 +1213,124 @@ function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.2em] text-nina-mute mb-1">
-              Título
-            </div>
+        <div className="flex-1 overflow-y-auto flex flex-col">
+          {/* Título + progreso + meta */}
+          <div className="px-5 pt-5 pb-4 space-y-4 border-b border-nina-line">
             <h3 className="text-lg text-nina-chrome leading-snug">{task.title}</h3>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] uppercase tracking-[0.18em] text-nina-mute">Progreso</span>
+                <span className="text-xs text-nina-chrome">{progress}%</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-nina-line/40 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${progress === 100 ? 'bg-emerald-400' : 'bg-nina-silver'}`}
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+              <MetaRow icon={Bot} label="Responsable">
+                {agent ? (
+                  <button onClick={openInAgentChat} className="inline-flex items-center gap-1 hover:text-white">
+                    {agent.name} <ExternalLink className="w-3 h-3 opacity-50" />
+                  </button>
+                ) : (
+                  <span className="text-nina-mute">—</span>
+                )}
+              </MetaRow>
+              <MetaRow icon={Clock} label="Fecha límite">
+                {task.due_at ? fmtFull(task.due_at) : <span className="text-nina-mute">Sin fecha</span>}
+              </MetaRow>
+              {brand && <MetaRow icon={Package} label="Marca">{brand.name}</MetaRow>}
+              {parent && <MetaRow icon={ListTodo} label="Tarea padre">{parent.title}</MetaRow>}
+            </div>
           </div>
 
-          {task.description && (
-            <Section title="Descripción">
-              <p className="text-sm text-nina-chrome leading-relaxed whitespace-pre-wrap">
-                {task.description}
-              </p>
-            </Section>
-          )}
-
-          <Section title="Agente asignado">
-            {agent ? (
+          {/* Tabs */}
+          <div className="flex items-center gap-1 px-5 pt-3 border-b border-nina-line shrink-0">
+            {[
+              { key: 'details', label: 'Details', Icon: FileText, count: 0 },
+              { key: 'activity', label: 'Activity', Icon: Activity, count: events.length },
+            ].map((t) => (
               <button
-                onClick={openInAgentChat}
-                className="flex items-center gap-3 w-full text-left p-2.5 rounded-xl bg-nina-ink hover:bg-nina-line/30 transition group"
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key)}
+                className={`relative flex items-center gap-1.5 px-3 py-2 text-xs transition ${
+                  tab === t.key ? 'text-nina-chrome' : 'text-nina-mute hover:text-nina-chrome'
+                }`}
               >
-                <div className="w-9 h-9 rounded-full grid place-items-center bg-silver-gradient text-nina-black shadow-chrome shrink-0">
-                  <AgentIcon className="w-4 h-4" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm text-nina-chrome">{agent.name}</div>
-                  <div className="text-[11px] text-nina-mute capitalize">
-                    {agent.role?.replace('_', ' ')}
+                <t.Icon className="w-3.5 h-3.5" />
+                {t.label}
+                {t.count > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-nina-line/50 text-nina-mute">
+                    {t.count}
+                  </span>
+                )}
+                {tab === t.key && (
+                  <span className="absolute left-3 right-3 -bottom-px h-0.5 rounded-full bg-nina-silver" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab content */}
+          <div className="px-5 py-5">
+            {tab === 'details' ? (
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-3.5">
+                    <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-amber-300/80 mb-1.5">
+                      <Coins className="w-3 h-3" /> Costo &amp; Tokens
+                    </div>
+                    <div className="text-xl text-amber-200 font-display">≈ ${costEst.toFixed(2)}</div>
+                    <div className="text-[11px] text-nina-mute mt-0.5">{tokens.toLocaleString('es-CO')} tokens</div>
+                  </div>
+                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-3.5">
+                    <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-emerald-300/80 mb-1.5">
+                      <Clock className="w-3 h-3" /> Tiempo
+                    </div>
+                    <div className="text-xl text-emerald-200 font-display">{fmtDuration(elapsedMs)}</div>
+                    <div className="text-[11px] text-nina-mute mt-0.5">transcurrido</div>
                   </div>
                 </div>
-                <ExternalLink className="w-3.5 h-3.5 text-nina-mute group-hover:text-nina-chrome shrink-0" />
-              </button>
-            ) : (
-              <p className="text-sm text-nina-mute">Sin agente asignado</p>
-            )}
-          </Section>
 
-          {brand && (
-            <Section title="Marca">
-              <div className="text-sm text-nina-chrome">{brand.name}</div>
-            </Section>
-          )}
+                <div className="rounded-xl border border-nina-line bg-nina-ink/40 p-4 space-y-4">
+                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-nina-mute">
+                    <FileText className="w-3.5 h-3.5" /> Detalles de la tarea
+                  </div>
+                  {brief.sections.length > 0 ? (
+                    brief.sections.map((s) => (
+                      <div key={s.key}>
+                        <div className="text-sm text-nina-chrome font-semibold mb-1">{s.key}</div>
+                        <p className="text-sm text-nina-mute leading-relaxed whitespace-pre-wrap">{s.value}</p>
+                      </div>
+                    ))
+                  ) : brief.raw ? (
+                    <p className="text-sm text-nina-mute leading-relaxed whitespace-pre-wrap">{brief.raw}</p>
+                  ) : (
+                    <p className="text-sm text-nina-mute">Sin descripción.</p>
+                  )}
+                </div>
 
-          {parent && (
-            <Section title="Tarea padre">
-              <div className="text-sm text-nina-chrome leading-snug">{parent.title}</div>
-            </Section>
-          )}
+                {task.result?.summary && (
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-300/80 mb-1.5">Resultado</div>
+                    <p className="text-sm text-emerald-200 leading-relaxed whitespace-pre-wrap">{task.result.summary}</p>
+                  </div>
+                )}
 
-          {task.result?.summary && (
-            <Section title="Resultado">
-              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
-                <p className="text-sm text-emerald-200 leading-relaxed whitespace-pre-wrap">
-                  {task.result.summary}
-                </p>
+                <div className="grid grid-cols-2 gap-4 pt-1">
+                  <Field label="Creada">{fmtFull(task.created_at)}</Field>
+                  <Field label="Actualizada">{fmtFull(task.updated_at)}</Field>
+                </div>
               </div>
-            </Section>
-          )}
-
-          <div className="grid grid-cols-2 gap-4 pt-2">
-            <Field label="Creada">{fmtFull(task.created_at)}</Field>
-            <Field label="Actualizada">{fmtFull(task.updated_at)}</Field>
-            {task.due_at && <Field label="Deadline">{fmtFull(task.due_at)}</Field>}
+            ) : (
+              <ActivityTimeline events={events} live={live} loading={activityLoading} />
+            )}
           </div>
         </div>
 
