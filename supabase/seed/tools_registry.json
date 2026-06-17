@@ -48,6 +48,66 @@
     "is_active": true
   },
   {
+    "name": "calendar_create_event",
+    "description": "Agenda un evento en el calendario de marca de Google (calendario editorial / de contenido). Úsalo para programar publicaciones, recordatorios de campaña, lanzamientos, reuniones. Indica 'title' y la fecha: 'start' (fecha y hora en ISO 8601, p.ej. 2026-06-20T15:00:00) o 'date' (YYYY-MM-DD para todo el día). Opcional: 'end' y 'description'.",
+    "category": "productivity",
+    "args_schema": {
+      "type": "object",
+      "required": [
+        "title"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Título del evento."
+        },
+        "start": {
+          "type": "string",
+          "description": "Inicio en ISO 8601 con hora (zona Colombia). Ej: 2026-06-20T15:00:00"
+        },
+        "end": {
+          "type": "string",
+          "description": "Fin en ISO 8601 (opcional; por defecto +1h)."
+        },
+        "date": {
+          "type": "string",
+          "description": "YYYY-MM-DD para un evento de TODO EL DÍA (en vez de start/end)."
+        },
+        "description": {
+          "type": "string",
+          "description": "Detalle/nota del evento (opcional)."
+        }
+      }
+    },
+    "requires_approval": false,
+    "is_active": true
+  },
+  {
+    "name": "calendar_list_events",
+    "description": "Lista los próximos eventos del calendario de marca de Google. Úsalo para revisar qué hay agendado antes de proponer fechas o para resumir el calendario editorial.",
+    "category": "productivity",
+    "args_schema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "time_min": {
+          "type": "string",
+          "description": "Desde (ISO 8601). Por defecto: ahora."
+        },
+        "time_max": {
+          "type": "string",
+          "description": "Hasta (ISO 8601). Opcional."
+        },
+        "max": {
+          "type": "integer",
+          "description": "Máximo de eventos (default 10, máx 50)."
+        }
+      }
+    },
+    "requires_approval": false,
+    "is_active": true
+  },
+  {
     "name": "compose_email",
     "description": "Compone un correo en HTML y lo muestra EN EL CANVAS del chat para previsualizar e iterar (NO envía nada). Pasa 'subject' y 'html' (HTML completo y atractivo, estilo marketing de NINA: header, cuerpo, CTA, footer, con estilos inline). Tras aprobarlo visualmente, usa send_email para lanzar la campaña a los clientes.",
     "category": "communication",
@@ -620,7 +680,7 @@
             "last_week"
           ],
           "default": "yesterday",
-          "description": "Periodo a consultar (zona Colombia). 'yesterday' (default) = día anterior; 'last_7_days' = últimos 7 días; 'last_week' = lunes a domingo de la semana pasada."
+          "description": "Periodo a consultar (zona Colombia). 'yesterday' (default) = día anterior; 'last_7_days' = 7 días terminando ayer (no incluye hoy); 'last_week' = lunes a domingo de la semana pasada."
         },
         "start_date": {
           "type": "string",

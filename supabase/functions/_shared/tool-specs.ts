@@ -684,5 +684,39 @@ export const TOOL_SPECS: ToolSpecData[] = [
     },
     "requiresApproval": false,
     "isActive": true
+  },
+  {
+    "name": "calendar_create_event",
+    "description": "Agenda un evento en el calendario de marca de Google (calendario editorial / de contenido). Úsalo para programar publicaciones, recordatorios de campaña, lanzamientos, reuniones. Indica 'title' y la fecha: 'start' (fecha y hora en ISO 8601, p.ej. 2026-06-20T15:00:00) o 'date' (YYYY-MM-DD para todo el día). Opcional: 'end' y 'description'.",
+    "category": "productivity",
+    "parameters": {
+      "type": "object",
+      "required": ["title"],
+      "properties": {
+        "title": { "type": "string", "description": "Título del evento." },
+        "start": { "type": "string", "description": "Inicio en ISO 8601 con hora (zona Colombia). Ej: 2026-06-20T15:00:00" },
+        "end": { "type": "string", "description": "Fin en ISO 8601 (opcional; por defecto +1h)." },
+        "date": { "type": "string", "description": "YYYY-MM-DD para un evento de TODO EL DÍA (en vez de start/end)." },
+        "description": { "type": "string", "description": "Detalle/nota del evento (opcional)." }
+      }
+    },
+    "requiresApproval": false,
+    "isActive": true
+  },
+  {
+    "name": "calendar_list_events",
+    "description": "Lista los próximos eventos del calendario de marca de Google. Úsalo para revisar qué hay agendado antes de proponer fechas o para resumir el calendario editorial.",
+    "category": "productivity",
+    "parameters": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "time_min": { "type": "string", "description": "Desde (ISO 8601). Por defecto: ahora." },
+        "time_max": { "type": "string", "description": "Hasta (ISO 8601). Opcional." },
+        "max": { "type": "integer", "description": "Máximo de eventos (default 10, máx 50)." }
+      }
+    },
+    "requiresApproval": false,
+    "isActive": true
   }
 ]

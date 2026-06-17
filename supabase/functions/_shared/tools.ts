@@ -14,6 +14,12 @@ import { tavilySearch } from './tavily.ts'
 import { getSales, salesRange, periodWarning } from './suitecrm.ts'
 import { defineTool, ToolRegistry } from './tool-kit.ts'
 import { TOOL_SPECS } from './tool-specs.ts'
+import {
+  calendarCreateEvent as gcalCreate,
+  calendarListEvents as gcalList,
+  googleCalendarId,
+  googleConfigured,
+} from './google.ts'
 
 export interface ToolDescriptor {
   name: string
@@ -1214,6 +1220,57 @@ async function askQuestions(_ctx: ToolContext, args: Record<string, unknown>): P
 }
 
 // =====================================================================
+// Google Calendar (service account, calendario de marca compartido)
+// =====================================================================
+
+async function calendarCreateEventTool(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  if (!googleConfigured()) {
+    return { ok: false, error: 'Google Calendar aún no está conectado (falta el service account / calendar id en el servidor).' }
+  }
+  const title = (args.title as string)?.trim()
+  if (!title) return { ok: false, error: 'Falta el título del evento' }
+  const date = (args.date as string)?.trim() // YYYY-MM-DD → evento de día completo
+  const start = (args.start as string)?.trim() // ISO con fecha y hora
+  const end = (args.end as string)?.trim()
+  const description = (args.description as string)?.trim()
+  if (!date && !start) {
+    return { ok: false, error: 'Indica `start` (fecha y hora ISO 8601) o `date` (YYYY-MM-DD para todo el día)' }
+  }
+  try {
+    const ev = await gcalCreate(googleCalendarId()!, {
+      title,
+      description: description || undefined,
+      date: date || undefined,
+      startDateTime: start || undefined,
+      endDateTime: end || undefined,
+    })
+    return {
+      ok: true,
+      data: { kind: 'calendar_event', event_id: ev.id, title: ev.summary, start: ev.start, end: ev.end, html_link: ev.html_link },
+      side_effect: { kind: 'calendar_event_created', id: String(ev.id ?? '') },
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+async function calendarListEventsTool(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  if (!googleConfigured()) {
+    return { ok: false, error: 'Google Calendar aún no está conectado.' }
+  }
+  try {
+    const res = await gcalList(googleCalendarId()!, {
+      timeMin: (args.time_min as string)?.trim() || undefined,
+      timeMax: (args.time_max as string)?.trim() || undefined,
+      max: typeof args.max === 'number' ? args.max : undefined,
+    })
+    return { ok: true, data: res }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+// =====================================================================
 // SuiteCRM · ventas (Jeans Colombianos) — lectura, sin aprobación
 // =====================================================================
 // La lógica de fechas/rango (salesRange, periodWarning) y la extracción viven en
@@ -1292,6 +1349,8 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   send_email: sendEmail,
   compose_email: composeEmail,
   ask_questions: askQuestions,
+  calendar_create_event: calendarCreateEventTool,
+  calendar_list_events: calendarListEventsTool,
   suitecrm_sales: suitecrmSales,
 }
 
