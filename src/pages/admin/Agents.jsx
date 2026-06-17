@@ -565,15 +565,33 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // TODOS los artefactos de email del hilo (cada compose_email), en orden cronológico.
   // Cada uno es una PESTAÑA del canvas → al crear uno nuevo NO se pierde el anterior.
   // Excluimos los ocultados (soft-hide persistente o eliminación optimista en curso).
-  const emailArtifacts = useMemo(() => {
+  const canvasArtifacts = useMemo(() => {
     const out = []
     for (const m of messages) {
       if (m.role !== 'tool' || typeof m.content !== 'string') continue
       if (m.metadata?.canvas_hidden || hiddenKeys.has(m.id)) continue
       try {
         const p = JSON.parse(m.content)
-        if (p?.ok && p?.data?.kind === 'email' && p.data.html) {
-          out.push({ subject: p.data.subject ?? '(sin asunto)', html: String(p.data.html), key: m.id })
+        if (!p?.ok || !p.data) continue
+        const d = p.data
+        if (d.kind === 'email' && d.html) {
+          // Correo HTML (compose_email) → iframe.
+          out.push({ type: 'email', subject: d.subject ?? '(sin asunto)', html: String(d.html), messageId: m.id, key: String(m.id) })
+        } else if (Array.isArray(d.images) && d.images.length) {
+          // Imágenes generadas (generate_image) → una pestaña por imagen.
+          d.images.forEach((img, i) => {
+            const url = typeof img === 'string' ? img : img?.url
+            if (url) {
+              out.push({
+                type: 'image',
+                title: d.prompt ? String(d.prompt).slice(0, 48) : 'Imagen',
+                url: String(url),
+                aspect: d.aspect_ratio ?? null,
+                messageId: m.id,
+                key: `${m.id}:${i}`,
+              })
+            }
+          })
         }
       } catch {
         /* no es JSON / no es artefacto */
@@ -581,11 +599,11 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     }
     return out
   }, [messages, hiddenKeys])
-  const latestArtifact = emailArtifacts.length ? emailArtifacts[emailArtifacts.length - 1] : null
+  const latestArtifact = canvasArtifacts.length ? canvasArtifacts[canvasArtifacts.length - 1] : null
 
   const [canvasOpen, setCanvasOpen] = useState(false)
   const [activeKey, setActiveKey] = useState(null)
-  const activeArtifact = emailArtifacts.find((a) => a.key === activeKey) ?? latestArtifact
+  const activeArtifact = canvasArtifacts.find((a) => a.key === activeKey) ?? latestArtifact
 
   // Auto-abrimos el canvas y activamos la pestaña SOLO cuando el agente genera un email
   // NUEVO en vivo (las anteriores quedan como íconos). Entrar/volver a un hilo que ya traía
@@ -612,16 +630,27 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     if (!artifact) return
     const t = toast.loading('Guardando en la biblioteca…')
     try {
-      const size = new Blob([artifact.html]).size
-      const { error } = await supabase.from('library_assets').insert({
-        title: artifact.subject || 'Correo NINA',
-        kind: 'campaign',
-        content: artifact.html,
-        source: 'canvas',
-        size_bytes: size,
-        agent_id: agent.id,
-        brand_id: agent.brand_id ?? null,
-      })
+      const row =
+        artifact.type === 'image'
+          ? {
+              title: artifact.title || 'Imagen NINA',
+              kind: 'image',
+              url: artifact.url,
+              source: 'canvas',
+              size_bytes: 0,
+              agent_id: agent.id,
+              brand_id: agent.brand_id ?? null,
+            }
+          : {
+              title: artifact.subject || 'Correo NINA',
+              kind: 'campaign',
+              content: artifact.html,
+              source: 'canvas',
+              size_bytes: new Blob([artifact.html]).size,
+              agent_id: agent.id,
+              brand_id: agent.brand_id ?? null,
+            }
+      const { error } = await supabase.from('library_assets').insert(row)
       if (error) throw error
       setSavedKeys((s) => new Set(s).add(artifact.key))
       toast.success('Guardado en la biblioteca', { id: t })
@@ -634,15 +663,17 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // lo ocultamos ya; si falla, lo restauramos. Si era el activo, vuelve al más reciente.
   const deleteArtifact = async (artifact) => {
     if (!artifact) return
-    setHiddenKeys((s) => new Set(s).add(artifact.key))
+    // Ocultamos por messageId (las imágenes son varias por mensaje; hiddenKeys guarda ids
+    // de mensaje, igual que el filtro del useMemo). Soft-hide persistente vía Edge Function.
+    setHiddenKeys((s) => new Set(s).add(artifact.messageId))
     if (activeKey === artifact.key) setActiveKey(null)
     const { data, error } = await supabase.functions.invoke('canvas-hide-artifact', {
-      body: { message_id: artifact.key },
+      body: { message_id: artifact.messageId },
     })
     if (error || data?.error) {
       setHiddenKeys((s) => {
         const n = new Set(s)
-        n.delete(artifact.key)
+        n.delete(artifact.messageId)
         return n
       })
       toast.error('No se pudo eliminar el avance')
@@ -739,7 +770,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // (tras goHome) ese setter reaplica esa URL vieja y RESUCITA ?c → el chat se recarga
   // en vez de volver al perfil. (Bug real ya corregido — no reintroducir.)
   const [, setSearchParams] = useSearchParams()
-  const hasArtifact = emailArtifacts.length > 0
+  const hasArtifact = canvasArtifacts.length > 0
   useEffect(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
@@ -795,7 +826,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
           <span className="truncate">{agent.name}</span>
         </button>
         <div className="flex items-center gap-1 shrink-0">
-          {emailArtifacts.length > 0 && (
+          {canvasArtifacts.length > 0 && (
             <button
               onClick={() => setCanvasOpen((o) => !o)}
               className={`btn-ghost !py-1 !px-2 text-[11px] flex items-center gap-1 ${
@@ -875,7 +906,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
       />
       </div>
       <AnimatePresence>
-        {canvasOpen && emailArtifacts.length > 0 && (
+        {canvasOpen && canvasArtifacts.length > 0 && (
           <motion.aside
             key="canvas"
             initial={{ width: 0, opacity: 0 }}
@@ -895,8 +926,8 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
                 <ChevronRight className="w-3 h-3 -ml-1.5" />
               </div>
             </div>
-            <EmailCanvas
-              artifacts={emailArtifacts}
+            <ArtifactCanvas
+              artifacts={canvasArtifacts}
               active={activeArtifact}
               onSelect={setActiveKey}
               onClose={() => setCanvasOpen(false)}
@@ -913,20 +944,22 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
 
 // Canvas (F3) — split-view tipo NeuralOS. Hoy renderiza el preview en vivo del
 // correo HTML (artefacto de compose_email); luego se le suman pestañas (browser, docs).
-function EmailCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, saved }) {
+function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, saved }) {
+  const label = (a) => (a.type === 'image' ? a.title : a.subject)
   return (
     <div className="flex flex-col min-w-0 w-full h-full">
       {/* Barra de pestañas estilo Chrome: la activa muestra el título; las demás colapsan
-          a solo el ícono (clic para traerlas al frente). Así no se pierde el avance anterior. */}
+          a solo el ícono (clic para traerlas al frente). Maneja correos e imágenes. */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-nina-line/60 shrink-0">
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
           {artifacts.map((a) => {
             const isActive = active && a.key === active.key
+            const TabIcon = a.type === 'image' ? ImageIcon : MessageSquare
             return (
               <button
                 key={a.key}
                 onClick={() => onSelect(a.key)}
-                title={a.subject}
+                title={label(a)}
                 className={`flex items-center gap-2 h-8 rounded-lg text-[12px] transition shrink-0 ${
                   isActive
                     ? 'bg-nina-line/40 text-nina-chrome pl-2 pr-3 max-w-[220px]'
@@ -934,9 +967,9 @@ function EmailCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, s
                 }`}
               >
                 <span className="w-4 h-4 rounded grid place-items-center bg-silver-gradient text-nina-black shrink-0">
-                  <MessageSquare className="w-2.5 h-2.5" />
+                  <TabIcon className="w-2.5 h-2.5" />
                 </span>
-                {isActive && <span className="truncate">{a.subject}</span>}
+                {isActive && <span className="truncate">{label(a)}</span>}
               </button>
             )
           })}
@@ -972,18 +1005,35 @@ function EmailCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, s
           <X className="w-4 h-4" />
         </button>
       </div>
-      {/* Preview del correo ACTIVO en un iframe aislado (sin scripts) */}
+      {/* Preview del artefacto activo: imagen (<img>) o correo HTML (iframe aislado). */}
       <div className="flex-1 min-h-0 bg-nina-ink p-3">
-        <iframe
-          title="Preview del correo NINA"
-          srcDoc={active?.html ?? ''}
-          sandbox=""
-          className="w-full h-full rounded-lg bg-white border border-nina-line"
-        />
+        {active?.type === 'image' ? (
+          <div className="w-full h-full grid place-items-center overflow-auto">
+            <img
+              src={active.url}
+              alt={active.title}
+              referrerPolicy="no-referrer"
+              className="max-w-full max-h-full rounded-lg border border-nina-line object-contain"
+            />
+          </div>
+        ) : (
+          <iframe
+            title="Preview del correo NINA"
+            srcDoc={active?.html ?? ''}
+            sandbox=""
+            className="w-full h-full rounded-lg bg-white border border-nina-line"
+          />
+        )}
       </div>
       <div className="px-3 py-2 border-t border-nina-line/60 text-[11px] text-nina-mute shrink-0">
-        Vista previa en vivo · cuando esté lista, pídele al agente que la envíe con{' '}
-        <span className="text-nina-chrome">send_email</span>.
+        {active?.type === 'image' ? (
+          <>Imagen generada{active.aspect ? ` · ${active.aspect}` : ''} · guárdala en la biblioteca o pídele al agente que la ajuste.</>
+        ) : (
+          <>
+            Vista previa en vivo · cuando esté lista, pídele al agente que la envíe con{' '}
+            <span className="text-nina-chrome">send_email</span>.
+          </>
+        )}
       </div>
     </div>
   )

@@ -304,7 +304,14 @@ function AssetCard({ asset, sourceLabel, onOpen }) {
         <span className="absolute top-2 left-2 z-10 chip !px-2 !py-0.5 text-[10px] bg-nina-ink/80 border-nina-line text-nina-mute">
           {m.label}
         </span>
-        {isHtmlContent(asset.content) ? (
+        {asset.url && (asset.kind === 'image' || !asset.content) ? (
+          <img
+            src={asset.url}
+            alt={asset.title}
+            referrerPolicy="no-referrer"
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        ) : isHtmlContent(asset.content) ? (
           <iframe
             title={asset.title}
             srcDoc={asset.content}
@@ -389,7 +396,16 @@ function AssetDetailModal({ asset, sourceLabel, onClose }) {
           <span>{formatTimeAgo(asset.created_at)}</span>
         </div>
 
-        {isHtmlContent(asset.content) ? (
+        {asset.url && (asset.kind === 'image' || !asset.content) ? (
+          <div className="rounded-lg border border-nina-line bg-nina-ink/40 overflow-hidden grid place-items-center max-h-[60vh]">
+            <img
+              src={asset.url}
+              alt={asset.title}
+              referrerPolicy="no-referrer"
+              className="max-w-full max-h-[60vh] object-contain"
+            />
+          </div>
+        ) : isHtmlContent(asset.content) ? (
           <div className="rounded-lg border border-nina-line bg-white overflow-hidden">
             <iframe
               title={asset.title}
