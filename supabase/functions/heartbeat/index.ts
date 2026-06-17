@@ -42,7 +42,10 @@ Deno.serve(async (req) => {
 
   const { data: rows, error } = await db
     .from('tasks')
-    .select('agent_id, agents!inner(id, slug, status)')
+    // Desambiguar el embed: tasks tiene DOS FKs a agents (agent_id = asignado;
+    // created_by_agent_id = quién delegó, F4). Sin nombrar el FK, PostgREST devuelve 500
+    // "more than one relationship found" → el motor autónomo no tickea.
+    .select('agent_id, agents!tasks_agent_id_fkey!inner(id, slug, status)')
     .in('status', ['to_do', 'in_progress'])
     .not('agent_id', 'is', null)
     .limit(200)
