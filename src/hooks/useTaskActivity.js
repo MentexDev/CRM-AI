@@ -11,16 +11,19 @@ const FETCH_TIMEOUT = 15000
 export function useTaskActivity(taskId) {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(Boolean(taskId))
+  const [error, setError] = useState(false)
   const channelIdRef = useRef(`${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
 
   useEffect(() => {
     if (!taskId) {
       setMessages([])
       setLoading(false)
+      setError(false)
       return
     }
     let active = true
     setLoading(true)
+    setError(false)
 
     const load = async () => {
       try {
@@ -38,10 +41,19 @@ export function useTaskActivity(taskId) {
           ),
         ])
         if (!active) return
-        setMessages(result.error ? [] : result.data ?? [])
+        if (result.error) {
+          console.error('[CRM-AI] task activity fetch error:', result.error)
+          setMessages([])
+          setError(true)
+        } else {
+          setMessages(result.data ?? [])
+        }
       } catch (e) {
         console.error('[CRM-AI] task activity load failed:', e)
-        if (active) setMessages([])
+        if (active) {
+          setMessages([])
+          setError(true)
+        }
       } finally {
         if (active) setLoading(false)
       }
@@ -74,5 +86,5 @@ export function useTaskActivity(taskId) {
     }
   }, [taskId])
 
-  return { messages, loading }
+  return { messages, loading, error }
 }

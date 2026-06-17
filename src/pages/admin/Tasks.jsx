@@ -47,6 +47,14 @@ import { useAuth } from '../../context/AuthContext'
 import { useConfirm } from '../../components/ConfirmDialog'
 import { supabase } from '../../lib/supabase'
 import { useTaskActivity } from '../../hooks/useTaskActivity'
+import {
+  STATUS_PROGRESS,
+  parseTaskBrief,
+  sumTokens,
+  fmtDuration,
+  estimateCost,
+  buildTimeline,
+} from '../../lib/taskDrawer'
 
 // ─────────────────────────────────────────────────────────────────────
 // Constantes
@@ -924,89 +932,8 @@ function ListRow({ task, agent, brand, onSelect }) {
 // ─────────────────────────────────────────────────────────────────────
 // Drawer del detalle de tarea — Fase A estilo NeuralOS (pestañas + actividad)
 // ─────────────────────────────────────────────────────────────────────
-const STATUS_PROGRESS = { to_do: 5, in_progress: 50, blocked: 40, needs_review: 85, done: 100 }
-const COST_PER_MILLION_USD = 0.6 // estimación blended sólo para mostrar ~$; el dato real son los tokens
-
-// Parte la descripción (formato de delegate_task) en secciones Objetivo/Contexto/Criterio.
-function parseTaskBrief(description) {
-  const raw = (description || '').trim()
-  if (!raw) return { sections: [], raw: '' }
-  const labels = [
-    { key: 'Objetivo', re: /Objetivo\s*:/i },
-    { key: 'Contexto', re: /Contexto\s*:/i },
-    { key: 'Criterio de éxito', re: /Criterio de [eé]xito\s*:/i },
-  ]
-  const found = []
-  for (const l of labels) {
-    const m = raw.match(l.re)
-    if (m) found.push({ key: l.key, contentStart: m.index + m[0].length, start: m.index })
-  }
-  if (found.length === 0) return { sections: [], raw }
-  found.sort((a, b) => a.start - b.start)
-  const sections = found
-    .map((f, i) => ({
-      key: f.key,
-      value: raw.slice(f.contentStart, i + 1 < found.length ? found[i + 1].start : raw.length).trim(),
-    }))
-    .filter((s) => s.value)
-  return { sections, raw: '' }
-}
-
-function sumTokens(messages) {
-  let t = 0
-  for (const m of messages) {
-    const v = m?.metadata?.usage?.total_tokens
-    if (v != null) t += Number(v) || 0
-  }
-  return t
-}
-
-function fmtDuration(ms) {
-  if (!ms || ms < 0) return '—'
-  const s = Math.round(ms / 1000)
-  if (s < 60) return `${s}s`
-  const m = Math.round(s / 60)
-  if (m < 60) return `${m}min`
-  return `${(m / 60).toFixed(1)}h`
-}
-
-const truncate = (s, n = 280) => {
-  const str = String(s || '').trim()
-  return str.length > n ? str.slice(0, n) + '…' : str
-}
-
-// Eventos del timeline a partir de los mensajes de la tarea (+ estado final).
-function buildTimeline(messages, task, agentName) {
-  const ev = [
-    { kind: 'created', title: 'Tarea creada', detail: agentName ? `Asignada a ${agentName}` : null, at: task.created_at },
-  ]
-  for (const m of messages) {
-    if (m.role === 'user') {
-      // La inyección autónoma de la tarea ("[Tarea <id>] …") ya está representada por
-      // "Tarea creada" + el bloque Details; no la repetimos como evento.
-      if (/^\[Tarea\s/i.test(String(m.content || ''))) continue
-      ev.push({ kind: 'instruction', title: 'Instrucción', detail: truncate(m.content), at: m.created_at })
-    } else if (m.role === 'assistant') {
-      if (m.content && String(m.content).trim()) {
-        ev.push({ kind: 'reasoning', title: 'Razonamiento', detail: truncate(m.content), at: m.created_at })
-      }
-      const calls = Array.isArray(m.tool_calls) ? m.tool_calls : []
-      for (const c of calls) {
-        ev.push({ kind: 'tool', title: 'Herramienta', detail: c?.function?.name || c?.name || 'herramienta', at: m.created_at })
-      }
-    } else if (m.role === 'tool') {
-      let ok = true
-      try { ok = JSON.parse(m.content)?.ok !== false } catch { /* contenido no-JSON */ }
-      ev.push({ kind: 'result', title: 'Resultado', detail: ok ? 'ok' : 'error', at: m.created_at, ok })
-    }
-  }
-  if (task.status === 'done') {
-    ev.push({ kind: 'done', title: 'Completada', detail: truncate(task.result?.summary), at: task.updated_at })
-  } else if (task.status === 'blocked') {
-    ev.push({ kind: 'blocked', title: 'Bloqueada', detail: 'Esperando aprobación o subordinados', at: task.updated_at })
-  }
-  return ev
-}
+// Helpers puros (parseTaskBrief, sumTokens, fmtDuration, estimateCost, buildTimeline,
+// STATUS_PROGRESS) viven en ../../lib/taskDrawer.js — testeados en taskDrawer.test.js.
 
 function MetaRow({ icon: Icon, label, children }) {
   return (
@@ -1030,7 +957,7 @@ const TL_STYLE = {
   blocked: { dot: 'bg-red-400', Icon: AlertTriangle, label: 'text-red-300' },
 }
 
-function ActivityTimeline({ events, live, loading }) {
+function ActivityTimeline({ events, live, loading, error }) {
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-sm text-nina-mute">
@@ -1038,8 +965,20 @@ function ActivityTimeline({ events, live, loading }) {
       </div>
     )
   }
-  if (events.length === 0) {
-    return <p className="text-sm text-nina-mute">Aún no hay actividad registrada para esta tarea.</p>
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-red-300">
+        <AlertTriangle className="w-4 h-4" /> No se pudo cargar la actividad de esta tarea.
+      </div>
+    )
+  }
+  // events siempre trae al menos "Tarea creada"; ≤1 = sin pasos del agente todavía.
+  if (events.length <= 1) {
+    return (
+      <p className="text-sm text-nina-mute">
+        {events.length === 1 ? 'La tarea fue creada; aún no hay pasos del agente.' : 'Aún no hay actividad registrada.'}
+      </p>
+    )
   }
   return (
     <div>
@@ -1052,11 +991,11 @@ function ActivityTimeline({ events, live, loading }) {
         )}
       </div>
       <ol className="relative space-y-4 before:absolute before:left-[5px] before:top-2 before:bottom-2 before:w-px before:bg-nina-line/70">
-        {events.map((e, i) => {
+        {events.map((e) => {
           const st = TL_STYLE[e.kind] ?? TL_STYLE.reasoning
           const Icon = st.Icon
           return (
-            <li key={i} className="relative pl-6">
+            <li key={e.key} className="relative pl-6">
               <span className={`absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full ${st.dot} ring-4 ring-nina-panel`} />
               <div className="flex items-center gap-2">
                 <Icon className={`w-3 h-3 ${st.label} shrink-0`} />
@@ -1084,9 +1023,16 @@ function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
   const confirm = useConfirm()
   const [updating, setUpdating] = useState(false)
   const [tab, setTab] = useState('details')
+  const [, setTick] = useState(0) // fuerza re-render del "tiempo transcurrido" en vivo
+  const titleId = useId()
+  const panelRef = useRef(null)
+  // onClose llega como arrow inline del padre (identidad nueva cada render). Lo guardamos
+  // en un ref para que el listener de Escape NO se re-suscriba en cada render (RH-1).
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   // Mensajes de la tarea, en vivo (timeline de Activity + tokens). Devuelve [] si task es null.
-  const { messages, loading: activityLoading } = useTaskActivity(task?.id)
+  const { messages, loading: activityLoading, error: activityError } = useTaskActivity(task?.id)
 
   const brief = useMemo(() => parseTaskBrief(task?.description), [task?.description])
   const tokens = useMemo(() => sumTokens(messages), [messages])
@@ -1095,15 +1041,30 @@ function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
     [messages, task, agentsById],
   )
 
-  // Close on Escape
+  // Al cambiar de tarea: volver a la pestaña Details y mover el foco al panel (a11y).
+  useEffect(() => {
+    if (!task?.id) return
+    setTab('details')
+    const raf = requestAnimationFrame(() => panelRef.current?.focus())
+    return () => cancelAnimationFrame(raf)
+  }, [task?.id])
+
+  // Tarea en curso: tick cada 30s para que el "tiempo transcurrido" avance solo.
+  useEffect(() => {
+    if (task?.status !== 'in_progress') return
+    const id = setInterval(() => setTick((t) => t + 1), 30000)
+    return () => clearInterval(id)
+  }, [task?.status])
+
+  // Close on Escape — deps [task] (no onClose) para no re-suscribir en cada render.
   useEffect(() => {
     if (!task) return
     const onKey = (e) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') onCloseRef.current()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [task, onClose])
+  }, [task])
 
   if (!task) return null
   const agent = agentsById[task.agent_id]
@@ -1112,14 +1073,13 @@ function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
   const status = STATUS_INFO[task.status]
   const prio = PRIORITY[task.priority] ?? PRIORITY[3]
   const StatusIcon = status?.icon ?? Circle
-  const AgentIcon = agentIcon(agent)
 
   const progress = STATUS_PROGRESS[task.status] ?? 0
   const elapsedMs =
     (task.status === 'done' ? new Date(task.updated_at).getTime() : Date.now()) -
     new Date(task.created_at).getTime()
-  const costEst = tokens > 0 ? (tokens / 1_000_000) * COST_PER_MILLION_USD : 0
-  const live = task.status === 'in_progress'
+  const costLabel = estimateCost(tokens)
+  const live = task.status === 'in_progress' && !!agent
 
   const changeStatus = async (newStatus) => {
     if (updating || newStatus === task.status) return
@@ -1172,11 +1132,16 @@ function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
         onClick={onClose}
       />
       <motion.aside
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         initial={{ x: '100%' }}
         animate={{ x: 0 }}
         exit={{ x: '100%' }}
         transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-        className="fixed inset-y-0 right-0 z-50 w-full sm:w-[460px] flex flex-col bg-nina-panel border-l border-nina-line shadow-2xl"
+        className="fixed inset-y-0 right-0 z-50 w-full sm:w-[460px] flex flex-col bg-nina-panel border-l border-nina-line shadow-2xl outline-none"
       >
         {/* Header */}
         <div className="px-4 py-3 border-b border-nina-line flex items-center gap-2 shrink-0">
@@ -1216,7 +1181,7 @@ function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
         <div className="flex-1 overflow-y-auto flex flex-col">
           {/* Título + progreso + meta */}
           <div className="px-5 pt-5 pb-4 space-y-4 border-b border-nina-line">
-            <h3 className="text-lg text-nina-chrome leading-snug">{task.title}</h3>
+            <h3 id={titleId} className="text-lg text-nina-chrome leading-snug break-words">{task.title}</h3>
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
@@ -1250,7 +1215,7 @@ function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
           </div>
 
           {/* Tabs */}
-          <div className="flex items-center gap-1 px-5 pt-3 border-b border-nina-line shrink-0">
+          <div role="tablist" aria-label="Secciones de la tarea" className="flex items-center gap-1 px-5 pt-3 border-b border-nina-line shrink-0">
             {[
               { key: 'details', label: 'Details', Icon: FileText, count: 0 },
               { key: 'activity', label: 'Activity', Icon: Activity, count: events.length },
@@ -1258,6 +1223,10 @@ function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
               <button
                 key={t.key}
                 type="button"
+                role="tab"
+                id={`task-tab-${t.key}`}
+                aria-selected={tab === t.key}
+                aria-controls="task-tabpanel"
                 onClick={() => setTab(t.key)}
                 className={`relative flex items-center gap-1.5 px-3 py-2 text-xs transition ${
                   tab === t.key ? 'text-nina-chrome' : 'text-nina-mute hover:text-nina-chrome'
@@ -1278,16 +1247,16 @@ function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
           </div>
 
           {/* Tab content */}
-          <div className="px-5 py-5">
+          <div role="tabpanel" id="task-tabpanel" aria-labelledby={`task-tab-${tab}`} className="px-5 py-5">
             {tab === 'details' ? (
               <div className="space-y-5">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-3.5">
                     <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-amber-300/80 mb-1.5">
-                      <Coins className="w-3 h-3" /> Costo &amp; Tokens
+                      <Coins className="w-3 h-3" /> Tokens
                     </div>
-                    <div className="text-xl text-amber-200 font-display">≈ ${costEst.toFixed(2)}</div>
-                    <div className="text-[11px] text-nina-mute mt-0.5">{tokens.toLocaleString('es-CO')} tokens</div>
+                    <div className="text-xl text-amber-200 font-display">{tokens.toLocaleString('es-CO')}</div>
+                    <div className="text-[11px] text-nina-mute mt-0.5">{costLabel ? `≈ ${costLabel} est.` : 'sin uso aún'}</div>
                   </div>
                   <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-3.5">
                     <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-emerald-300/80 mb-1.5">
@@ -1302,6 +1271,9 @@ function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
                   <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-nina-mute">
                     <FileText className="w-3.5 h-3.5" /> Detalles de la tarea
                   </div>
+                  {brief.preamble && (
+                    <p className="text-sm text-nina-mute leading-relaxed whitespace-pre-wrap">{brief.preamble}</p>
+                  )}
                   {brief.sections.length > 0 ? (
                     brief.sections.map((s) => (
                       <div key={s.key}>
@@ -1329,7 +1301,7 @@ function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
                 </div>
               </div>
             ) : (
-              <ActivityTimeline events={events} live={live} loading={activityLoading} />
+              <ActivityTimeline events={events} live={live} loading={activityLoading} error={activityError} />
             )}
           </div>
         </div>
@@ -1361,15 +1333,6 @@ function TaskDrawer({ task, agentsById, brandsById, tasksById, onClose }) {
         )}
       </motion.aside>
     </AnimatePresence>
-  )
-}
-
-function Section({ title, children }) {
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-[0.2em] text-nina-mute mb-1.5">{title}</div>
-      {children}
-    </div>
   )
 }
 
