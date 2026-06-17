@@ -610,5 +610,79 @@ export const TOOL_SPECS: ToolSpecData[] = [
     },
     "requiresApproval": false,
     "isActive": true
+  },
+  {
+    "name": "suitecrm_sales",
+    "description": "Consulta las ventas (facturas) del SuiteCRM de Jeans Colombianos por rango de fecha de facturación. Devuelve total en pesos, conteo de facturas, desglose por sucursal y por día, y las facturas más grandes. Úsala para reportes de ventas diarios o semanales.",
+    "category": "suitecrm",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": ["today", "yesterday", "last_7_days", "last_week"],
+          "default": "yesterday",
+          "description": "Periodo a consultar (zona Colombia). 'yesterday' (default) = día anterior; 'last_7_days' = últimos 7 días; 'last_week' = lunes a domingo de la semana pasada."
+        },
+        "start_date": {
+          "type": "string",
+          "description": "Opcional. Inicio de un rango explícito en formato MM/DD/YYYY. Usar junto con end_date (tiene prioridad sobre period)."
+        },
+        "end_date": {
+          "type": "string",
+          "description": "Opcional. Fin de un rango explícito en formato MM/DD/YYYY."
+        }
+      }
+    },
+    "requiresApproval": false,
+    "isActive": true
+  },
+  {
+    "name": "ask_questions",
+    "description": "Cuando el usuario pide algo ABIERTO o AMBIGUO (sobre todo en el primer mensaje de una conversación nueva), NO adivines: usa esta tool para hacerle 2-5 preguntas clave y precisar el requerimiento ANTES de producir el entregable. Mezcla tipos: 'text' (respuesta libre), 'single' (una opción de una lista) y 'multi' (varias opciones). El usuario responde en un formulario por pasos; sus respuestas te llegan como su siguiente mensaje y entonces continúas. Si ya tienes contexto suficiente, NO preguntes.",
+    "category": "core",
+    "parameters": {
+      "type": "object",
+      "required": [
+        "questions"
+      ],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "description": "Entre 2 y 5 preguntas clave para precisar el pedido.",
+          "items": {
+            "type": "object",
+            "required": [
+              "prompt",
+              "type"
+            ],
+            "properties": {
+              "prompt": {
+                "type": "string",
+                "description": "La pregunta para el usuario."
+              },
+              "type": {
+                "enum": [
+                  "text",
+                  "single",
+                  "multi"
+                ],
+                "type": "string",
+                "description": "text=respuesta libre; single=elegir una opción; multi=elegir varias."
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Opciones para single/multi. El formulario añade automáticamente 'Otro' para escribir."
+              }
+            }
+          }
+        }
+      }
+    },
+    "requiresApproval": false,
+    "isActive": true
   }
 ]

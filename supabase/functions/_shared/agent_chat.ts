@@ -21,6 +21,15 @@ export interface ChatTurnResult {
   error?: string
 }
 
+// Guía que se anexa al system prompt SOLO en chat (usuario presente): empuja a pedir
+// aclaraciones ante pedidos abiertos en vez de adivinar. La decisión la toma el modelo.
+const CHAT_GUIDANCE =
+  'Estás en un CHAT en vivo con el usuario. Si su pedido es ABIERTO o AMBIGUO —sobre todo ' +
+  'el primer mensaje de una conversación nueva— NO adivines ni entregues de una: primero ' +
+  'llama `ask_questions` con 2-5 preguntas clave (mezcla los tipos text, single y multi) para ' +
+  'precisar el requerimiento. Las respuestas del usuario llegarán como su siguiente mensaje y ' +
+  'ahí continúas. Si el pedido ya es claro o tienes contexto suficiente, NO preguntes: procede.'
+
 export async function runAgentChatTurn(
   agentId: string,
   userText: string,
@@ -124,7 +133,14 @@ export async function runAgentChatTurn(
     .eq('id', agentId)
 
   try {
-    const allowedForChat = ((agent.allowed_tools ?? []) as string[]).filter((t) => t !== 'finish_task')
+    // En chat, ask_questions SIEMPRE está disponible (preguntar es seguro y útil para
+    // precisar pedidos abiertos) aunque no esté en allowed_tools del agente.
+    const allowedForChat = [
+      ...new Set([
+        ...((agent.allowed_tools ?? []) as string[]).filter((t) => t !== 'finish_task'),
+        'ask_questions',
+      ]),
+    ]
     const toolDescs = await loadTools(allowedForChat)
     const toolDefs = toToolDefinitions(toolDescs)
 
@@ -138,7 +154,7 @@ export async function runAgentChatTurn(
     const historyAsc = (history ?? []).slice().reverse()
 
     const messages: ChatMessage[] = []
-    messages.push({ role: 'system', content: agent.system_prompt })
+    messages.push({ role: 'system', content: `${agent.system_prompt}\n\n${CHAT_GUIDANCE}` })
     for (const m of historyAsc) {
       messages.push({
         role: m.role,
@@ -294,7 +310,15 @@ export async function runAgentChatTurn(
           role: 'tool', tool_call_id: tc.id, content: fullContent, metadata: { source: 'chat' },
         })
 
-        if (tc.function.name === 'request_approval' || tc.function.name === 'escalate_to_ceo') didBlock = true
+        // ask_questions cierra el turno: el agente queda esperando que el usuario
+        // responda el formulario; sus respuestas llegan como su siguiente mensaje.
+        if (
+          tc.function.name === 'request_approval' ||
+          tc.function.name === 'escalate_to_ceo' ||
+          tc.function.name === 'ask_questions'
+        ) {
+          didBlock = true
+        }
       }
 
       if (didBlock) {

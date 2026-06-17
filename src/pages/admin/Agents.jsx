@@ -641,6 +641,50 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     }
   }
 
+  // ── Preguntas aclaratorias (ask_questions) ───────────────────────────────
+  // Detecta el ÚLTIMO set de preguntas SIN responder del hilo (el agente cerró su turno
+  // tras preguntar). "Respondido" = hay un mensaje del usuario después del artefacto, o
+  // acabamos de enviar (answeredKey, optimista).
+  const [answeredKey, setAnsweredKey] = useState(null)
+  const activeQuestions = useMemo(() => {
+    let found = null
+    let idx = -1
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i]
+      if (m.role !== 'tool' || typeof m.content !== 'string') continue
+      try {
+        const p = JSON.parse(m.content)
+        if (p?.ok && p?.data?.kind === 'questions' && Array.isArray(p.data.questions) && p.data.questions.length) {
+          found = { key: m.id, questions: p.data.questions }
+          idx = i
+        }
+      } catch {
+        /* no es JSON */
+      }
+    }
+    if (!found || found.key === answeredKey) return null
+    for (let i = idx + 1; i < messages.length; i++) if (messages[i].role === 'user') return null
+    return found
+  }, [messages, answeredKey])
+
+  // Envía las respuestas del formulario como el siguiente mensaje del usuario; el agente
+  // continúa con ellas. Mismo camino que el composer (optimista + chat-with-agent).
+  const submitAnswers = async (text) => {
+    if (activeQuestions) setAnsweredKey(activeQuestions.key)
+    addOptimistic(text)
+    try {
+      const { data, error } = await supabase.functions.invoke('chat-with-agent', {
+        body: { agent_slug: agent.slug, content: text, conversation_id: conversationId },
+      })
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
+    } catch (e) {
+      toast.error(e?.message || 'No se pudo enviar')
+    } finally {
+      setThinking(false)
+    }
+  }
+
   // Marcamos ?canvas=1 en la URL cuando el canvas está abierto → el layout oculta el
   // sidebar y le da más espacio. Al cerrar el canvas (canvasOpen=false) este mismo efecto
   // lo quita; al SALIR del chat lo quita goHome (borra c+canvas atómicamente).
@@ -767,6 +811,14 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
             )
           )}
           {thinking && <ThinkingIndicator name={agent.name} />}
+          {activeQuestions && (
+            <QuestionsForm
+              key={activeQuestions.key}
+              questions={activeQuestions.questions}
+              onSubmit={submitAnswers}
+              onDismiss={() => setAnsweredKey(activeQuestions.key)}
+            />
+          )}
         </div>
       </div>
       <ChatComposer
@@ -1848,6 +1900,13 @@ function groupTimeline(messages) {
       continue
     }
     if (m.role === 'tool') {
+      // Las preguntas aclaratorias se muestran como formulario aparte, NO como "paso".
+      try {
+        const p = typeof m.content === 'string' ? JSON.parse(m.content) : null
+        if (p?.data?.kind === 'questions') continue
+      } catch {
+        /* no es JSON */
+      }
       buf.push({ kind: 'result', message: m, key: m.id })
       continue
     }
@@ -1926,6 +1985,145 @@ function StepRow({ step }) {
   if (step.result) return <ToolResultBubble message={step.result} />
   if (step.call) return <ToolCallChip call={step.call} />
   return null
+}
+
+// Formulario de preguntas aclaratorias (estilo AskUserQuestion). Por pasos: text /
+// single / multi, con un campo "Otro" libre al final. Al terminar arma un solo mensaje
+// "pregunta: respuesta" y lo envía. La X omite el formulario (el usuario escribe libre).
+function QuestionsForm({ questions, onSubmit, onDismiss }) {
+  const [step, setStep] = useState(0)
+  const [answers, setAnswers] = useState({}) // i -> string (text/single) | string[] (multi)
+  const [other, setOther] = useState({}) // i -> texto libre "Otro"
+  const total = questions.length
+  const q = questions[step]
+  const isLast = step === total - 1
+
+  const setText = (i, v) => setAnswers((a) => ({ ...a, [i]: v }))
+  const toggleMulti = (i, opt) =>
+    setAnswers((a) => {
+      const cur = Array.isArray(a[i]) ? a[i] : []
+      return { ...a, [i]: cur.includes(opt) ? cur.filter((x) => x !== opt) : [...cur, opt] }
+    })
+
+  const finish = () => {
+    const lines = []
+    questions.forEach((qq, i) => {
+      const o = (other[i] ?? '').trim()
+      let ans = ''
+      if (qq.type === 'multi') {
+        const arr = Array.isArray(answers[i]) ? [...answers[i]] : []
+        if (o) arr.push(o)
+        ans = arr.join(', ')
+      } else {
+        ans = (typeof answers[i] === 'string' ? answers[i] : '').trim() || o
+      }
+      if (ans) lines.push(`${qq.prompt}: ${ans}`)
+    })
+    onSubmit(lines.length ? lines.join('\n\n') : 'Usa tu mejor criterio para los detalles.')
+  }
+
+  const next = () => (isLast ? finish() : setStep((s) => Math.min(s + 1, total - 1)))
+  const prev = () => setStep((s) => Math.max(s - 1, 0))
+
+  const hasOptions = (q.type === 'single' || q.type === 'multi') && (q.options ?? []).length > 0
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-2xl border border-nina-line bg-nina-panel/80 backdrop-blur px-4 py-3.5 shadow-chrome max-w-2xl mx-auto w-full"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-[11px] text-nina-mute">Pregunta {step + 1} de {total}</div>
+        <button
+          onClick={onDismiss}
+          title="Omitir y escribir libremente"
+          className="text-nina-mute hover:text-nina-chrome transition shrink-0"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="text-[15px] text-nina-chrome font-medium leading-snug mt-1">{q.prompt}</div>
+      <div className="text-[11px] text-nina-mute mb-3">
+        {q.type === 'multi' ? 'Elige una o varias, o escribe abajo' : q.type === 'single' ? 'Elige una o escribe abajo' : 'Escribe tu respuesta'}
+      </div>
+
+      {hasOptions && (
+        <div className="space-y-1.5 mb-2">
+          {q.options.map((opt, oi) => {
+            const selected =
+              q.type === 'multi' ? Array.isArray(answers[step]) && answers[step].includes(opt) : answers[step] === opt
+            return (
+              <button
+                key={oi}
+                type="button"
+                onClick={() => (q.type === 'multi' ? toggleMulti(step, opt) : setText(step, selected ? '' : opt))}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-[13.5px] transition border ${
+                  selected
+                    ? 'border-nina-silver/50 bg-nina-line/50 text-nina-chrome'
+                    : 'border-nina-line/50 bg-nina-line/20 text-nina-mute hover:text-nina-chrome hover:border-nina-line'
+                }`}
+              >
+                <span
+                  className={`w-5 h-5 rounded grid place-items-center text-[11px] shrink-0 ${
+                    selected ? 'bg-silver-gradient text-nina-black' : 'bg-nina-line/60 text-nina-mute'
+                  }`}
+                >
+                  {q.type === 'multi' ? (selected ? '✓' : '') : oi + 1}
+                </span>
+                <span className="flex-1">{opt}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-nina-line/50 bg-nina-ink/40">
+        <Pencil className="w-3.5 h-3.5 text-nina-mute shrink-0" />
+        <input
+          value={q.type === 'text' ? answers[step] ?? '' : other[step] ?? ''}
+          onChange={(e) =>
+            q.type === 'text' ? setText(step, e.target.value) : setOther((o) => ({ ...o, [step]: e.target.value }))
+          }
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              next()
+            }
+          }}
+          placeholder={q.type === 'text' ? 'Escribe tu respuesta' : 'Otro… (escribe aquí)'}
+          className="flex-1 bg-transparent text-[13.5px] text-nina-chrome placeholder:text-nina-mute/60 outline-none"
+        />
+      </div>
+
+      <div className="flex items-center justify-between mt-3">
+        <button
+          onClick={prev}
+          className={`text-[12px] flex items-center gap-1 ${
+            step === 0 ? 'opacity-0 pointer-events-none' : 'text-nina-mute hover:text-nina-chrome'
+          }`}
+        >
+          <ChevronLeft className="w-3.5 h-3.5" /> Anterior
+        </button>
+        <div className="flex items-center gap-1.5">
+          {questions.map((_, i) => (
+            <span key={i} className={`w-1.5 h-1.5 rounded-full ${i === step ? 'bg-nina-chrome' : 'bg-nina-line'}`} />
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={next} className="text-[12px] text-nina-mute hover:text-nina-chrome">
+            Saltar
+          </button>
+          <button
+            onClick={next}
+            className="px-4 py-1.5 rounded-full bg-silver-gradient text-nina-black text-[12px] font-medium shadow-chrome hover:opacity-90 transition"
+          >
+            {isLast ? 'Enviar' : 'Siguiente'}
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  )
 }
 
 // Nota de sistema centrada (no atribuible al usuario ni al agente). P.ej. el aviso de

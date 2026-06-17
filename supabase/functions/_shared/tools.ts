@@ -11,6 +11,7 @@ import { adminDb } from './db.ts'
 import { shopifyAdjustInventory, shopifyGetInventoryBySku, shopifyGraphQL, stripGid } from './shopify.ts'
 import { generateImage as generateImageMulti } from './imageGen.ts'
 import { tavilySearch } from './tavily.ts'
+import { getSales, bogotaDate } from './suitecrm.ts'
 import { defineTool, ToolRegistry } from './tool-kit.ts'
 import { TOOL_SPECS } from './tool-specs.ts'
 
@@ -1184,6 +1185,102 @@ async function composeEmail(_ctx: ToolContext, args: Record<string, unknown>): P
   return { ok: true, data: { kind: 'email', subject, html } }
 }
 
+// Preguntas aclaratorias (estilo AskUserQuestion). El agente las usa ante un pedido
+// abierto/ambiguo (sobre todo en un chat nuevo) para precisar el requerimiento ANTES de
+// producir nada. Produce un artefacto kind:'questions' que el chat renderiza como un
+// formulario por pasos; las respuestas del usuario vuelven como su siguiente mensaje.
+async function askQuestions(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const raw = Array.isArray(args.questions) ? args.questions : []
+  const questions = raw
+    .map((q) => {
+      const item = (q ?? {}) as Record<string, unknown>
+      const prompt = (item.prompt as string)?.trim()
+      if (!prompt) return null
+      const type = ['text', 'single', 'multi'].includes(item.type as string) ? (item.type as string) : 'text'
+      const options = Array.isArray(item.options)
+        ? item.options.map((o) => String(o).trim()).filter(Boolean).slice(0, 8)
+        : []
+      return {
+        prompt: prompt.slice(0, 300),
+        type,
+        // Las opciones solo aplican a single/multi; text es respuesta libre.
+        options: type === 'single' || type === 'multi' ? options : undefined,
+      }
+    })
+    .filter(Boolean)
+    .slice(0, 6)
+  if (questions.length === 0) return { ok: false, error: 'Faltan preguntas (questions[].prompt)' }
+  return { ok: true, data: { kind: 'questions', questions } }
+}
+
+// =====================================================================
+// SuiteCRM · ventas (Jeans Colombianos) — lectura, sin aprobación
+// =====================================================================
+
+// Traduce el `period` pedido al rango [start,end] en MM/DD/YYYY (zona Bogota),
+// que es lo que espera el buscador del CRM. `last_week` = lunes a domingo de la
+// semana PASADA. Cálculo del día de la semana sobre el reloj de Bogota (UTC-5).
+function salesRange(period: string): { start: string; end: string; label: string } {
+  switch (period) {
+    case 'today':
+      return { start: bogotaDate(0), end: bogotaDate(0), label: 'hoy' }
+    case 'last_7_days':
+      return { start: bogotaDate(7), end: bogotaDate(0), label: 'últimos 7 días' }
+    case 'last_week': {
+      const bogotaDow = new Date(Date.now() - 5 * 3600_000).getUTCDay() // 0=domingo … 6=sábado
+      const sinceMonday = (bogotaDow + 6) % 7 // días transcurridos desde el lunes de ESTA semana
+      return { start: bogotaDate(sinceMonday + 7), end: bogotaDate(sinceMonday + 1), label: 'semana pasada' }
+    }
+    case 'yesterday':
+    default:
+      return { start: bogotaDate(1), end: bogotaDate(1), label: 'ayer' }
+  }
+}
+
+async function suitecrmSales(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const period = ((args.period as string) || 'yesterday').toLowerCase()
+  let start: string, end: string, label: string
+  // Rango explícito (MM/DD/YYYY) si el modelo lo provee; si no, lo derivamos del period.
+  if (args.start_date && args.end_date) {
+    start = String(args.start_date)
+    end = String(args.end_date)
+    label = `${start} – ${end}`
+  } else {
+    ;({ start, end, label } = salesRange(period))
+  }
+
+  try {
+    const s = await getSales(start, end)
+    const byDate: Record<string, { count: number; total: number }> = {}
+    for (const inv of s.invoices) {
+      const d = byDate[inv.invoice_date] ?? { count: 0, total: 0 }
+      d.count++
+      d.total += inv.total
+      byDate[inv.invoice_date] = d
+    }
+    return {
+      ok: true,
+      data: {
+        period: label,
+        range: s.range,
+        count: s.count,
+        total: s.total,
+        total_cop: '$' + Math.round(s.total).toLocaleString('es-CO'),
+        by_branch: s.by_branch,
+        by_date: byDate,
+        // Solo las 10 facturas más grandes para no inflar el contexto del modelo.
+        top_invoices: s.invoices
+          .slice()
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 10)
+          .map((i) => ({ number: i.number, client: i.client, total: i.total, branch: i.branch, invoice_date: i.invoice_date })),
+      },
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>) => Promise<ToolResult>> = {
   delegate_task: delegateTask,
   request_approval: requestApproval,
@@ -1205,6 +1302,8 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   create_agent: createAgentTool,
   send_email: sendEmail,
   compose_email: composeEmail,
+  ask_questions: askQuestions,
+  suitecrm_sales: suitecrmSales,
 }
 
 // =====================================================================
