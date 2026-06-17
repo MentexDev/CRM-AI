@@ -667,6 +667,31 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     return found
   }, [messages, answeredKey])
 
+  // Respuestas rápidas CONTEXTUALES: tras cada turno cerrado pedimos al backend 3
+  // seguimientos según cómo va la conversación. Si no hay (chat nuevo / falla), el
+  // composer cae a las estáticas por rol.
+  const [suggestions, setSuggestions] = useState([])
+  useEffect(() => {
+    setSuggestions([]) // limpiar al cambiar de hilo
+  }, [conversationId])
+  useEffect(() => {
+    if (!conversationId || thinking) return
+    const last = messages[messages.length - 1]
+    if (!last || last.role !== 'assistant' || !last.content) return
+    let active = true
+    supabase.functions
+      .invoke('suggest-followups', { body: { agent_slug: agent.slug, conversation_id: conversationId } })
+      .then(({ data, error }) => {
+        if (active && !error && Array.isArray(data?.suggestions) && data.suggestions.length) {
+          setSuggestions(data.suggestions)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [conversationId, messages.length, thinking, agent.slug])
+
   // Envía las respuestas del formulario como el siguiente mensaje del usuario; el agente
   // continúa con ellas. Mismo camino que el composer (optimista + chat-with-agent).
   const submitAnswers = async (text) => {
@@ -836,6 +861,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         onConversationCreated={onConversationCreated}
         onUserSend={addOptimistic}
         onSettled={() => setThinking(false)}
+        suggestions={suggestions}
       />
       </div>
       <AnimatePresence>
@@ -1025,14 +1051,16 @@ function inferProvider(model) {
   return 'groq'
 }
 
-function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend, onSettled, bare = false }) {
+function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend, onSettled, bare = false, suggestions }) {
   const { isJunta } = useAuth()
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [voiceGhost, setVoiceGhost] = useState('')
   const [focused, setFocused] = useState(false)
   const taRef = useRef(null)
-  const quickPrompts = quickPromptsFor(agent)
+  // Respuestas rápidas: si hay sugerencias CONTEXTUALES (según la conversación), úsalas;
+  // si no (chat nuevo / home), cae a las estáticas por rol.
+  const quickPrompts = suggestions?.length ? suggestions : quickPromptsFor(agent)
 
   // Selector de modelo (provider + model coherentes). El backend lee de la BD,
   // así que persistimos el cambio en el agente y el siguiente turno lo usa.
@@ -1900,10 +1928,11 @@ function groupTimeline(messages) {
   }
   for (const m of messages) {
     if (m.role === 'system') continue
-    // Nota de sistema (p.ej. el auto-resume de aprobación). Aunque se persiste como
-    // role:'user' (para que el agente la procese), la pintamos como chip centrado y NO
-    // como burbuja del usuario: la decisión la tomó la Junta en el panel, no este chat.
-    if (m.metadata?.source === 'approval_resume') {
+    // Nota de sistema (p.ej. el auto-resume de aprobación, o el disparador del reporte
+    // diario de ventas). Aunque se persiste como role:'user' (para que el agente la
+    // procese), la pintamos como chip centrado y NO como burbuja del usuario: la generó
+    // el sistema (la Junta o el cron), no este chat.
+    if (m.metadata?.source === 'approval_resume' || m.metadata?.source === 'scheduled_report') {
       flush()
       items.push({ kind: 'note', message: m, key: m.id })
       continue

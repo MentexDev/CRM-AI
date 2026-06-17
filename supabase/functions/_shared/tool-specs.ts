@@ -622,7 +622,7 @@ export const TOOL_SPECS: ToolSpecData[] = [
           "type": "string",
           "enum": ["today", "yesterday", "last_7_days", "last_week"],
           "default": "yesterday",
-          "description": "Periodo a consultar (zona Colombia). 'yesterday' (default) = día anterior; 'last_7_days' = últimos 7 días; 'last_week' = lunes a domingo de la semana pasada."
+          "description": "Periodo a consultar (zona Colombia). 'yesterday' (default) = día anterior; 'last_7_days' = 7 días terminando ayer (no incluye hoy); 'last_week' = lunes a domingo de la semana pasada."
         },
         "start_date": {
           "type": "string",

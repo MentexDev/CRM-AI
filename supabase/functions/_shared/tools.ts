@@ -11,7 +11,7 @@ import { adminDb } from './db.ts'
 import { shopifyAdjustInventory, shopifyGetInventoryBySku, shopifyGraphQL, stripGid } from './shopify.ts'
 import { generateImage as generateImageMulti } from './imageGen.ts'
 import { tavilySearch } from './tavily.ts'
-import { getSales, bogotaDate } from './suitecrm.ts'
+import { getSales, salesRange, periodWarning } from './suitecrm.ts'
 import { defineTool, ToolRegistry } from './tool-kit.ts'
 import { TOOL_SPECS } from './tool-specs.ts'
 
@@ -1216,26 +1216,11 @@ async function askQuestions(_ctx: ToolContext, args: Record<string, unknown>): P
 // =====================================================================
 // SuiteCRM · ventas (Jeans Colombianos) — lectura, sin aprobación
 // =====================================================================
+// La lógica de fechas/rango (salesRange, periodWarning) y la extracción viven en
+// _shared/suitecrm.ts (testeable sin las deps pesadas de este archivo).
 
-// Traduce el `period` pedido al rango [start,end] en MM/DD/YYYY (zona Bogota),
-// que es lo que espera el buscador del CRM. `last_week` = lunes a domingo de la
-// semana PASADA. Cálculo del día de la semana sobre el reloj de Bogota (UTC-5).
-function salesRange(period: string): { start: string; end: string; label: string } {
-  switch (period) {
-    case 'today':
-      return { start: bogotaDate(0), end: bogotaDate(0), label: 'hoy' }
-    case 'last_7_days':
-      return { start: bogotaDate(7), end: bogotaDate(0), label: 'últimos 7 días' }
-    case 'last_week': {
-      const bogotaDow = new Date(Date.now() - 5 * 3600_000).getUTCDay() // 0=domingo … 6=sábado
-      const sinceMonday = (bogotaDow + 6) % 7 // días transcurridos desde el lunes de ESTA semana
-      return { start: bogotaDate(sinceMonday + 7), end: bogotaDate(sinceMonday + 1), label: 'semana pasada' }
-    }
-    case 'yesterday':
-    default:
-      return { start: bogotaDate(1), end: bogotaDate(1), label: 'ayer' }
-  }
-}
+const COP = (n: number) => (n < 0 ? '-$' : '$') + Math.round(Math.abs(n)).toLocaleString('es-CO')
+const safeClient = (s: string) => (s || '').slice(0, 80) // dato no confiable: acotado
 
 async function suitecrmSales(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const period = ((args.period as string) || 'yesterday').toLowerCase()
@@ -1258,6 +1243,7 @@ async function suitecrmSales(_ctx: ToolContext, args: Record<string, unknown>): 
       d.total += inv.total
       byDate[inv.invoice_date] = d
     }
+    const warning = periodWarning(start, end)
     return {
       ok: true,
       data: {
@@ -1265,15 +1251,18 @@ async function suitecrmSales(_ctx: ToolContext, args: Record<string, unknown>): 
         range: s.range,
         count: s.count,
         total: s.total,
-        total_cop: '$' + Math.round(s.total).toLocaleString('es-CO'),
-        by_branch: s.by_branch,
+        total_cop: COP(s.total),
+        // Acotamos by_branch (defensa del recorte estructural + payload chico). Suelen
+        // ser ~3 sucursales; tomar las 30 mayores cubre cualquier caso real.
+        by_branch: s.by_branch.slice(0, 30).map((b) => ({ ...b, total_cop: COP(b.total) })),
         by_date: byDate,
         // Solo las 10 facturas más grandes para no inflar el contexto del modelo.
         top_invoices: s.invoices
           .slice()
           .sort((a, b) => b.total - a.total)
           .slice(0, 10)
-          .map((i) => ({ number: i.number, client: i.client, total: i.total, branch: i.branch, invoice_date: i.invoice_date })),
+          .map((i) => ({ number: i.number, client: safeClient(i.client), total: i.total, total_cop: COP(i.total), branch: i.branch, invoice_date: i.invoice_date })),
+        ...(warning ? { warning } : {}),
       },
     }
   } catch (e) {
