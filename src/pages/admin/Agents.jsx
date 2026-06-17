@@ -670,8 +670,14 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // Envía las respuestas del formulario como el siguiente mensaje del usuario; el agente
   // continúa con ellas. Mismo camino que el composer (optimista + chat-with-agent).
   const submitAnswers = async (text) => {
-    if (activeQuestions) setAnsweredKey(activeQuestions.key)
-    addOptimistic(text)
+    const prevAnswered = answeredKey
+    const optId = `opt-q-${Date.now()}`
+    if (activeQuestions) setAnsweredKey(activeQuestions.key) // oculta el form al instante
+    setOptimistic((prev) => [
+      ...prev,
+      { id: optId, role: 'user', content: text, created_at: new Date().toISOString(), optimistic: true },
+    ])
+    setThinking(true)
     try {
       const { data, error } = await supabase.functions.invoke('chat-with-agent', {
         body: { agent_slug: agent.slug, content: text, conversation_id: conversationId },
@@ -679,6 +685,9 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
       if (error) throw error
       if (data?.error) throw new Error(data.error)
     } catch (e) {
+      // Revertir: restaura el formulario y quita el mensaje fantasma para reintentar.
+      setAnsweredKey(prevAnswered)
+      setOptimistic((prev) => prev.filter((m) => m.id !== optId))
       toast.error(e?.message || 'No se pudo enviar')
     } finally {
       setThinking(false)
@@ -2045,7 +2054,11 @@ function QuestionsForm({ questions, onSubmit, onDismiss }) {
       </div>
       <div className="text-[15px] text-nina-chrome font-medium leading-snug mt-1">{q.prompt}</div>
       <div className="text-[11px] text-nina-mute mb-3">
-        {q.type === 'multi' ? 'Elige una o varias, o escribe abajo' : q.type === 'single' ? 'Elige una o escribe abajo' : 'Escribe tu respuesta'}
+        {q.type === 'text' || !hasOptions
+          ? 'Escribe tu respuesta'
+          : q.type === 'multi'
+            ? 'Elige una o varias, o escribe abajo'
+            : 'Elige una o escribe abajo'}
       </div>
 
       {hasOptions && (
@@ -2086,12 +2099,13 @@ function QuestionsForm({ questions, onSubmit, onDismiss }) {
             q.type === 'text' ? setText(step, e.target.value) : setOther((o) => ({ ...o, [step]: e.target.value }))
           }
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              next()
-            }
+            if (e.key !== 'Enter') return
+            e.preventDefault()
+            // En 'text' Enter avanza/envía; en el campo "Otro" de single/multi NO envía en
+            // el último paso (evita el envío prematuro mientras se escribe).
+            if (q.type === 'text' || !isLast) next()
           }}
-          placeholder={q.type === 'text' ? 'Escribe tu respuesta' : 'Otro… (escribe aquí)'}
+          placeholder={q.type === 'text' || !hasOptions ? 'Escribe tu respuesta' : 'Otro… (escribe aquí)'}
           className="flex-1 bg-transparent text-[13.5px] text-nina-chrome placeholder:text-nina-mute/60 outline-none"
         />
       </div>
@@ -2111,9 +2125,11 @@ function QuestionsForm({ questions, onSubmit, onDismiss }) {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={next} className="text-[12px] text-nina-mute hover:text-nina-chrome">
-            Saltar
-          </button>
+          {!isLast && (
+            <button onClick={next} className="text-[12px] text-nina-mute hover:text-nina-chrome">
+              Saltar
+            </button>
+          )}
           <button
             onClick={next}
             className="px-4 py-1.5 rounded-full bg-silver-gradient text-nina-black text-[12px] font-medium shadow-chrome hover:opacity-90 transition"

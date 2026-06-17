@@ -133,17 +133,6 @@ export async function runAgentChatTurn(
     .eq('id', agentId)
 
   try {
-    // En chat, ask_questions SIEMPRE está disponible (preguntar es seguro y útil para
-    // precisar pedidos abiertos) aunque no esté en allowed_tools del agente.
-    const allowedForChat = [
-      ...new Set([
-        ...((agent.allowed_tools ?? []) as string[]).filter((t) => t !== 'finish_task'),
-        'ask_questions',
-      ]),
-    ]
-    const toolDescs = await loadTools(allowedForChat)
-    const toolDefs = toToolDefinitions(toolDescs)
-
     // Historial SOLO de esta conversación (contexto limpio por hilo)
     const { data: history } = await db
       .from('messages')
@@ -153,8 +142,31 @@ export async function runAgentChatTurn(
       .limit(HISTORY_WINDOW)
     const historyAsc = (history ?? []).slice().reverse()
 
+    // ¿Suprimir las preguntas aclaratorias en ESTE turno? Sí cuando:
+    //  (a) el turno NO lo originó el usuario (resume de aprobación, reporte programado…):
+    //      no hay nadie para responder un formulario; el agente debe EJECUTAR la orden; y
+    //  (b) el turno anterior del asistente YA preguntó (ahora llegan las respuestas):
+    //      debe PROCEDER, no re-preguntar (corta el bucle pregunta→responde→pregunta).
+    const lastAssistant = [...historyAsc]
+      .reverse()
+      .find((m) => m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length)
+    const lastAssistantAsked = !!(
+      lastAssistant?.tool_calls as { function?: { name?: string } }[] | undefined
+    )?.some((tc) => tc?.function?.name === 'ask_questions')
+    const suppressClarify = Boolean(triggerMeta?.source) || lastAssistantAsked
+
+    // finish_task nunca está en chat. ask_questions se OFRECE solo si no está suprimido
+    // (chat originado por el usuario y sin haber preguntado en el turno previo).
+    const baseTools = ((agent.allowed_tools ?? []) as string[]).filter((t) => t !== 'finish_task')
+    const allowedForChat = suppressClarify ? baseTools : [...new Set([...baseTools, 'ask_questions'])]
+    const toolDescs = await loadTools(allowedForChat)
+    const toolDefs = toToolDefinitions(toolDescs)
+
     const messages: ChatMessage[] = []
-    messages.push({ role: 'system', content: `${agent.system_prompt}\n\n${CHAT_GUIDANCE}` })
+    messages.push({
+      role: 'system',
+      content: suppressClarify ? agent.system_prompt : `${agent.system_prompt}\n\n${CHAT_GUIDANCE}`,
+    })
     for (const m of historyAsc) {
       messages.push({
         role: m.role,
@@ -266,7 +278,12 @@ export async function runAgentChatTurn(
       }
 
       let didBlock = false
-      for (const tc of result.tool_calls) {
+      // Si el agente preguntó (ask_questions) en este turno, ejecutamos SOLO esa llamada y
+      // POSPONEMOS las hermanas: no enviar/mutar nada (send_email, shopify…) antes de que
+      // el usuario aclare. Si emitió varias ask_questions, solo la primera se procesa.
+      const askIdx = result.tool_calls.findIndex((tc) => tc.function.name === 'ask_questions')
+      for (let j = 0; j < result.tool_calls.length; j++) {
+        const tc = result.tool_calls[j]
         const isAllowed = allowedForChat.includes(tc.function.name)
         if (!isAllowed) {
           const ep = { ok: false, error: `Tool no disponible en chat: ${tc.function.name}` }
@@ -274,6 +291,18 @@ export async function runAgentChatTurn(
           await db.from('messages').insert({
             agent_id: agentId, task_id: null, conversation_id: convId,
             role: 'tool', tool_call_id: tc.id, content: JSON.stringify(ep), metadata: { source: 'chat' },
+          })
+          continue
+        }
+
+        if (askIdx >= 0 && j !== askIdx) {
+          // Hermana de ask_questions (o una segunda pregunta): no se ejecuta este turno.
+          const ep = { ok: false, error: 'Pospuesto: el agente espera que respondas las preguntas.' }
+          messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(ep) })
+          await db.from('messages').insert({
+            agent_id: agentId, task_id: null, conversation_id: convId,
+            role: 'tool', tool_call_id: tc.id, content: JSON.stringify(ep),
+            metadata: { source: 'chat', postponed: true },
           })
           continue
         }
