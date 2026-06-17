@@ -52,14 +52,24 @@ const AGENT_STATUS_DOT = {
 }
 const AGENT_SPECIALTY_ICON = {
   analista_tendencias: TrendingUp,
-  creador_contenido: Sparkles,
+  creador_contenido: Clapperboard,
   contador: Calculator,
   inventarista: Package,
 }
 function sidebarAgentIcon(a) {
   if (a.role === 'ceo_global') return Crown
+  // La ESPECIALIDAD manda (ícono simbólico) sobre el genérico del rol — antes
+  // brand_manager cortocircuitaba a Sparkles y Contador/Inventarista salían iguales.
+  const bySpecialty = a.specialty && AGENT_SPECIALTY_ICON[a.specialty]
+  if (bySpecialty) return bySpecialty
+  // Fallback por palabras clave (especialidades libres/sin mapear, p.ej. "Inventarista CRM").
+  const k = `${a.name ?? ''} ${a.specialty ?? ''}`.toLowerCase()
+  if (/venta|sales|\bcrm\b|kpi|report/.test(k)) return TrendingUp
+  if (/contad|finan|conta\b/.test(k)) return Calculator
+  if (/content|conteni|market|campañ|redact/.test(k)) return Clapperboard
+  if (/inventar|stock|bodega/.test(k)) return Package
   if (a.role === 'brand_manager') return Sparkles
-  return AGENT_SPECIALTY_ICON[a.specialty] ?? Bot
+  return Bot
 }
 
 // Lista de agentes en el sidebar principal. Click → abre el perfil del agente.

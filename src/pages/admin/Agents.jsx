@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clapperboard,
   Crown,
   Database,
   Globe,
@@ -75,7 +76,7 @@ const STATUS_LABEL = {
 
 const SPECIALTY_ICON = {
   analista_tendencias: TrendingUp,
-  creador_contenido: Sparkles,
+  creador_contenido: Clapperboard,
   contador: Calculator,
   inventarista: Package,
 }
@@ -83,8 +84,17 @@ const SPECIALTY_ICON = {
 function agentIcon(agent) {
   if (!agent) return Bot
   if (agent.role === 'ceo_global') return Crown
+  // La ESPECIALIDAD manda sobre el genérico del rol (antes brand_manager → Sparkles
+  // y Contador/Inventarista salían iguales). Mismo criterio que el sidebar.
+  const bySpecialty = agent.specialty && SPECIALTY_ICON[agent.specialty]
+  if (bySpecialty) return bySpecialty
+  const k = `${agent.name ?? ''} ${agent.specialty ?? ''}`.toLowerCase()
+  if (/venta|sales|\bcrm\b|kpi|report/.test(k)) return TrendingUp
+  if (/contad|finan|conta\b/.test(k)) return Calculator
+  if (/content|conteni|market|campañ|redact/.test(k)) return Clapperboard
+  if (/inventar|stock|bodega/.test(k)) return Package
   if (agent.role === 'brand_manager') return Sparkles
-  return SPECIALTY_ICON[agent.specialty] ?? Bot
+  return Bot
 }
 
 function fmtTime(ts) {
