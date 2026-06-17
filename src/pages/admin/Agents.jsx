@@ -28,6 +28,7 @@ import {
   Play,
   Plug,
   Plus,
+  Save,
   Settings as SettingsIcon,
   ShoppingBag,
   SlidersHorizontal,
@@ -546,39 +547,71 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // Canvas (F3): detecta el ÚLTIMO artefacto de email (de la tool compose_email)
   // en el hilo para mostrarlo en el split-view a la derecha. Lee el JSON COMPLETO
   // de messages.content (por eso importa guardar el resultado íntegro en la BD).
-  const emailArtifact = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i]
+  // TODOS los artefactos de email del hilo (cada compose_email), en orden cronológico.
+  // Cada uno es una PESTAÑA del canvas → al crear uno nuevo NO se pierde el anterior.
+  const emailArtifacts = useMemo(() => {
+    const out = []
+    for (const m of messages) {
       if (m.role !== 'tool' || typeof m.content !== 'string') continue
       try {
         const p = JSON.parse(m.content)
         if (p?.ok && p?.data?.kind === 'email' && p.data.html) {
-          return { subject: p.data.subject ?? '(sin asunto)', html: String(p.data.html), key: m.id }
+          out.push({ subject: p.data.subject ?? '(sin asunto)', html: String(p.data.html), key: m.id })
         }
       } catch {
         /* no es JSON / no es artefacto */
       }
     }
-    return null
+    return out
   }, [messages])
+  const latestArtifact = emailArtifacts.length ? emailArtifacts[emailArtifacts.length - 1] : null
+
   const [canvasOpen, setCanvasOpen] = useState(false)
-  // Auto-abrimos el canvas SOLO cuando el agente genera un email NUEVO mientras miramos
-  // el hilo. Entrar o VOLVER a un hilo que ya traía un email NO fuerza el avance (para
-  // eso está el botón "Avance") — antes se reabría en cada visita y "secuestraba" la vista.
+  const [activeKey, setActiveKey] = useState(null)
+  const activeArtifact = emailArtifacts.find((a) => a.key === activeKey) ?? latestArtifact
+
+  // Auto-abrimos el canvas y activamos la pestaña SOLO cuando el agente genera un email
+  // NUEVO en vivo (las anteriores quedan como íconos). Entrar/volver a un hilo que ya traía
+  // emails NO fuerza el avance (para eso está "Avance") — no "secuestra" la vista.
   const initialArtifactKey = useRef(undefined)
   useEffect(() => {
-    // Fijamos el artefacto "que ya venía en el hilo" en la primera carga de historia.
     if (initialArtifactKey.current === undefined && messages.length > 0) {
-      initialArtifactKey.current = emailArtifact?.key ?? null
+      initialArtifactKey.current = latestArtifact?.key ?? null
     }
     if (
       initialArtifactKey.current !== undefined &&
-      emailArtifact &&
-      emailArtifact.key !== initialArtifactKey.current
+      latestArtifact &&
+      latestArtifact.key !== initialArtifactKey.current
     ) {
       setCanvasOpen(true)
+      setActiveKey(latestArtifact.key) // nueva pestaña al frente; las previas quedan como íconos
     }
-  }, [emailArtifact?.key, messages.length])
+  }, [latestArtifact?.key, messages.length])
+
+  // Guardar el artefacto activo en la Biblioteca (entregable). Cliente → library_assets
+  // (la policy RLS valida acceso de marca). Marcamos el key como guardado para el check.
+  const [savedKeys, setSavedKeys] = useState(() => new Set())
+  const saveToLibrary = async (artifact) => {
+    if (!artifact) return
+    const t = toast.loading('Guardando en la biblioteca…')
+    try {
+      const size = new Blob([artifact.html]).size
+      const { error } = await supabase.from('library_assets').insert({
+        title: artifact.subject || 'Correo NINA',
+        kind: 'campaign',
+        content: artifact.html,
+        source: 'canvas',
+        size_bytes: size,
+        agent_id: agent.id,
+        brand_id: agent.brand_id ?? null,
+      })
+      if (error) throw error
+      setSavedKeys((s) => new Set(s).add(artifact.key))
+      toast.success('Guardado en la biblioteca', { id: t })
+    } catch (e) {
+      toast.error(e?.message || 'No se pudo guardar', { id: t })
+    }
+  }
 
   // Marcamos ?canvas=1 en la URL cuando el canvas está abierto → el layout oculta el
   // sidebar y le da más espacio. Al cerrar el canvas (canvasOpen=false) este mismo efecto
@@ -590,7 +623,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // (tras goHome) ese setter reaplica esa URL vieja y RESUCITA ?c → el chat se recarga
   // en vez de volver al perfil. (Bug real ya corregido — no reintroducir.)
   const [, setSearchParams] = useSearchParams()
-  const hasArtifact = !!emailArtifact
+  const hasArtifact = emailArtifacts.length > 0
   useEffect(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
@@ -646,7 +679,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
           <span className="truncate">{agent.name}</span>
         </button>
         <div className="flex items-center gap-1 shrink-0">
-          {emailArtifact && (
+          {emailArtifacts.length > 0 && (
             <button
               onClick={() => setCanvasOpen((o) => !o)}
               className={`btn-ghost !py-1 !px-2 text-[11px] flex items-center gap-1 ${
@@ -717,7 +750,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
       />
       </div>
       <AnimatePresence>
-        {canvasOpen && emailArtifact && (
+        {canvasOpen && emailArtifacts.length > 0 && (
           <motion.aside
             key="canvas"
             initial={{ width: 0, opacity: 0 }}
@@ -737,7 +770,14 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
                 <ChevronRight className="w-3 h-3 -ml-1.5" />
               </div>
             </div>
-            <EmailCanvas artifact={emailArtifact} onClose={() => setCanvasOpen(false)} />
+            <EmailCanvas
+              artifacts={emailArtifacts}
+              active={activeArtifact}
+              onSelect={setActiveKey}
+              onClose={() => setCanvasOpen(false)}
+              onSave={() => saveToLibrary(activeArtifact)}
+              saved={activeArtifact ? savedKeys.has(activeArtifact.key) : false}
+            />
           </motion.aside>
         )}
       </AnimatePresence>
@@ -747,32 +787,62 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
 
 // Canvas (F3) — split-view tipo NeuralOS. Hoy renderiza el preview en vivo del
 // correo HTML (artefacto de compose_email); luego se le suman pestañas (browser, docs).
-function EmailCanvas({ artifact, onClose }) {
+function EmailCanvas({ artifacts, active, onSelect, onClose, onSave, saved }) {
   return (
     <div className="flex flex-col min-w-0 w-full h-full">
-      {/* Barra de pestañas estilo Chrome */}
+      {/* Barra de pestañas estilo Chrome: la activa muestra el título; las demás colapsan
+          a solo el ícono (clic para traerlas al frente). Así no se pierde el avance anterior. */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-nina-line/60 shrink-0">
-        <div className="flex items-center gap-2 pl-2 pr-3 h-8 rounded-lg bg-nina-line/40 text-[12px] text-nina-chrome min-w-0">
-          <span className="w-4 h-4 rounded grid place-items-center bg-silver-gradient text-nina-black shrink-0">
-            <MessageSquare className="w-2.5 h-2.5" />
-          </span>
-          <span className="truncate">{artifact.subject}</span>
+        <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
+          {artifacts.map((a) => {
+            const isActive = active && a.key === active.key
+            return (
+              <button
+                key={a.key}
+                onClick={() => onSelect(a.key)}
+                title={a.subject}
+                className={`flex items-center gap-2 h-8 rounded-lg text-[12px] transition shrink-0 ${
+                  isActive
+                    ? 'bg-nina-line/40 text-nina-chrome pl-2 pr-3 max-w-[220px]'
+                    : 'w-8 justify-center bg-nina-line/20 text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'
+                }`}
+              >
+                <span className="w-4 h-4 rounded grid place-items-center bg-silver-gradient text-nina-black shrink-0">
+                  <MessageSquare className="w-2.5 h-2.5" />
+                </span>
+                {isActive && <span className="truncate">{a.subject}</span>}
+              </button>
+            )
+          })}
         </div>
         <div className="flex-1" />
         <button
+          onClick={onSave}
+          disabled={saved}
+          className={`h-8 px-2.5 rounded-lg text-[11px] flex items-center gap-1.5 transition shrink-0 ${
+            saved
+              ? 'text-emerald-300 cursor-default'
+              : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40'
+          }`}
+          title={saved ? 'Ya está en la biblioteca' : 'Guardar en la biblioteca'}
+        >
+          {saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+          <span className="hidden lg:inline">{saved ? 'Guardado' : 'Guardar'}</span>
+        </button>
+        <button
           onClick={onClose}
-          className="w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
+          className="w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition shrink-0"
           title="Cerrar canvas"
           aria-label="Cerrar canvas"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
-      {/* Preview del correo en un iframe aislado (sin scripts) */}
+      {/* Preview del correo ACTIVO en un iframe aislado (sin scripts) */}
       <div className="flex-1 min-h-0 bg-nina-ink p-3">
         <iframe
           title="Preview del correo NINA"
-          srcDoc={artifact.html}
+          srcDoc={active?.html ?? ''}
           sandbox=""
           className="w-full h-full rounded-lg bg-white border border-nina-line"
         />
