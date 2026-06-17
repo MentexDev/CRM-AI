@@ -5,7 +5,9 @@
 //
 // Secret requerido: GEMINI_API_KEY (de Google AI Studio: https://aistudio.google.com/apikey).
 
-const GEMINI_MODEL = 'gemini-2.5-flash-image' // Nano Banana
+// Modelo de imagen. Default: gemini-3-pro-image (Nano Banana Pro, alta calidad/realismo).
+// Configurable por env GEMINI_IMAGE_MODEL (p.ej. 'gemini-3.1-flash-image' para más rápido/barato).
+const GEMINI_MODEL = Deno.env.get('GEMINI_IMAGE_MODEL') || 'gemini-3-pro-image'
 const BUCKET = 'agent-images'
 
 export async function geminiGenerateImage(
@@ -24,10 +26,10 @@ export async function geminiGenerateImage(
   ].join(' ')
 
   const resp = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
         generationConfig: { responseModalities: ['IMAGE'] },
