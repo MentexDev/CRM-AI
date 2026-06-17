@@ -4,6 +4,7 @@
 // automáticamente: si hay créditos/keys de Higgsfield se usa ese; si no,
 // fallback a Pollinations (gratis, sin auth).
 import { higgsfieldGenerateImage } from './higgsfield.ts'
+import { geminiGenerateImage } from './geminiImage.ts'
 
 export interface ImageGenResult {
   provider: string
@@ -54,10 +55,9 @@ async function pollinationsGenerate(
 
 function pickProvider(): string {
   const explicit = (Deno.env.get('IMAGE_PROVIDER') || '').trim().toLowerCase()
-  if (explicit === 'pollinations' || explicit === 'higgsfield') return explicit
-  // Auto: si hay credenciales de Higgsfield, las usamos. Si fallan por
-  // créditos, el caller verá el error claro y puede cambiar a pollinations
-  // con la env var.
+  if (explicit === 'pollinations' || explicit === 'higgsfield' || explicit === 'gemini') return explicit
+  // Auto (por calidad): Gemini "Nano Banana" si hay key → Higgsfield → Pollinations.
+  if (Deno.env.get('GEMINI_API_KEY')) return 'gemini'
   if (Deno.env.get('HIGGSFIELD_API_KEY') && Deno.env.get('HIGGSFIELD_API_SECRET')) {
     return 'higgsfield'
   }
@@ -70,6 +70,19 @@ export async function generateImage(
   styleHint?: string,
 ): Promise<ImageGenResult> {
   const provider = pickProvider()
+
+  if (provider === 'gemini') {
+    try {
+      const urls = await geminiGenerateImage(prompt, aspectRatio, styleHint)
+      return { provider: 'gemini-2.5-flash-image', urls }
+    } catch (e) {
+      // Si Gemini falla (key, cuota, formato), no bloqueamos: caemos a Pollinations.
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[imageGen] Gemini falló (${msg}), fallback a Pollinations`)
+      const urls = await pollinationsGenerate(prompt, aspectRatio, styleHint)
+      return { provider: `pollinations (fallback: ${msg.slice(0, 80)})`, urls }
+    }
+  }
 
   if (provider === 'higgsfield') {
     try {
