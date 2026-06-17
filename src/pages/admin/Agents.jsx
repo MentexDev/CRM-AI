@@ -580,8 +580,15 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     }
   }, [emailArtifact?.key, messages.length])
 
-  // Marcamos ?canvas=1 en la URL cuando el canvas está abierto → el layout oculta
-  // el sidebar y le da más espacio. Lo limpiamos al cerrar y al salir del chat.
+  // Marcamos ?canvas=1 en la URL cuando el canvas está abierto → el layout oculta el
+  // sidebar y le da más espacio. Al cerrar el canvas (canvasOpen=false) este mismo efecto
+  // lo quita; al SALIR del chat lo quita goHome (borra c+canvas atómicamente).
+  //
+  // OJO: NO añadir un efecto de limpieza con deps [] que haga setSearchParams al
+  // desmontar. react-router memoiza setSearchParams por `searchParams`, y la versión
+  // capturada en el montaje cierra sobre la URL de ENTONCES (?c=<id>). Al desmontar
+  // (tras goHome) ese setter reaplica esa URL vieja y RESUCITA ?c → el chat se recarga
+  // en vez de volver al perfil. (Bug real ya corregido — no reintroducir.)
   const [, setSearchParams] = useSearchParams()
   const hasArtifact = !!emailArtifact
   useEffect(() => {
@@ -592,16 +599,6 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
       return next
     }, { replace: true })
   }, [canvasOpen, hasArtifact])
-  useEffect(
-    () => () => {
-      setSearchParams((prev) => {
-        const next = new URLSearchParams(prev)
-        next.delete('canvas')
-        return next
-      }, { replace: true })
-    },
-    [],
-  )
 
   // Ancho del canvas (px) ajustable arrastrando el divisor. Con límites para que
   // ni el chat ni el canvas queden inservibles. `dragging` desactiva la animación
