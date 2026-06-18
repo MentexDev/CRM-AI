@@ -1244,9 +1244,20 @@ async function calendarCreateEventTool(_ctx: ToolContext, args: Record<string, u
       startDateTime: start || undefined,
       endDateTime: end || undefined,
     })
+    // Tras crear, traemos la agenda próxima para pintar el CALENDARIO en el canvas.
+    let events: unknown[] = []
+    try {
+      events = (await gcalList(googleCalendarId()!, { max: 15 })).events
+    } catch {
+      /* best-effort: si falla el listado, el evento igual quedó creado */
+    }
     return {
       ok: true,
-      data: { kind: 'calendar_event', event_id: ev.id, title: ev.summary, start: ev.start, end: ev.end, html_link: ev.html_link },
+      data: {
+        kind: 'calendar',
+        created: { event_id: ev.id, title: ev.summary, start: ev.start, end: ev.end, html_link: ev.html_link },
+        events,
+      },
       side_effect: { kind: 'calendar_event_created', id: String(ev.id ?? '') },
     }
   } catch (e) {
@@ -1264,7 +1275,7 @@ async function calendarListEventsTool(_ctx: ToolContext, args: Record<string, un
       timeMax: (args.time_max as string)?.trim() || undefined,
       max: typeof args.max === 'number' ? args.max : undefined,
     })
-    return { ok: true, data: res }
+    return { ok: true, data: { kind: 'calendar', events: res.events, count: res.count } }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }

@@ -7,6 +7,7 @@ import {
   BookOpen,
   Bot,
   Calculator,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -592,6 +593,9 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               })
             }
           })
+        } else if (d.kind === 'calendar') {
+          // Agenda del calendario (calendar_create_event / calendar_list_events).
+          out.push({ type: 'calendar', title: 'Calendario', events: Array.isArray(d.events) ? d.events : [], messageId: m.id, key: String(m.id) })
         }
       } catch {
         /* no es JSON / no es artefacto */
@@ -630,26 +634,15 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     if (!artifact) return
     const t = toast.loading('Guardando en la biblioteca…')
     try {
-      const row =
-        artifact.type === 'image'
-          ? {
-              title: artifact.title || 'Imagen NINA',
-              kind: 'image',
-              url: artifact.url,
-              source: 'canvas',
-              size_bytes: 0,
-              agent_id: agent.id,
-              brand_id: agent.brand_id ?? null,
-            }
-          : {
-              title: artifact.subject || 'Correo NINA',
-              kind: 'campaign',
-              content: artifact.html,
-              source: 'canvas',
-              size_bytes: new Blob([artifact.html]).size,
-              agent_id: agent.id,
-              brand_id: agent.brand_id ?? null,
-            }
+      let row
+      if (artifact.type === 'image') {
+        row = { title: artifact.title || 'Imagen NINA', kind: 'image', url: artifact.url, source: 'canvas', size_bytes: 0, agent_id: agent.id, brand_id: agent.brand_id ?? null }
+      } else if (artifact.type === 'calendar') {
+        const text = (artifact.events || []).map((e) => `${e.start ?? ''} — ${e.title ?? ''}`).join('\n') || 'Sin eventos'
+        row = { title: 'Agenda de calendario', kind: 'other', content: text, source: 'canvas', size_bytes: new Blob([text]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
+      } else {
+        row = { title: artifact.subject || 'Correo NINA', kind: 'campaign', content: artifact.html, source: 'canvas', size_bytes: new Blob([artifact.html]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
+      }
       const { error } = await supabase.from('library_assets').insert(row)
       if (error) throw error
       setSavedKeys((s) => new Set(s).add(artifact.key))
@@ -944,8 +937,60 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
 
 // Canvas (F3) — split-view tipo NeuralOS. Hoy renderiza el preview en vivo del
 // correo HTML (artefacto de compose_email); luego se le suman pestañas (browser, docs).
+// Agenda visual del calendario de marca (próximos eventos del artefacto kind:'calendar').
+function CalendarView({ events }) {
+  const list = Array.isArray(events) ? events : []
+  if (list.length === 0) {
+    return (
+      <div className="h-full grid place-items-center text-nina-mute text-sm text-center px-6">
+        No hay eventos próximos en el calendario.
+      </div>
+    )
+  }
+  const fmt = (s) => {
+    if (!s) return { day: '', time: '' }
+    const allDay = /^\d{4}-\d{2}-\d{2}$/.test(s)
+    const d = new Date(allDay ? `${s}T12:00:00` : s)
+    if (isNaN(d.getTime())) return { day: String(s), time: '' }
+    return {
+      day: d.toLocaleDateString('es-CO', { weekday: 'short', day: '2-digit', month: 'short' }),
+      time: allDay ? 'Todo el día' : d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }),
+    }
+  }
+  return (
+    <div className="h-full overflow-y-auto rounded-lg border border-nina-line bg-nina-panel/30 p-3 space-y-2">
+      <div className="text-[11px] uppercase tracking-[0.2em] text-nina-mute px-1 pb-1">Próximos eventos</div>
+      {list.map((e, i) => {
+        const f = fmt(e.start)
+        return (
+          <div key={e.id || i} className="flex items-stretch gap-3 rounded-xl border border-nina-line/50 bg-nina-line/15 px-3 py-2.5">
+            <div className="w-1 rounded-full bg-silver-gradient shrink-0" />
+            <div className="w-16 shrink-0">
+              <div className="text-[10px] uppercase tracking-wide text-nina-mute">{f.day}</div>
+              <div className="text-[11px] text-nina-chrome mt-0.5">{f.time}</div>
+            </div>
+            <div className="flex-1 min-w-0 self-center">
+              <div className="text-[13.5px] text-nina-chrome leading-snug break-words">{e.title}</div>
+              {e.html_link && (
+                <a
+                  href={e.html_link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] text-nina-mute hover:text-nina-chrome underline underline-offset-2"
+                >
+                  ver en Google Calendar ↗
+                </a>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, saved }) {
-  const label = (a) => (a.type === 'image' ? a.title : a.subject)
+  const label = (a) => (a.type === 'calendar' ? 'Calendario' : a.type === 'image' ? a.title : a.subject)
   return (
     <div className="flex flex-col min-w-0 w-full h-full">
       {/* Barra de pestañas estilo Chrome: la activa muestra el título; las demás colapsan
@@ -954,7 +999,7 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
           {artifacts.map((a) => {
             const isActive = active && a.key === active.key
-            const TabIcon = a.type === 'image' ? ImageIcon : MessageSquare
+            const TabIcon = a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : MessageSquare
             return (
               <button
                 key={a.key}
@@ -1005,9 +1050,11 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
           <X className="w-4 h-4" />
         </button>
       </div>
-      {/* Preview del artefacto activo: imagen (<img>) o correo HTML (iframe aislado). */}
+      {/* Preview del artefacto activo: agenda de calendario, imagen (<img>) o correo HTML (iframe). */}
       <div className="flex-1 min-h-0 bg-nina-ink p-3">
-        {active?.type === 'image' ? (
+        {active?.type === 'calendar' ? (
+          <CalendarView events={active.events} />
+        ) : active?.type === 'image' ? (
           <div className="w-full h-full grid place-items-center overflow-auto">
             <img
               src={active.url}
@@ -1026,7 +1073,9 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
         )}
       </div>
       <div className="px-3 py-2 border-t border-nina-line/60 text-[11px] text-nina-mute shrink-0">
-        {active?.type === 'image' ? (
+        {active?.type === 'calendar' ? (
+          <>Agenda del calendario de marca · pídele al agente que agende o liste más eventos.</>
+        ) : active?.type === 'image' ? (
           <>Imagen generada{active.aspect ? ` · ${active.aspect}` : ''} · guárdala en la biblioteca o pídele al agente que la ajuste.</>
         ) : (
           <>
