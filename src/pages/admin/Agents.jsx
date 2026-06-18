@@ -53,6 +53,7 @@ import { useConversations } from '../../hooks/useConversations'
 import { ConversationMenu } from '../../components/ConversationMenu'
 import { TasksBoard } from './Tasks'
 import DocumentEditor from '../../components/DocumentEditor'
+import CommandPalette from '../../components/CommandPalette'
 import { useVoiceTranscription } from '../../hooks/useVoiceTranscription'
 import { useAuth } from '../../context/AuthContext'
 import { useConfirm } from '../../components/ConfirmDialog'
@@ -619,7 +620,45 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
 
   const [canvasOpen, setCanvasOpen] = useState(false)
   const [activeKey, setActiveKey] = useState(null)
-  const activeArtifact = canvasArtifacts.find((a) => a.key === activeKey) ?? latestArtifact
+  // Pestañas LOCALES del workspace (p.ej. un documento en blanco creado desde el "+"), que
+  // NO vienen de un mensaje del agente. Conviven con los artefactos del hilo en la barra.
+  const [localTabs, setLocalTabs] = useState([])
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const allTabs = useMemo(() => [...canvasArtifacts, ...localTabs], [canvasArtifacts, localTabs])
+  const activeArtifact = allTabs.find((a) => a.key === activeKey) ?? latestArtifact
+
+  // "Documento" del palette → abre un documento en blanco como pestaña local.
+  const openBlankDocument = () => {
+    const key = `local-doc-${Date.now()}`
+    setLocalTabs((prev) => [...prev, { key, type: 'document', title: 'Sin título', markdown: '' }])
+    setActiveKey(key)
+    setCanvasOpen(true)
+    setPaletteOpen(false)
+  }
+  // Acciones del palette / "describe lo que necesitas" → prompt de arranque al agente
+  // (mismo camino optimista que el composer). El agente puede preguntar con ask_questions.
+  const sendAgentPrompt = async (text) => {
+    setPaletteOpen(false)
+    setCanvasOpen(true)
+    const optId = `opt-cp-${Date.now()}`
+    setOptimistic((prev) => [
+      ...prev,
+      { id: optId, role: 'user', content: text, created_at: new Date().toISOString(), optimistic: true },
+    ])
+    setThinking(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('chat-with-agent', {
+        body: { agent_slug: agent.slug, content: text, conversation_id: conversationId },
+      })
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
+    } catch (e) {
+      setOptimistic((prev) => prev.filter((m) => m.id !== optId))
+      toast.error(e?.message || 'No se pudo enviar')
+    } finally {
+      setThinking(false)
+    }
+  }
 
   // Auto-abrimos el canvas y activamos la pestaña SOLO cuando el agente genera un email
   // NUEVO en vivo (las anteriores quedan como íconos). Entrar/volver a un hilo que ya traía
@@ -676,6 +715,12 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // lo ocultamos ya; si falla, lo restauramos. Si era el activo, vuelve al más reciente.
   const deleteArtifact = async (artifact) => {
     if (!artifact) return
+    // Pestaña LOCAL (documento en blanco): no hay mensaje que ocultar, solo la quitamos.
+    if (typeof artifact.key === 'string' && artifact.key.startsWith('local-')) {
+      setLocalTabs((prev) => prev.filter((t) => t.key !== artifact.key))
+      if (activeKey === artifact.key) setActiveKey(null)
+      return
+    }
     // Ocultamos por messageId (las imágenes son varias por mensaje; hiddenKeys guarda ids
     // de mensaje, igual que el filtro del useMemo). Soft-hide persistente vía Edge Function.
     setHiddenKeys((s) => new Set(s).add(artifact.messageId))
@@ -978,7 +1023,8 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               </div>
             </div>
             <ArtifactCanvas
-              artifacts={canvasArtifacts}
+              artifacts={allTabs}
+              onOpenPalette={() => setPaletteOpen(true)}
               active={activeArtifact}
               onSelect={setActiveKey}
               onClose={() => setCanvasOpen(false)}
@@ -991,6 +1037,12 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
           </motion.aside>
         )}
       </AnimatePresence>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onNewDocument={openBlankDocument}
+        onAgentPrompt={sendAgentPrompt}
+      />
     </div>
   )
 }
@@ -1062,7 +1114,7 @@ const SELECTOR_SCRIPT = `<script>(function(){
   document.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var el=e.target;if(last&&last.classList)last.classList.remove('__ninaHov');var c=el.cloneNode(true);if(c.classList)c.classList.remove('__ninaHov');parent.postMessage({type:'nina-select',selector:path(el),tag:(el.tagName||'').toLowerCase(),text:(el.textContent||'').replace(/\\s+/g,' ').trim().slice(0,90),outerHTML:(c.outerHTML||'').slice(0,4000)},'*');},true);
 })();</script>`
 
-function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, saved, docContentRef, onElementEdit }) {
+function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, saved, docContentRef, onElementEdit, onOpenPalette }) {
   const label = (a) =>
     a.type === 'document' ? a.title || 'Documento' : a.type === 'calendar' ? 'Calendario' : a.type === 'image' ? a.title : a.subject
   const [selecting, setSelecting] = useState(false)
@@ -1125,6 +1177,13 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
               </button>
             )
           })}
+          <button
+            onClick={onOpenPalette}
+            title="Nueva pestaña / función"
+            className="w-8 h-8 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30 transition shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
         </div>
         <div className="flex-1" />
         {canSelect && (
