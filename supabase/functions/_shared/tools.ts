@@ -765,9 +765,13 @@ async function generateImage(
   const prompt = (args.prompt as string)?.trim()
   const aspectRatio = (args.aspect_ratio as string) || '1:1'
   const styleHint = args.style_hint as string | undefined
+  // URLs de referencia (producto real de NINA, modelo) → Gemini las usa como base.
+  const referenceImageUrls = Array.isArray(args.reference_image_urls)
+    ? (args.reference_image_urls as unknown[]).filter((u) => typeof u === 'string' && u.trim()).map((u) => String(u).trim())
+    : undefined
   if (!prompt) return { ok: false, error: 'Falta prompt' }
   try {
-    const result = await generateImageMulti(prompt, aspectRatio, styleHint)
+    const result = await generateImageMulti(prompt, aspectRatio, styleHint, referenceImageUrls)
     return {
       ok: true,
       data: {
@@ -775,6 +779,7 @@ async function generateImage(
         prompt,
         aspect_ratio: aspectRatio,
         provider: result.provider,
+        references_used: referenceImageUrls?.length ?? 0,
       },
     }
   } catch (e) {

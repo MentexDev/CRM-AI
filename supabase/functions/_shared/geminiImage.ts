@@ -12,18 +12,46 @@ import { adminDb } from './db.ts'
 const GEMINI_MODEL = Deno.env.get('GEMINI_IMAGE_MODEL') || 'gemini-3-pro-image'
 const BUCKET = 'agent-images'
 
+// base64 de un Uint8Array por chunks (evita desbordar el call stack con imágenes grandes).
+function bytesToB64(buf: Uint8Array): string {
+  let bin = ''
+  const chunk = 0x8000
+  for (let i = 0; i < buf.length; i += chunk) {
+    bin += String.fromCharCode(...buf.subarray(i, i + chunk))
+  }
+  return btoa(bin)
+}
+
 export async function geminiGenerateImage(
   prompt: string,
   aspectRatio: string,
   styleHint?: string,
+  referenceImageUrls?: string[],
 ): Promise<string[]> {
   const key = Deno.env.get('GEMINI_API_KEY')
   if (!key) throw new Error('GEMINI_API_KEY no está configurado')
 
+  // Descargamos las imágenes de referencia (producto real, modelo) y las mandamos como
+  // inlineData ANTES del texto → Gemini "ve" la prenda real y la aplica a la escena.
+  const refParts: Array<{ inlineData: { mimeType: string; data: string } }> = []
+  for (const u of referenceImageUrls ?? []) {
+    try {
+      const r = await fetch(u)
+      if (!r.ok) continue
+      const mime = r.headers.get('content-type')?.split(';')[0] || 'image/jpeg'
+      refParts.push({ inlineData: { mimeType: mime, data: bytesToB64(new Uint8Array(await r.arrayBuffer())) } })
+    } catch {
+      /* referencia inalcanzable → la omitimos, no bloqueamos la generación */
+    }
+  }
+  const hasRefs = refParts.length > 0
+
   // Nano Banana respeta la relación de aspecto y el realismo mejor si va en el prompt.
   const fullPrompt = [
     styleHint ? `${prompt}. Estilo: ${styleHint}.` : `${prompt}.`,
-    `Fotografía hiperrealista, calidad profesional, iluminación natural, alto detalle.`,
+    hasRefs
+      ? `Usa las imágenes de referencia adjuntas como base: respeta de forma EXACTA el producto (prenda, corte, color, textura, lavados, etiquetas) y, si hay una persona/modelo de referencia, mantén su identidad. Solo recompón la escena según el prompt.`
+      : `Fotografía hiperrealista, calidad profesional, iluminación natural, alto detalle.`,
     `Composición en relación de aspecto ${aspectRatio}.`,
   ].join(' ')
 
@@ -33,7 +61,7 @@ export async function geminiGenerateImage(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+        contents: [{ role: 'user', parts: [...refParts, { text: fullPrompt }] }],
         generationConfig: { responseModalities: ['IMAGE'] },
       }),
     },

@@ -168,7 +168,7 @@ export const TOOL_SPECS: ToolSpecData[] = [
   },
   {
     "name": "generate_image",
-    "description": "Generar una imagen vía Higgsfield (modelo Soul, text-to-image) a partir de un prompt visual. Útil para mockups, conceptos de campaña, propuestas de pieza visual, referencias para el equipo. La imagen generada vuelve como URL pública (la hospeda Higgsfield). NO publica nada — sólo crea el asset. Si quieres publicar la imagen externamente, después usas request_approval para que la Junta autorice.",
+    "description": "Generar o EDITAR una imagen con Gemini 3 Pro Image (Nano Banana Pro) a partir de un prompt visual. Acepta imágenes de referencia (reference_image_urls): p.ej. la foto del PRODUCTO real de NINA y/o una MODELO — Gemini aplica el producto exacto a la escena ('ponle ESTE pantalón a ESTA modelo en un estadio del Mundial'). Útil para mockups, campañas, propuestas visuales. La imagen vuelve como URL pública. NO publica nada — sólo crea el asset. Para publicar externamente, después usa request_approval para que la Junta autorice.",
     "category": "image",
     "parameters": {
       "type": "object",
@@ -178,7 +178,12 @@ export const TOOL_SPECS: ToolSpecData[] = [
       "properties": {
         "prompt": {
           "type": "string",
-          "description": "Descripción visual detallada en inglés (mejores resultados) o español. Sé específico sobre escena, estilo, iluminación, look."
+          "description": "Descripción visual detallada en inglés (mejores resultados) o español. Sé específico sobre escena, estilo, iluminación, look. Si pasas reference_image_urls, di qué hacer con ellas (ej. 'usa el pantalón de la imagen 1 sobre la modelo de la imagen 2')."
+        },
+        "reference_image_urls": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "URLs públicas de imágenes de referencia que Gemini debe usar como base: foto del producto REAL de NINA (para que la prenda sea exacta) y/o foto de la modelo. Úsalas cuando el usuario adjunte o señale un producto/modelo específico."
         },
         "style_hint": {
           "type": "string",

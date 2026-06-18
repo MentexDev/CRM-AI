@@ -53,7 +53,9 @@ async function pollinationsGenerate(
   return [url]
 }
 
-function pickProvider(): string {
+function pickProvider(referenceImageUrls?: string[]): string {
+  // Imágenes de referencia → solo Gemini las soporta; si hay key, gana sobre todo lo demás.
+  if (referenceImageUrls?.length && Deno.env.get('GEMINI_API_KEY')) return 'gemini'
   const explicit = (Deno.env.get('IMAGE_PROVIDER') || '').trim().toLowerCase()
   if (explicit === 'pollinations' || explicit === 'higgsfield' || explicit === 'gemini') return explicit
   // Auto (por calidad): Gemini "Nano Banana" si hay key → Higgsfield → Pollinations.
@@ -68,12 +70,13 @@ export async function generateImage(
   prompt: string,
   aspectRatio: string = '1:1',
   styleHint?: string,
+  referenceImageUrls?: string[],
 ): Promise<ImageGenResult> {
-  const provider = pickProvider()
+  const provider = pickProvider(referenceImageUrls)
 
   if (provider === 'gemini') {
     try {
-      const urls = await geminiGenerateImage(prompt, aspectRatio, styleHint)
+      const urls = await geminiGenerateImage(prompt, aspectRatio, styleHint, referenceImageUrls)
       return { provider: `gemini (${Deno.env.get('GEMINI_IMAGE_MODEL') || 'gemini-3-pro-image'})`, urls }
     } catch (e) {
       // Si Gemini falla (key, cuota, formato), no bloqueamos: caemos a Pollinations.
