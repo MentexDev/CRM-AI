@@ -12,6 +12,7 @@ import Link from '@tiptap/extension-link'
 import Highlight from '@tiptap/extension-highlight'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
+import toast from 'react-hot-toast'
 import {
   AlignCenter, AlignJustify, CheckSquare, Code, FileText, Heading1, Heading2,
   Heading3, List, ListOrdered, Minus, Printer, Quote, Type,
@@ -70,7 +71,7 @@ const DOC_CSS = `
 .doc-prose p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: rgba(255,255,255,0.25); float: left; height: 0; pointer-events: none; }
 `
 
-export default function DocumentEditor({ title: initialTitle, markdown, getContentRef }) {
+export default function DocumentEditor({ title: initialTitle, markdown, getContentRef, onChange }) {
   const [title, setTitle] = useState(initialTitle || 'Sin título')
   const [layoutFull, setLayoutFull] = useState(false)
   const [wordCount, setWordCount] = useState(0)
@@ -82,6 +83,15 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
   const filteredRef = useRef(SLASH_ITEMS)
   const openSlashRef = useRef(() => {})
   const execSlashRef = useRef(() => {})
+  // Reporte de cambios (debounced) → el padre persiste el contenido en la pestaña local,
+  // para que cambiar de pestaña / cerrar el browser NO pierda lo escrito.
+  const titleRef = useRef(initialTitle || 'Sin título')
+  const fireTimer = useRef(null)
+  const fireChangeRef = useRef(() => {})
+  const scheduleFire = () => {
+    clearTimeout(fireTimer.current)
+    fireTimer.current = setTimeout(() => fireChangeRef.current(), 400)
+  }
 
   const filtered = useMemo(() => {
     const q = slash.query.trim().toLowerCase()
@@ -110,10 +120,14 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
       attributes: { class: 'doc-prose' },
       handleKeyDown(_view, event) {
         if (openRef.current) {
-          if (event.key === 'ArrowDown') { setSlash((s) => ({ ...s, idx: Math.min(s.idx + 1, filteredRef.current.length - 1) })); return true }
-          if (event.key === 'ArrowUp') { setSlash((s) => ({ ...s, idx: Math.max(s.idx - 1, 0) })); return true }
-          if (event.key === 'Enter') { const it = filteredRef.current[idxRef.current]; if (it) execSlashRef.current(it); return true }
           if (event.key === 'Escape') { closeSlash(); return true }
+          // Solo capturamos navegación/selección si el menú está VISIBLE (hay coincidencias);
+          // si no, dejamos pasar Enter/flechas (insertar salto de línea, mover cursor).
+          if (filteredRef.current.length > 0) {
+            if (event.key === 'ArrowDown') { setSlash((s) => ({ ...s, idx: Math.min(s.idx + 1, filteredRef.current.length - 1) })); return true }
+            if (event.key === 'ArrowUp') { setSlash((s) => ({ ...s, idx: Math.max(s.idx - 1, 0) })); return true }
+            if (event.key === 'Enter') { const it = filteredRef.current[idxRef.current]; if (it) execSlashRef.current(it); return true }
+          }
         }
         if (event.key === '/') requestAnimationFrame(() => openSlashRef.current())
         return false
@@ -121,6 +135,7 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
     },
     onUpdate({ editor }) {
       setWordCount(editor.state.doc.textContent.trim().split(/\s+/).filter(Boolean).length)
+      scheduleFire()
       if (openRef.current) {
         const { from } = editor.state.selection
         const start = slashStartRef.current
@@ -135,6 +150,10 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
   openSlashRef.current = () => {
     if (!editor) return
     const { from } = editor.state.selection
+    // Solo abrir si el '/' está al INICIO del bloque o tras un espacio (convención Notion):
+    // así no salta dentro de palabras, URLs (https://) ni fracciones (1/2).
+    const before = editor.state.doc.textBetween(Math.max(0, from - 2), Math.max(0, from - 1), '\n', '\0')
+    if (before && !/\s/.test(before)) return
     const coords = editor.view.coordsAtPos(from)
     slashStartRef.current = from - 1 // posición del '/'
     setSlash({ open: true, query: '', idx: 0, top: coords.bottom + 6, left: coords.left })
@@ -152,6 +171,14 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
   if (getContentRef) {
     getContentRef.current = () => ({ title, markdown: editor ? `# ${title}\n\n${htmlToMd(editor.getHTML())}` : (markdown || '') })
   }
+  // El cuerpo (sin el título) es lo que se guarda en la pestaña local y se reusa al remontar.
+  titleRef.current = title
+  fireChangeRef.current = () => {
+    if (onChange && editor) onChange({ title, markdown: htmlToMd(editor.getHTML()) })
+  }
+  // Al desmontar (cambio de pestaña / cierre del browser) volcamos el contenido YA, para no
+  // perder los últimos cambios dentro de la ventana del debounce.
+  useEffect(() => () => { clearTimeout(fireTimer.current); fireChangeRef.current() }, [])
 
   useEffect(() => {
     if (editor) setWordCount(editor.state.doc.textContent.trim().split(/\s+/).filter(Boolean).length)
@@ -169,7 +196,7 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
   }
   const exportPDF = () => {
     const w = window.open('', '_blank')
-    if (!w) return
+    if (!w) { toast.error('Permite las ventanas emergentes para exportar a PDF'); return }
     const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
     w.document.write(
       `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>` +
@@ -204,7 +231,7 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
         <div className="mx-auto px-6 py-7 transition-[max-width] duration-200" style={{ maxWidth: layoutFull ? '100%' : 780 }}>
           <input
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => { setTitle(e.target.value); scheduleFire() }}
             placeholder="Sin título"
             className="w-full bg-transparent text-nina-chrome text-[28px] font-bold outline-none placeholder:text-nina-mute/40 mb-2"
           />

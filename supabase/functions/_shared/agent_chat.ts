@@ -97,6 +97,11 @@ export async function runAgentChatTurn(
   if (!convId) throw new Error('No se pudo resolver la conversación')
 
   // ── Persistir el mensaje del usuario ──
+  // editContext (selector visual de HTML) es EFÍMERO: se inyecta al LLM SOLO este turno
+  // (más abajo) pero NO debe persistirse en messages.metadata — es el HTML completo (hasta
+  // 300k) y, además de inflar la fila, viajaría a todos los clientes vía realtime. Lo
+  // excluimos del metadata persistido.
+  const { editContext: _ephemeralEdit, ...persistMeta } = (triggerMeta ?? {}) as Record<string, unknown>
   const { data: userMsg, error: insErr } = await db
     .from('messages')
     .insert({
@@ -105,7 +110,7 @@ export async function runAgentChatTurn(
       conversation_id: convId,
       role: 'user',
       content: userText,
-      metadata: { source: 'chat', ...triggerMeta },
+      metadata: { source: 'chat', ...persistMeta },
     })
     .select('id')
     .single()
@@ -162,7 +167,13 @@ export async function runAgentChatTurn(
 
     // finish_task nunca está en chat. ask_questions se OFRECE solo si no está suprimido
     // (chat originado por el usuario y sin haber preguntado en el turno previo).
-    const baseTools = ((agent.allowed_tools ?? []) as string[]).filter((t) => t !== 'finish_task')
+    // En un turno de EDICIÓN de HTML (selector visual) inyectamos HTML del correo —dato no
+    // confiable— al contexto; quitamos send_email para que una posible prompt-injection NO
+    // pueda disparar un envío real. El propósito del turno es recomponer con compose_email.
+    const isHtmlEdit = (triggerMeta as { source?: string })?.source === 'html_edit'
+    const baseTools = ((agent.allowed_tools ?? []) as string[])
+      .filter((t) => t !== 'finish_task')
+      .filter((t) => !(isHtmlEdit && t === 'send_email'))
     const allowedForChat = suppressClarify ? baseTools : [...new Set([...baseTools, 'ask_questions'])]
     const toolDescs = await loadTools(allowedForChat)
     const toolDefs = toToolDefinitions(toolDescs)
