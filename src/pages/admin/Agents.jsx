@@ -1055,7 +1055,7 @@ function CalendarView({ events }) {
 const SELECTOR_SCRIPT = `<script>(function(){
   var last=null;
   var s=document.createElement('style');
-  s.textContent='.__ninaHov{outline:2px solid #8ab4ff!important;outline-offset:1px;cursor:pointer!important;background:rgba(138,180,255,.10)!important;}';
+  s.textContent='*{cursor:pointer!important;user-select:none!important;-webkit-user-select:none!important;}.__ninaHov{outline:2px solid #8ab4ff!important;outline-offset:1px;background:rgba(138,180,255,.12)!important;}';
   (document.head||document.documentElement).appendChild(s);
   function path(el){var p=[];while(el&&el.nodeType===1&&el.tagName&&el.tagName.toLowerCase()!=='body'&&p.length<8){var t=el.tagName.toLowerCase();var par=el.parentElement;if(par){var sib=[].filter.call(par.children,function(c){return c.tagName===el.tagName});if(sib.length>1)t+=':nth-of-type('+(sib.indexOf(el)+1)+')';}p.unshift(t);el=par;}return p.join(' > ');}
   document.addEventListener('mouseover',function(e){if(last&&last.classList)last.classList.remove('__ninaHov');last=e.target;if(last&&last.classList)last.classList.add('__ninaHov');},true);
@@ -1200,6 +1200,7 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
           </div>
         ) : (
           <iframe
+            key={`mail:${active?.key}:${selecting ? 'sel' : 'ro'}`}
             title="Preview del correo NINA"
             srcDoc={selecting ? (active?.html ?? '') + SELECTOR_SCRIPT : active?.html ?? ''}
             sandbox={selecting ? 'allow-scripts' : ''}
