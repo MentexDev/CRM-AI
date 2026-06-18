@@ -74,7 +74,7 @@ export async function generateImage(
   if (provider === 'gemini') {
     try {
       const urls = await geminiGenerateImage(prompt, aspectRatio, styleHint)
-      return { provider: 'gemini-2.5-flash-image', urls }
+      return { provider: `gemini (${Deno.env.get('GEMINI_IMAGE_MODEL') || 'gemini-3-pro-image'})`, urls }
     } catch (e) {
       // Si Gemini falla (key, cuota, formato), no bloqueamos: caemos a Pollinations.
       const msg = e instanceof Error ? e.message : String(e)

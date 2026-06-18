@@ -7,6 +7,8 @@
 
 // Modelo de imagen. Default: gemini-3-pro-image (Nano Banana Pro, alta calidad/realismo).
 // Configurable por env GEMINI_IMAGE_MODEL (p.ej. 'gemini-3.1-flash-image' para más rápido/barato).
+import { adminDb } from './db.ts'
+
 const GEMINI_MODEL = Deno.env.get('GEMINI_IMAGE_MODEL') || 'gemini-3-pro-image'
 const BUCKET = 'agent-images'
 
@@ -47,18 +49,16 @@ export async function geminiGenerateImage(
   return [url]
 }
 
-// Sube el base64 al bucket público y devuelve la URL pública. Service role (bypassa RLS).
+// Sube el base64 al bucket público y devuelve la URL pública. Usa el cliente supabase-js
+// (service role, bypassa RLS) que maneja los headers correctos — el fetch crudo con
+// Authorization: Bearer fallaba con 403 (el SERVICE_ROLE_KEY inyectado no se acepta como
+// JWT crudo en el endpoint de Storage).
 async function uploadToStorage(b64: string, mime: string): Promise<string> {
-  const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   const ext = mime.includes('jpeg') || mime.includes('jpg') ? 'jpg' : 'png'
   const path = `gemini/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
   const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
-  const up = await fetch(`${supabaseUrl}/storage/v1/object/${BUCKET}/${path}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${serviceKey}`, 'Content-Type': mime, 'x-upsert': 'true' },
-    body: bytes,
-  })
-  if (!up.ok) throw new Error(`Storage upload ${up.status}: ${(await up.text()).slice(0, 150)}`)
-  return `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${path}`
+  const db = adminDb()
+  const { error } = await db.storage.from(BUCKET).upload(path, bytes, { contentType: mime, upsert: true })
+  if (error) throw new Error(`Storage upload: ${error.message}`)
+  return db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl
 }
