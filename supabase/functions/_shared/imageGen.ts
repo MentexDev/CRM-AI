@@ -9,6 +9,9 @@ import { geminiGenerateImage } from './geminiImage.ts'
 export interface ImageGenResult {
   provider: string
   urls: string[]
+  // Cuántas imágenes de referencia se APLICARON realmente (0 si el provider final no las
+  // soporta o hubo fallback). NO es lo que se pidió — es lo que se usó. Ver tools.ts.
+  referencesApplied: number
 }
 
 // Mapping de aspect ratios → dimensiones para providers que toman width/height.
@@ -77,20 +80,25 @@ export async function generateImage(
   if (provider === 'gemini') {
     try {
       const urls = await geminiGenerateImage(prompt, aspectRatio, styleHint, referenceImageUrls)
-      return { provider: `gemini (${Deno.env.get('GEMINI_IMAGE_MODEL') || 'gemini-3-pro-image'})`, urls }
+      return {
+        provider: `gemini (${Deno.env.get('GEMINI_IMAGE_MODEL') || 'gemini-3-pro-image'})`,
+        urls,
+        referencesApplied: referenceImageUrls?.length ?? 0,
+      }
     } catch (e) {
       // Si Gemini falla (key, cuota, formato), no bloqueamos: caemos a Pollinations.
+      // OJO: Pollinations NO usa las referencias → referencesApplied:0 (no mentir).
       const msg = e instanceof Error ? e.message : String(e)
       console.warn(`[imageGen] Gemini falló (${msg}), fallback a Pollinations`)
       const urls = await pollinationsGenerate(prompt, aspectRatio, styleHint)
-      return { provider: `pollinations (fallback: ${msg.slice(0, 80)})`, urls }
+      return { provider: `pollinations (fallback: ${msg.slice(0, 80)})`, urls, referencesApplied: 0 }
     }
   }
 
   if (provider === 'higgsfield') {
     try {
       const urls = await higgsfieldGenerateImage(prompt, aspectRatio, styleHint)
-      return { provider: 'higgsfield', urls }
+      return { provider: 'higgsfield', urls, referencesApplied: 0 }
     } catch (e) {
       // Cualquier fallo de Higgsfield (créditos, auth, timeout, NSFW del
       // moderador, endpoint cambiado, etc.) cae a Pollinations para que
@@ -100,10 +108,10 @@ export async function generateImage(
       if (msg.includes('NSFW')) throw e
       console.warn(`[imageGen] Higgsfield falló (${msg}), fallback a Pollinations`)
       const urls = await pollinationsGenerate(prompt, aspectRatio, styleHint)
-      return { provider: `pollinations (fallback: ${msg.slice(0, 80)})`, urls }
+      return { provider: `pollinations (fallback: ${msg.slice(0, 80)})`, urls, referencesApplied: 0 }
     }
   }
 
   const urls = await pollinationsGenerate(prompt, aspectRatio, styleHint)
-  return { provider: 'pollinations', urls }
+  return { provider: 'pollinations', urls, referencesApplied: 0 }
 }

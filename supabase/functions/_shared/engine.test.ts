@@ -4,7 +4,7 @@
 // el cap estructural produce JSON válido, el detector de límite, y el ToolRegistry
 // (carga sin drift). NO son evals de comportamiento del LLM (eso es una iniciativa
 // aparte: golden tasks + judge); son guardas de regresión del código del motor.
-import { capToolContentString, capToolResultForContext, dailyBudgetExceeded, toolRegistry } from './tools.ts'
+import { capToolContentString, capToolResultForContext, dailyBudgetExceeded, dropOrphanToolMessages, toolRegistry } from './tools.ts'
 import { isRateOrSizeLimitError } from './llm.ts'
 
 function assert(cond: boolean, msg: string) {
@@ -78,4 +78,30 @@ Deno.test('toolRegistry: carga sin drift y con las tools clave', () => {
   // definitions(allowed) filtra por allowed_tools
   const defs = toolRegistry.definitions(['web_search'])
   assert(defs.length === 1 && defs[0].function.name === 'web_search', 'definitions filtra por allowed')
+})
+
+Deno.test('dropOrphanToolMessages: descarta tool huérfano al cortar la ventana (regresión 400)', () => {
+  // Ventana que arranca a mitad de un turno: el primer 'tool' perdió su assistant.
+  const cut = [
+    { role: 'tool', tool_call_id: 'huerfano', tool_calls: null }, // su assistant quedó FUERA
+    { role: 'assistant', tool_call_id: null, tool_calls: [{ id: 'c1', function: { name: 'x' } }] },
+    { role: 'tool', tool_call_id: 'c1', tool_calls: null }, // este SÍ tiene su assistant en la ventana
+    { role: 'assistant', tool_call_id: null, tool_calls: null },
+  ]
+  const clean = dropOrphanToolMessages(cut)
+  assert(clean.length === 3, `quita 1 huérfano (quedaron ${clean.length})`)
+  assert(!clean.some((m) => m.role === 'tool' && m.tool_call_id === 'huerfano'), 'el huérfano se fue')
+  assert(clean.some((m) => m.role === 'tool' && m.tool_call_id === 'c1'), 'el tool con su assistant se queda')
+})
+
+Deno.test('dropOrphanToolMessages: turno completo intacto; user/assistant nunca se tocan', () => {
+  const full = [
+    { role: 'user', tool_call_id: null, tool_calls: null },
+    { role: 'assistant', tool_call_id: null, tool_calls: [{ id: 'a1' }, { id: 'a2' }] },
+    { role: 'tool', tool_call_id: 'a1', tool_calls: null },
+    { role: 'tool', tool_call_id: 'a2', tool_calls: null },
+    { role: 'assistant', tool_call_id: null, tool_calls: null },
+  ]
+  assert(dropOrphanToolMessages(full).length === 5, 'turno completo no se toca')
+  assert(dropOrphanToolMessages([{ role: 'tool', tool_call_id: 'x', tool_calls: null }]).length === 0, 'tool solo → fuera')
 })

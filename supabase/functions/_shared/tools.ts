@@ -131,6 +131,24 @@ export function capToolContentString(content: string, maxChars = TOOL_RESULT_MAX
   }
 }
 
+// Filtra del historial los mensajes 'tool' HUÉRFANOS: aquellos cuyo tool_call_id no fue
+// declarado por un 'assistant' precedente DENTRO de la ventana. Si la ventana de historial
+// corta a mitad de un turno previo (hilos largos: el de reportes reusado, tareas autónomas),
+// reenviar un 'tool' sin su 'assistant'+tool_calls hace que el proveedor (OpenAI-compat /
+// Anthropic) devuelva 400. Pura y testeable; se usa en agent_chat y agent_step.
+export function dropOrphanToolMessages<
+  T extends { role: string; tool_call_id?: string | null; tool_calls?: unknown },
+>(historyAsc: T[]): T[] {
+  const declared = new Set<string>()
+  return historyAsc.filter((m) => {
+    if (Array.isArray(m.tool_calls)) {
+      for (const tc of m.tool_calls as { id?: string }[]) if (tc?.id) declared.add(tc.id)
+    }
+    if (m.role === 'tool') return m.tool_call_id ? declared.has(m.tool_call_id) : false
+    return true
+  })
+}
+
 // Fase 1.5: las tools se cargan del REGISTRY (código), ya no de la BD. Se
 // conserva la firma async + ToolDescriptor[] por compatibilidad con los callers.
 export async function loadTools(names: string[]): Promise<ToolDescriptor[]> {
@@ -772,16 +790,22 @@ async function generateImage(
   if (!prompt) return { ok: false, error: 'Falta prompt' }
   try {
     const result = await generateImageMulti(prompt, aspectRatio, styleHint, referenceImageUrls)
-    return {
-      ok: true,
-      data: {
-        images: result.urls.map((url) => ({ url })),
-        prompt,
-        aspect_ratio: aspectRatio,
-        provider: result.provider,
-        references_used: referenceImageUrls?.length ?? 0,
-      },
+    const requested = referenceImageUrls?.length ?? 0
+    const applied = result.referencesApplied ?? 0
+    const data: Record<string, unknown> = {
+      images: result.urls.map((url) => ({ url })),
+      prompt,
+      aspect_ratio: aspectRatio,
+      provider: result.provider,
+      references_used: applied, // lo realmente APLICADO, no lo pedido (no mentir al agente)
     }
+    // Si se pidieron referencias pero NINGUNA se aplicó (provider sin soporte o fallback),
+    // avisamos explícito para que el agente NO presente la imagen como el producto real.
+    if (requested > 0 && applied === 0) {
+      data.warning =
+        'Las imágenes de referencia NO se aplicaron (el proveedor actual no las soporta o Gemini falló): la imagen es genérica y NO reproduce el producto/modelo de referencia. NO la presentes como la prenda real; avísale al usuario.'
+    }
+    return { ok: true, data }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
@@ -1249,6 +1273,11 @@ async function calendarCreateEventTool(_ctx: ToolContext, args: Record<string, u
       startDateTime: start || undefined,
       endDateTime: end || undefined,
     })
+    // Normalizamos el evento creado al MISMO shape que devuelve gcalList (id + start/end
+    // aplanados a string); gcalCreate los entrega como objeto crudo de Google ({dateTime|date}).
+    const flat = (v: unknown): string | null =>
+      !v ? null : typeof v === 'string' ? v : ((v as { dateTime?: string; date?: string }).dateTime ?? (v as { date?: string }).date ?? null)
+    const createdEvent = { id: ev.id, title: ev.summary, start: flat(ev.start), end: flat(ev.end), html_link: ev.html_link }
     // Tras crear, traemos la agenda próxima para pintar el CALENDARIO en el canvas.
     let events: unknown[] = []
     try {
@@ -1256,11 +1285,16 @@ async function calendarCreateEventTool(_ctx: ToolContext, args: Record<string, u
     } catch {
       /* best-effort: si falla el listado, el evento igual quedó creado */
     }
+    // Garantizamos que el evento recién creado SIEMPRE esté en la agenda (si el listado
+    // falló o aún no lo refleja) → el canvas nunca muestra "vacío" tras crear con éxito.
+    if (!events.some((e) => (e as { id?: unknown })?.id === ev.id)) {
+      events = [createdEvent, ...events]
+    }
     return {
       ok: true,
       data: {
         kind: 'calendar',
-        created: { event_id: ev.id, title: ev.summary, start: ev.start, end: ev.end, html_link: ev.html_link },
+        created: createdEvent,
         events,
       },
       side_effect: { kind: 'calendar_event_created', id: String(ev.id ?? '') },

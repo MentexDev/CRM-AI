@@ -5,7 +5,7 @@
 // vuelve a leer estado y continúa donde lo dejó.
 import { adminDb } from './db.ts'
 import { makeProvider, isRateOrSizeLimitError, type ChatMessage } from './llm.ts'
-import { loadTools, runTool, toToolDefinitions, capToolResultForContext, capToolContentString, dailyBudgetExceeded } from './tools.ts'
+import { loadTools, runTool, toToolDefinitions, capToolResultForContext, capToolContentString, dailyBudgetExceeded, dropOrphanToolMessages } from './tools.ts'
 
 const MAX_TOOL_ITERATIONS = 5
 const HISTORY_WINDOW = 50
@@ -83,13 +83,17 @@ export async function runAgentStep(agentId: string): Promise<RunStepResult> {
 
     const historyAsc = (history ?? []).slice().reverse()
 
+    // Saneamos: si la ventana corta a mitad de un turno, un 'tool' puede quedar sin su
+    // 'assistant' → el proveedor responde 400. dropOrphanToolMessages los descarta.
+    const cleanHistory = dropOrphanToolMessages(historyAsc)
+
     const toolDescs = await loadTools((agent.allowed_tools ?? []) as string[])
     const toolDefs = toToolDefinitions(toolDescs)
 
     const messages: ChatMessage[] = []
     messages.push({ role: 'system', content: agent.system_prompt })
 
-    for (const m of historyAsc) {
+    for (const m of cleanHistory) {
       messages.push({
         role: m.role,
         // Los resultados de tool se guardan en JSON completo (lo lee la UI); al

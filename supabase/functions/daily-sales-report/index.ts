@@ -61,19 +61,6 @@ Deno.serve(async (req) => {
     return json({ ok: true, skipped: 'domingo — sin reporte' })
   }
 
-  // Idempotencia: ¿ya generamos el reporte de hoy (Bogota) para este agente?
-  const { data: already, error: dupErr } = await db
-    .from('messages')
-    .select('id')
-    .eq('agent_id', agent.id)
-    .eq('metadata->>source', 'scheduled_report')
-    .gte('created_at', startOfBogotaDayUtc())
-    .limit(1)
-  if (dupErr) return json({ error: dupErr.message }, 500)
-  if (already && already.length > 0) {
-    return json({ ok: true, skipped: 'el reporte de hoy ya fue generado' })
-  }
-
   const isMonday = bogotaDow === 1
   const prompt = isMonday
     ? 'Es lunes. Usa la herramienta suitecrm_sales con period="last_week" y entrégame el RESUMEN DE VENTAS DE LA SEMANA PASADA: total en pesos, desglose por día y por sucursal, y las facturas más grandes. Formato ejecutivo y claro.'
@@ -91,10 +78,29 @@ Deno.serve(async (req) => {
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
+  const reportConvId = (lastReport?.conversation_id as string | null) ?? null
+
+  // Idempotencia sobre el ÉXITO (no sobre el disparador): saltamos solo si YA hay una
+  // RESPUESTA del asistente HOY (Bogota) en el hilo de reportes. Un turno que falló a mitad
+  // deja solo el mensaje de usuario (insertado ANTES del LLM) y NO una respuesta → el
+  // reintento del mismo día SÍ procede. (Antes la guarda miraba el disparador y bloqueaba.)
+  if (reportConvId) {
+    const { data: doneToday, error: dupErr } = await db
+      .from('messages')
+      .select('id')
+      .eq('conversation_id', reportConvId)
+      .eq('role', 'assistant')
+      .gte('created_at', startOfBogotaDayUtc())
+      .limit(1)
+    if (dupErr) return json({ error: dupErr.message }, 500)
+    if (doneToday && doneToday.length > 0) {
+      return json({ ok: true, skipped: 'el reporte de hoy ya fue generado' })
+    }
+  }
 
   try {
     // Hilo fijo de reportes (o nuevo si es el primero). callerId null = sistema.
-    const result = await runAgentChatTurn(agent.id, prompt, lastReport?.conversation_id ?? null, null, {
+    const result = await runAgentChatTurn(agent.id, prompt, reportConvId, null, {
       source: 'scheduled_report',
     })
     return json({ ok: true, report: isMonday ? 'last_week' : 'yesterday', ...result })

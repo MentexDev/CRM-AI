@@ -5,7 +5,7 @@
 // El historial se carga filtrado por conversación (contexto limpio por hilo).
 import { adminDb } from './db.ts'
 import { makeProvider, isRateOrSizeLimitError, type ChatMessage, type ChatCompleteResult } from './llm.ts'
-import { loadTools, runTool, toToolDefinitions, capToolResultForContext, capToolContentString, dailyBudgetExceeded } from './tools.ts'
+import { loadTools, runTool, toToolDefinitions, capToolResultForContext, capToolContentString, dailyBudgetExceeded, dropOrphanToolMessages } from './tools.ts'
 
 const MAX_TOOL_ITERATIONS = 4
 const HISTORY_WINDOW = 40
@@ -142,12 +142,17 @@ export async function runAgentChatTurn(
       .limit(HISTORY_WINDOW)
     const historyAsc = (history ?? []).slice().reverse()
 
+    // Saneamos el historial antes de reenviarlo: si la ventana (HISTORY_WINDOW) corta a mitad
+    // de un turno (hilos largos, p.ej. el de reportes reusado), un 'tool' puede quedar sin su
+    // 'assistant' con tool_calls → el proveedor devuelve 400. dropOrphanToolMessages los quita.
+    const cleanHistory = dropOrphanToolMessages(historyAsc)
+
     // ¿Suprimir las preguntas aclaratorias en ESTE turno? Sí cuando:
     //  (a) el turno NO lo originó el usuario (resume de aprobación, reporte programado…):
     //      no hay nadie para responder un formulario; el agente debe EJECUTAR la orden; y
     //  (b) el turno anterior del asistente YA preguntó (ahora llegan las respuestas):
     //      debe PROCEDER, no re-preguntar (corta el bucle pregunta→responde→pregunta).
-    const lastAssistant = [...historyAsc]
+    const lastAssistant = [...cleanHistory]
       .reverse()
       .find((m) => m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length)
     const lastAssistantAsked = !!(
@@ -167,7 +172,7 @@ export async function runAgentChatTurn(
       role: 'system',
       content: suppressClarify ? agent.system_prompt : `${agent.system_prompt}\n\n${CHAT_GUIDANCE}`,
     })
-    for (const m of historyAsc) {
+    for (const m of cleanHistory) {
       messages.push({
         role: m.role,
         // El historial guarda los resultados de tool en JSON COMPLETO (lo lee la

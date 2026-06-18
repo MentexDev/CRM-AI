@@ -22,6 +22,62 @@ function bytesToB64(buf: Uint8Array): string {
   return btoa(bin)
 }
 
+const REF_FETCH_TIMEOUT_MS = 10_000
+const MAX_REFERENCE_BYTES = 8 * 1024 * 1024 // 8 MB por imagen de referencia
+const MAX_REFERENCE_IMAGES = 6
+
+// Bloquea hosts privados/loopback/link-local/metadata para mitigar SSRF (el LLM emite
+// las URLs y el server las descarga). No cubre DNS-rebinding pero corta los vectores obvios.
+function isBlockedHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '') // sin brackets de IPv6
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true
+  if (h === '::1' || h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) return true
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (m) {
+    const a = Number(m[1]), b = Number(m[2])
+    if (a === 0 || a === 10 || a === 127) return true
+    if (a === 169 && b === 254) return true // link-local / metadata de la nube
+    if (a === 192 && b === 168) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
+  }
+  return false
+}
+
+interface RefImage {
+  mime: string
+  data: string
+}
+
+// Descarga UNA referencia de forma segura: solo https a host público, con timeout, tope
+// de tamaño y content-type image/*. Devuelve null ante cualquier problema (se OMITE esa
+// referencia en vez de bloquear/colgar la generación entera).
+async function fetchReferenceImage(rawUrl: string): Promise<RefImage | null> {
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:' || isBlockedHost(url.hostname)) return null
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(REF_FETCH_TIMEOUT_MS), redirect: 'follow' })
+    if (!r.ok) return null
+    // Tras posibles redirects, revalidar destino final (anti redirect-a-interno).
+    const fin = new URL(r.url)
+    if (fin.protocol !== 'https:' || isBlockedHost(fin.hostname)) return null
+    const mime = (r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
+    if (!mime.startsWith('image/')) return null
+    const declared = Number(r.headers.get('content-length') || 0)
+    if (declared && declared > MAX_REFERENCE_BYTES) return null
+    const buf = new Uint8Array(await r.arrayBuffer())
+    if (buf.byteLength > MAX_REFERENCE_BYTES) return null
+    return { mime, data: bytesToB64(buf) }
+  } catch {
+    return null
+  }
+}
+
 export async function geminiGenerateImage(
   prompt: string,
   aspectRatio: string,
@@ -31,17 +87,15 @@ export async function geminiGenerateImage(
   const key = Deno.env.get('GEMINI_API_KEY')
   if (!key) throw new Error('GEMINI_API_KEY no está configurado')
 
-  // Descargamos las imágenes de referencia (producto real, modelo) y las mandamos como
-  // inlineData ANTES del texto → Gemini "ve" la prenda real y la aplica a la escena.
+  // Descargamos las imágenes de referencia (producto real, modelo) de forma segura y en
+  // PARALELO (cada una con su propio timeout/tope), y las mandamos como inlineData ANTES
+  // del texto → Gemini "ve" la prenda real y la aplica a la escena.
+  const refUrls = (referenceImageUrls ?? []).slice(0, MAX_REFERENCE_IMAGES)
+  const settled = await Promise.allSettled(refUrls.map((u) => fetchReferenceImage(u)))
   const refParts: Array<{ inlineData: { mimeType: string; data: string } }> = []
-  for (const u of referenceImageUrls ?? []) {
-    try {
-      const r = await fetch(u)
-      if (!r.ok) continue
-      const mime = r.headers.get('content-type')?.split(';')[0] || 'image/jpeg'
-      refParts.push({ inlineData: { mimeType: mime, data: bytesToB64(new Uint8Array(await r.arrayBuffer())) } })
-    } catch {
-      /* referencia inalcanzable → la omitimos, no bloqueamos la generación */
+  for (const s of settled) {
+    if (s.status === 'fulfilled' && s.value) {
+      refParts.push({ inlineData: { mimeType: s.value.mime, data: s.value.data } })
     }
   }
   const hasRefs = refParts.length > 0
