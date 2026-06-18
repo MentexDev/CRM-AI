@@ -1217,7 +1217,7 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
         )}
         {/* Panel de edición del elemento seleccionado */}
         {selection && (
-          <div className="absolute bottom-3 left-3 right-3 z-10 rounded-xl border border-nina-line bg-nina-panel/95 backdrop-blur shadow-2xl p-3">
+          <div className="absolute bottom-0 left-0 right-0 z-10 rounded-t-xl border-t border-x border-nina-line bg-nina-panel/95 backdrop-blur shadow-2xl p-3">
             <div className="flex items-center gap-2 text-[11px] text-nina-mute mb-2">
               <span className="px-1.5 py-0.5 rounded bg-nina-line/50 text-nina-chrome font-mono">{selection.tag}</span>
               <span className="truncate">{selection.text || '(elemento sin texto)'}</span>
