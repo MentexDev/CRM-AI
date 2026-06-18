@@ -189,6 +189,15 @@ export async function runAgentChatTurn(
     const provider = makeProvider(agent.provider ?? 'groq')
     const cfg = (agent.config ?? {}) as { temperature?: number; max_tokens?: number }
 
+    // Contexto de edición efímero (selector visual de HTML): el frontend mandó el HTML
+    // completo + el elemento señalado. Lo inyectamos SOLO para este turno (NO se persiste)
+    // para que el agente edite ese elemento y re-emita el correo con compose_email.
+    // suppressClarify ya está activo (triggerMeta.source='html_edit') → no pregunta, ejecuta.
+    const editContext = (triggerMeta as { editContext?: string })?.editContext
+    if (typeof editContext === 'string' && editContext.trim()) {
+      messages.push({ role: 'user', content: editContext })
+    }
+
     let iterations = 0
     let finished = false
     let stopReason: string | undefined

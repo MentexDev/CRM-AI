@@ -25,6 +25,7 @@ import {
   MessageSquarePlus,
   Mic,
   MicOff,
+  MousePointerClick,
   Package,
   Paperclip,
   Pencil,
@@ -782,6 +783,47 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // (tras goHome) ese setter reaplica esa URL vieja y RESUCITA ?c → el chat se recarga
   // en vez de volver al perfil. (Bug real ya corregido — no reintroducir.)
   const [, setSearchParams] = useSearchParams()
+  // Selector visual de HTML: el usuario señala un elemento del correo y dice qué cambiar.
+  // Mandamos al agente el HTML completo + el elemento vía edit_context (efímero, no se ve
+  // en el chat); el agente edita SOLO ese elemento y re-emite el correo con compose_email.
+  const submitElementEdit = async ({ element, fullHtml, subject, instruction }) => {
+    const lbl = element?.text ? `«${element.text.slice(0, 40)}»` : `<${element?.tag || 'elemento'}>`
+    const visible = `✏️ Editar ${lbl}: ${instruction}`
+    const optId = `opt-edit-${Date.now()}`
+    setOptimistic((prev) => [
+      ...prev,
+      { id: optId, role: 'user', content: visible, created_at: new Date().toISOString(), optimistic: true },
+    ])
+    setThinking(true)
+    const editContext = [
+      'CONTEXTO DE EDICIÓN (no lo repitas literal en tu respuesta).',
+      'El usuario seleccionó un elemento del correo/landing actual y quiere editarlo.',
+      '',
+      'ELEMENTO SELECCIONADO (outerHTML):',
+      element?.outerHTML || '',
+      '',
+      `SELECTOR CSS: ${element?.selector || ''}`,
+      `CAMBIO PEDIDO: ${instruction}`,
+      '',
+      'HTML COMPLETO ACTUAL DEL CORREO:',
+      fullHtml || '',
+      '',
+      `Modifica ÚNICAMENTE ese elemento según el cambio pedido, deja TODO lo demás EXACTAMENTE igual, y devuelve el correo COMPLETO actualizado llamando a compose_email${subject ? ` (asunto: "${subject}")` : ''}. No expliques el código.`,
+    ].join('\n')
+    try {
+      const { data, error } = await supabase.functions.invoke('chat-with-agent', {
+        body: { agent_slug: agent.slug, content: visible, conversation_id: conversationId, edit_context: editContext },
+      })
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
+    } catch (e) {
+      setOptimistic((prev) => prev.filter((m) => m.id !== optId))
+      toast.error(e?.message || 'No se pudo enviar la edición')
+    } finally {
+      setThinking(false)
+    }
+  }
+
   useEffect(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
@@ -944,6 +986,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               onDelete={() => deleteArtifact(activeArtifact)}
               saved={activeArtifact ? savedKeys.has(activeArtifact.key) : false}
               docContentRef={docContentRef}
+              onElementEdit={submitElementEdit}
             />
           </motion.aside>
         )}
@@ -1006,9 +1049,55 @@ function CalendarView({ events }) {
   )
 }
 
-function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, saved, docContentRef }) {
+// Script inyectado en el iframe (sandbox allow-scripts) durante el modo selector: resalta
+// el elemento bajo el cursor y, al hacer clic, manda al padre (postMessage) su selector,
+// tag, texto y outerHTML. El padre lo usa para pedirle al agente que edite ESE elemento.
+const SELECTOR_SCRIPT = `<script>(function(){
+  var last=null;
+  var s=document.createElement('style');
+  s.textContent='.__ninaHov{outline:2px solid #8ab4ff!important;outline-offset:1px;cursor:pointer!important;background:rgba(138,180,255,.10)!important;}';
+  (document.head||document.documentElement).appendChild(s);
+  function path(el){var p=[];while(el&&el.nodeType===1&&el.tagName&&el.tagName.toLowerCase()!=='body'&&p.length<8){var t=el.tagName.toLowerCase();var par=el.parentElement;if(par){var sib=[].filter.call(par.children,function(c){return c.tagName===el.tagName});if(sib.length>1)t+=':nth-of-type('+(sib.indexOf(el)+1)+')';}p.unshift(t);el=par;}return p.join(' > ');}
+  document.addEventListener('mouseover',function(e){if(last&&last.classList)last.classList.remove('__ninaHov');last=e.target;if(last&&last.classList)last.classList.add('__ninaHov');},true);
+  document.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var el=e.target;if(last&&last.classList)last.classList.remove('__ninaHov');var c=el.cloneNode(true);if(c.classList)c.classList.remove('__ninaHov');parent.postMessage({type:'nina-select',selector:path(el),tag:(el.tagName||'').toLowerCase(),text:(el.textContent||'').replace(/\\s+/g,' ').trim().slice(0,90),outerHTML:(c.outerHTML||'').slice(0,4000)},'*');},true);
+})();</script>`
+
+function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, saved, docContentRef, onElementEdit }) {
   const label = (a) =>
     a.type === 'document' ? a.title || 'Documento' : a.type === 'calendar' ? 'Calendario' : a.type === 'image' ? a.title : a.subject
+  const [selecting, setSelecting] = useState(false)
+  const [selection, setSelection] = useState(null) // { selector, tag, text, outerHTML }
+  const [editText, setEditText] = useState('')
+  const canSelect = active?.type === 'email'
+
+  // Clic del selector dentro del iframe (postMessage). El iframe va sandbox 'allow-scripts'
+  // (sin same-origin) → e.origin es opaco; validamos por el tipo del mensaje. El dato solo
+  // PREllena una selección; nada se edita hasta que el usuario escribe y envía.
+  useEffect(() => {
+    const onMsg = (e) => {
+      if (e?.data?.type === 'nina-select') {
+        setSelection(e.data)
+        setSelecting(false)
+        setEditText('')
+      }
+    }
+    window.addEventListener('message', onMsg)
+    return () => window.removeEventListener('message', onMsg)
+  }, [])
+
+  // Cambiar de pestaña (o salir de un correo) cancela el modo selector y la selección.
+  useEffect(() => {
+    setSelecting(false)
+    setSelection(null)
+  }, [active?.key])
+
+  const submitEdit = () => {
+    if (!selection || !editText.trim() || !active?.html) return
+    onElementEdit?.({ element: selection, fullHtml: active.html, subject: active.subject, instruction: editText.trim() })
+    setSelection(null)
+    setEditText('')
+  }
+
   return (
     <div className="flex flex-col min-w-0 w-full h-full">
       {/* Barra de pestañas estilo Chrome: la activa muestra el título; las demás colapsan
@@ -1038,6 +1127,18 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
           })}
         </div>
         <div className="flex-1" />
+        {canSelect && (
+          <button
+            onClick={() => { setSelecting((v) => !v); setSelection(null) }}
+            className={`h-8 px-2.5 rounded-lg text-[11px] flex items-center gap-1.5 transition shrink-0 ${
+              selecting ? 'text-nina-black bg-silver-gradient' : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40'
+            }`}
+            title={selecting ? 'Selector activo — haz clic en un elemento del correo' : 'Seleccionar un elemento del correo para editarlo'}
+          >
+            <MousePointerClick className="w-4 h-4" />
+            <span className="hidden lg:inline">{selecting ? 'Selecciona…' : 'Editar'}</span>
+          </button>
+        )}
         {active && (
           <>
             <button
@@ -1073,7 +1174,7 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
         </button>
       </div>
       {/* Preview del artefacto activo: documento editable, agenda, imagen o correo HTML. */}
-      <div className={`flex-1 min-h-0 bg-nina-ink ${active?.type === 'document' ? '' : 'p-3'}`}>
+      <div className={`relative flex-1 min-h-0 bg-nina-ink ${active?.type === 'document' ? '' : 'p-3'}`}>
         {!active ? (
           <div className="h-full grid place-items-center text-center px-8">
             <div className="max-w-sm">
@@ -1100,10 +1201,50 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
         ) : (
           <iframe
             title="Preview del correo NINA"
-            srcDoc={active?.html ?? ''}
-            sandbox=""
+            srcDoc={selecting ? (active?.html ?? '') + SELECTOR_SCRIPT : active?.html ?? ''}
+            sandbox={selecting ? 'allow-scripts' : ''}
             className="w-full h-full rounded-lg bg-white border border-nina-line"
           />
+        )}
+        {/* Banner del modo selector (sobre el iframe del correo) */}
+        {selecting && canSelect && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 rounded-full bg-nina-panel/95 border border-nina-line text-[11.5px] text-nina-chrome shadow-lg flex items-center gap-2">
+            <MousePointerClick className="w-3.5 h-3.5 text-nina-silver" />
+            Haz clic en el elemento que quieres cambiar
+            <button onClick={() => setSelecting(false)} className="text-nina-mute hover:text-nina-chrome ml-1">cancelar</button>
+          </div>
+        )}
+        {/* Panel de edición del elemento seleccionado */}
+        {selection && (
+          <div className="absolute bottom-3 left-3 right-3 z-10 rounded-xl border border-nina-line bg-nina-panel/95 backdrop-blur shadow-2xl p-3">
+            <div className="flex items-center gap-2 text-[11px] text-nina-mute mb-2">
+              <span className="px-1.5 py-0.5 rounded bg-nina-line/50 text-nina-chrome font-mono">{selection.tag}</span>
+              <span className="truncate">{selection.text || '(elemento sin texto)'}</span>
+              <button onClick={() => setSelection(null)} className="ml-auto text-nina-mute hover:text-nina-chrome" title="Cancelar">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex items-end gap-2">
+              <textarea
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitEdit() }
+                }}
+                rows={2}
+                autoFocus
+                placeholder="¿Qué cambio? Ej: ponlo en dorado y cámbialo a 'Mundial NINA'"
+                className="flex-1 resize-none bg-nina-ink border border-nina-line rounded-lg px-3 py-2 text-[13px] text-nina-chrome placeholder:text-nina-mute/50 outline-none focus:border-nina-silver/50"
+              />
+              <button
+                onClick={submitEdit}
+                disabled={!editText.trim()}
+                className="h-9 px-3 rounded-lg bg-silver-gradient text-nina-black text-[12px] font-medium flex items-center gap-1.5 disabled:opacity-40 shrink-0"
+              >
+                <ArrowUp className="w-4 h-4" /> Editar
+              </button>
+            </div>
+          </div>
         )}
       </div>
       <div className="px-3 py-2 border-t border-nina-line/60 text-[11px] text-nina-mute shrink-0">

@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
   const { data: userData, error: userErr } = await callerClient.auth.getUser(token)
   if (userErr || !userData?.user) return json({ error: 'Token inválido' }, 401)
 
-  let body: { agent_id?: string; agent_slug?: string; content?: string; conversation_id?: string }
+  let body: { agent_id?: string; agent_slug?: string; content?: string; conversation_id?: string; edit_context?: string }
   try {
     body = await req.json()
   } catch {
@@ -77,8 +77,15 @@ Deno.serve(async (req) => {
     .maybeSingle()
   if (!allowedAgent) return json({ error: 'No tienes acceso a este agente' }, 403)
 
+  // Contexto de edición opcional (selector visual de HTML): el frontend manda el HTML
+  // completo + el elemento señalado. Se inyecta SOLO en este turno (no se persiste); cap
+  // defensivo de tamaño para no inflar el request al modelo.
+  const EDIT_CTX_MAX = 300_000
+  const editContext = typeof body.edit_context === 'string' ? body.edit_context.slice(0, EDIT_CTX_MAX) : undefined
+  const triggerMeta = editContext ? { source: 'html_edit', editContext } : {}
+
   try {
-    const result = await runAgentChatTurn(agentId, content, body.conversation_id ?? null, userData.user.id)
+    const result = await runAgentChatTurn(agentId, content, body.conversation_id ?? null, userData.user.id, triggerMeta)
     return json(result)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
