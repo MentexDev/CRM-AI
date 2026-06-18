@@ -782,15 +782,14 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // (tras goHome) ese setter reaplica esa URL vieja y RESUCITA ?c → el chat se recarga
   // en vez de volver al perfil. (Bug real ya corregido — no reintroducir.)
   const [, setSearchParams] = useSearchParams()
-  const hasArtifact = canvasArtifacts.length > 0
   useEffect(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
-      if (canvasOpen && hasArtifact) next.set('canvas', '1')
+      if (canvasOpen) next.set('canvas', '1')
       else next.delete('canvas')
       return next
     }, { replace: true })
-  }, [canvasOpen, hasArtifact])
+  }, [canvasOpen])
 
   // Ancho del canvas (px) ajustable arrastrando el divisor. Con límites para que
   // ni el chat ni el canvas queden inservibles. `dragging` desactiva la animación
@@ -838,18 +837,16 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
           <span className="truncate">{agent.name}</span>
         </button>
         <div className="flex items-center gap-1 shrink-0">
-          {canvasArtifacts.length > 0 && (
-            <button
-              onClick={() => setCanvasOpen((o) => !o)}
-              className={`btn-ghost !py-1 !px-2 text-[11px] flex items-center gap-1 ${
-                canvasOpen ? 'text-nina-chrome bg-nina-line/40' : ''
-              }`}
-              title={canvasOpen ? 'Ocultar el canvas' : 'Ver el avance en el canvas'}
-            >
-              <ImageIcon className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Avance</span>
-            </button>
-          )}
+          <button
+            onClick={() => setCanvasOpen((o) => !o)}
+            className={`btn-ghost !py-1 !px-2 text-[11px] flex items-center gap-1 ${
+              canvasOpen ? 'text-nina-chrome bg-nina-line/40' : ''
+            }`}
+            title={canvasOpen ? 'Cerrar el browser' : 'Abrir el browser'}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">abrir browser</span>
+          </button>
           <button
             onClick={onGoHome}
             className="btn-ghost !py-1 !px-2 text-[11px] flex items-center gap-1"
@@ -918,7 +915,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
       />
       </div>
       <AnimatePresence>
-        {canvasOpen && canvasArtifacts.length > 0 && (
+        {canvasOpen && (
           <motion.aside
             key="canvas"
             initial={{ width: 0, opacity: 0 }}
@@ -1041,27 +1038,31 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
           })}
         </div>
         <div className="flex-1" />
-        <button
-          onClick={onSave}
-          disabled={saved}
-          className={`h-8 px-2.5 rounded-lg text-[11px] flex items-center gap-1.5 transition shrink-0 ${
-            saved
-              ? 'text-emerald-300 cursor-default'
-              : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40'
-          }`}
-          title={saved ? 'Ya está en la biblioteca' : 'Guardar en la biblioteca'}
-        >
-          {saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-          <span className="hidden lg:inline">{saved ? 'Guardado' : 'Guardar'}</span>
-        </button>
-        <button
-          onClick={onDelete}
-          className="h-8 px-2.5 rounded-lg text-[11px] flex items-center gap-1.5 text-nina-mute hover:text-red-300 hover:bg-red-500/10 transition shrink-0"
-          title="Eliminar este avance del canvas"
-        >
-          <Trash2 className="w-4 h-4" />
-          <span className="hidden lg:inline">Eliminar</span>
-        </button>
+        {active && (
+          <>
+            <button
+              onClick={onSave}
+              disabled={saved}
+              className={`h-8 px-2.5 rounded-lg text-[11px] flex items-center gap-1.5 transition shrink-0 ${
+                saved
+                  ? 'text-emerald-300 cursor-default'
+                  : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40'
+              }`}
+              title={saved ? 'Ya está en la biblioteca' : 'Guardar en la biblioteca'}
+            >
+              {saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+              <span className="hidden lg:inline">{saved ? 'Guardado' : 'Guardar'}</span>
+            </button>
+            <button
+              onClick={onDelete}
+              className="h-8 px-2.5 rounded-lg text-[11px] flex items-center gap-1.5 text-nina-mute hover:text-red-300 hover:bg-red-500/10 transition shrink-0"
+              title="Eliminar este avance del canvas"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span className="hidden lg:inline">Eliminar</span>
+            </button>
+          </>
+        )}
         <button
           onClick={onClose}
           className="w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition shrink-0"
@@ -1073,7 +1074,17 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
       </div>
       {/* Preview del artefacto activo: documento editable, agenda, imagen o correo HTML. */}
       <div className={`flex-1 min-h-0 bg-nina-ink ${active?.type === 'document' ? '' : 'p-3'}`}>
-        {active?.type === 'document' ? (
+        {!active ? (
+          <div className="h-full grid place-items-center text-center px-8">
+            <div className="max-w-sm">
+              <Globe className="w-8 h-8 mx-auto text-nina-mute/40 mb-3" />
+              <p className="text-nina-chrome text-sm font-medium">El browser está vacío</p>
+              <p className="text-nina-mute text-[12.5px] mt-1.5 leading-relaxed">
+                Pídele al agente que genere un correo, una imagen, un documento o que agende algo — aparecerá aquí como una pestaña.
+              </p>
+            </div>
+          </div>
+        ) : active?.type === 'document' ? (
           <DocumentEditor key={active.key} title={active.title} markdown={active.markdown} getContentRef={docContentRef} />
         ) : active?.type === 'calendar' ? (
           <CalendarView events={active.events} />
@@ -1096,7 +1107,9 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
         )}
       </div>
       <div className="px-3 py-2 border-t border-nina-line/60 text-[11px] text-nina-mute shrink-0">
-        {active?.type === 'document' ? (
+        {!active ? (
+          <>Tu espacio de trabajo · lo que el agente genere (correos, imágenes, documentos, agenda) se abre aquí en pestañas.</>
+        ) : active?.type === 'document' ? (
           <>Documento editable · usa <span className="text-nina-chrome">/</span> para bloques · MD/PDF arriba · "Guardar" lo manda a la biblioteca.</>
         ) : active?.type === 'calendar' ? (
           <>Agenda del calendario de marca · pídele al agente que agende o liste más eventos.</>
