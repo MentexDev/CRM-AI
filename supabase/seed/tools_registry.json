@@ -1,5 +1,23 @@
 [
   {
+    "name": "draft_document",
+    "description": "Redactar un DOCUMENTO de trabajo (estilo Notion) que se abre EDITABLE en el canvas: brief, guion, plan de contenido, propuesta, notas, artículo. Devuelve Markdown; el usuario lo edita, exporta (MD/PDF) y guarda en la biblioteca. NO envía ni publica — solo crea el documento.",
+    "category": "document",
+    "args_schema": {
+      "type": "object",
+      "required": [
+        "title",
+        "content"
+      ],
+      "properties": {
+        "title": { "type": "string", "description": "Título del documento." },
+        "content": { "type": "string", "description": "Cuerpo en Markdown (GFM): #/##/### títulos, listas, - [ ] casillas, **negrita**, > citas, código." }
+      }
+    },
+    "requires_approval": false,
+    "is_active": true
+  },
+  {
     "name": "ask_questions",
     "description": "Cuando el usuario pide algo ABIERTO o AMBIGUO (sobre todo en el primer mensaje de una conversación nueva), NO adivines: usa esta tool para hacerle 2-5 preguntas clave y precisar el requerimiento ANTES de producir el entregable. Mezcla tipos: 'text' (respuesta libre), 'single' (una opción de una lista) y 'multi' (varias opciones). El usuario responde en un formulario por pasos; sus respuestas te llegan como su siguiente mensaje y entonces continúas. Si ya tienes contexto suficiente, NO preguntes.",
     "category": "core",

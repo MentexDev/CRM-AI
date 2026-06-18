@@ -1377,6 +1377,15 @@ async function suitecrmSales(_ctx: ToolContext, args: Record<string, unknown>): 
   }
 }
 
+// draft_document: crea un DOCUMENTO de trabajo editable (artefacto kind:'document' que el
+// canvas abre en el editor estilo Notion). Sin side-effects — solo devuelve título + markdown.
+async function draftDocument(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const title = (args.title as string)?.trim() || 'Documento'
+  const content = String((args.content as string) ?? (args.markdown as string) ?? '')
+  if (!content.trim()) return { ok: false, error: 'Falta el contenido (Markdown) del documento' }
+  return { ok: true, data: { kind: 'document', title, markdown: content } }
+}
+
 const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>) => Promise<ToolResult>> = {
   delegate_task: delegateTask,
   request_approval: requestApproval,
@@ -1402,6 +1411,7 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   calendar_create_event: calendarCreateEventTool,
   calendar_list_events: calendarListEventsTool,
   suitecrm_sales: suitecrmSales,
+  draft_document: draftDocument,
 }
 
 // =====================================================================

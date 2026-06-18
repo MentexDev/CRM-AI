@@ -207,6 +207,30 @@ export const TOOL_SPECS: ToolSpecData[] = [
     "isActive": true
   },
   {
+    "name": "draft_document",
+    "description": "Redactar un DOCUMENTO de trabajo (estilo Notion) que se abre EDITABLE en el canvas: brief, guion, plan de contenido, propuesta, notas, artículo. Devuelve el documento en Markdown; el usuario puede editarlo, exportarlo (MD/PDF) y guardarlo en la biblioteca. NO envía ni publica nada — solo crea el documento de trabajo. Para campañas de correo HTML usa compose_email; esto es para texto/documentos de trabajo.",
+    "category": "document",
+    "parameters": {
+      "type": "object",
+      "required": [
+        "title",
+        "content"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Título del documento."
+        },
+        "content": {
+          "type": "string",
+          "description": "Cuerpo en Markdown (GFM): # / ## / ### para títulos, listas con - o 1., casillas - [ ] / - [x], **negrita**, > citas, `código` y bloques de código con ```."
+        }
+      }
+    },
+    "requiresApproval": false,
+    "isActive": true
+  },
+  {
     "name": "ingest_document",
     "description": "Ingesta un documento de texto en el brain de la marca: lo divide en fragmentos semánticos, genera embeddings, extrae entidades nombradas y relaciones entre ellas.",
     "category": "knowledge",

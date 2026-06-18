@@ -15,6 +15,7 @@ import {
   Clapperboard,
   Crown,
   Database,
+  FileText,
   Globe,
   Hammer,
   Image as ImageIcon,
@@ -50,6 +51,7 @@ import { useAgentTasks } from '../../hooks/useAgentTasks'
 import { useConversations } from '../../hooks/useConversations'
 import { ConversationMenu } from '../../components/ConversationMenu'
 import { TasksBoard } from './Tasks'
+import DocumentEditor from '../../components/DocumentEditor'
 import { useVoiceTranscription } from '../../hooks/useVoiceTranscription'
 import { useAuth } from '../../context/AuthContext'
 import { useConfirm } from '../../components/ConfirmDialog'
@@ -596,6 +598,15 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         } else if (d.kind === 'calendar') {
           // Agenda del calendario (calendar_create_event / calendar_list_events).
           out.push({ type: 'calendar', title: 'Calendario', events: Array.isArray(d.events) ? d.events : [], messageId: m.id, key: String(m.id) })
+        } else if (d.kind === 'document') {
+          // Documento editable (draft_document) → editor estilo Notion en el canvas.
+          out.push({
+            type: 'document',
+            title: d.title || 'Documento',
+            markdown: typeof d.markdown === 'string' ? d.markdown : typeof d.content === 'string' ? d.content : '',
+            messageId: m.id,
+            key: String(m.id),
+          })
         }
       } catch {
         /* no es JSON / no es artefacto */
@@ -630,6 +641,9 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // Guardar el artefacto activo en la Biblioteca (entregable). Cliente → library_assets
   // (la policy RLS valida acceso de marca). Marcamos el key como guardado para el check.
   const [savedKeys, setSavedKeys] = useState(() => new Set())
+  // El DocumentEditor expone aquí un getter de su contenido actual (título + markdown), para
+  // que "Guardar" del canvas tome lo EDITADO, no el markdown original del artefacto.
+  const docContentRef = useRef(null)
   const saveToLibrary = async (artifact) => {
     if (!artifact) return
     const t = toast.loading('Guardando en la biblioteca…')
@@ -640,6 +654,11 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
       } else if (artifact.type === 'calendar') {
         const text = (artifact.events || []).map((e) => `${e.start ?? ''} — ${e.title ?? ''}`).join('\n') || 'Sin eventos'
         row = { title: 'Agenda de calendario', kind: 'other', content: text, source: 'canvas', size_bytes: new Blob([text]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
+      } else if (artifact.type === 'document') {
+        const live = docContentRef.current?.()
+        const md = live?.markdown ?? artifact.markdown ?? ''
+        const ttl = (live?.title || artifact.title || 'Documento NINA').trim() || 'Documento NINA'
+        row = { title: ttl, kind: 'document', content: md, source: 'canvas', size_bytes: new Blob([md]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
       } else {
         row = { title: artifact.subject || 'Correo NINA', kind: 'campaign', content: artifact.html, source: 'canvas', size_bytes: new Blob([artifact.html]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
       }
@@ -927,6 +946,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               onSave={() => saveToLibrary(activeArtifact)}
               onDelete={() => deleteArtifact(activeArtifact)}
               saved={activeArtifact ? savedKeys.has(activeArtifact.key) : false}
+              docContentRef={docContentRef}
             />
           </motion.aside>
         )}
@@ -989,8 +1009,9 @@ function CalendarView({ events }) {
   )
 }
 
-function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, saved }) {
-  const label = (a) => (a.type === 'calendar' ? 'Calendario' : a.type === 'image' ? a.title : a.subject)
+function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, saved, docContentRef }) {
+  const label = (a) =>
+    a.type === 'document' ? a.title || 'Documento' : a.type === 'calendar' ? 'Calendario' : a.type === 'image' ? a.title : a.subject
   return (
     <div className="flex flex-col min-w-0 w-full h-full">
       {/* Barra de pestañas estilo Chrome: la activa muestra el título; las demás colapsan
@@ -999,7 +1020,7 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
           {artifacts.map((a) => {
             const isActive = active && a.key === active.key
-            const TabIcon = a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : MessageSquare
+            const TabIcon = a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : MessageSquare
             return (
               <button
                 key={a.key}
@@ -1050,9 +1071,11 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
           <X className="w-4 h-4" />
         </button>
       </div>
-      {/* Preview del artefacto activo: agenda de calendario, imagen (<img>) o correo HTML (iframe). */}
-      <div className="flex-1 min-h-0 bg-nina-ink p-3">
-        {active?.type === 'calendar' ? (
+      {/* Preview del artefacto activo: documento editable, agenda, imagen o correo HTML. */}
+      <div className={`flex-1 min-h-0 bg-nina-ink ${active?.type === 'document' ? '' : 'p-3'}`}>
+        {active?.type === 'document' ? (
+          <DocumentEditor key={active.key} title={active.title} markdown={active.markdown} getContentRef={docContentRef} />
+        ) : active?.type === 'calendar' ? (
           <CalendarView events={active.events} />
         ) : active?.type === 'image' ? (
           <div className="w-full h-full grid place-items-center overflow-auto">
@@ -1073,7 +1096,9 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
         )}
       </div>
       <div className="px-3 py-2 border-t border-nina-line/60 text-[11px] text-nina-mute shrink-0">
-        {active?.type === 'calendar' ? (
+        {active?.type === 'document' ? (
+          <>Documento editable · usa <span className="text-nina-chrome">/</span> para bloques · MD/PDF arriba · "Guardar" lo manda a la biblioteca.</>
+        ) : active?.type === 'calendar' ? (
           <>Agenda del calendario de marca · pídele al agente que agende o liste más eventos.</>
         ) : active?.type === 'image' ? (
           <>Imagen generada{active.aspect ? ` · ${active.aspect}` : ''} · guárdala en la biblioteca o pídele al agente que la ajuste.</>
