@@ -79,10 +79,24 @@ Deno.serve(async (req) => {
     ? 'Es lunes. Usa la herramienta suitecrm_sales con period="last_week" y entrégame el RESUMEN DE VENTAS DE LA SEMANA PASADA: total en pesos, desglose por día y por sucursal, y las facturas más grandes. Formato ejecutivo y claro.'
     : 'Usa la herramienta suitecrm_sales con period="yesterday" y entrégame el REPORTE DE VENTAS DE AYER: total en pesos, desglose por sucursal y las facturas más grandes. Formato ejecutivo y claro.'
 
+  // Reusar SIEMPRE el mismo hilo de reportes (no uno nuevo cada día): buscamos la
+  // conversación del último reporte de este agente. Si no hay (primer reporte),
+  // conversation_id null lo crea y los siguientes se acumulan ahí → un solo chat de reportes.
+  const { data: lastReport } = await db
+    .from('messages')
+    .select('conversation_id')
+    .eq('agent_id', agent.id)
+    .eq('metadata->>source', 'scheduled_report')
+    .not('conversation_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   try {
-    // conversation_id null → crea un hilo nuevo (título derivado del mensaje).
-    // callerId null → el sistema (sin usuario). triggerMeta marca el origen para la UI.
-    const result = await runAgentChatTurn(agent.id, prompt, null, null, { source: 'scheduled_report' })
+    // Hilo fijo de reportes (o nuevo si es el primero). callerId null = sistema.
+    const result = await runAgentChatTurn(agent.id, prompt, lastReport?.conversation_id ?? null, null, {
+      source: 'scheduled_report',
+    })
     return json({ ok: true, report: isMonday ? 'last_week' : 'yesterday', ...result })
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500)
