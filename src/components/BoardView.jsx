@@ -3,7 +3,7 @@
 // El usuario arrastra, edita texto, cambia color, conecta/desconecta, agrega/elimina notas y guarda.
 // Tema oscuro NINA. Sin zoom (scroll nativo del lienzo) para evitar bugs de transformación.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link2, Plus, Trash2, X } from 'lucide-react'
+import { Link2, Pencil, Plus, Trash2, X } from 'lucide-react'
 
 // Tamaño fijo de cada nota (sticky) → anclas de las conexiones exactas (centro = x+W/2, y+H/2).
 const NW = 184
@@ -40,6 +40,17 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
   const [edges, setEdges] = useState(() => (Array.isArray(initialEdges) ? initialEdges : []))
   const [connectFrom, setConnectFrom] = useState(null) // id origen mientras se conecta (modo conectar)
   const [connecting, setConnecting] = useState(false)
+  const [editingId, setEditingId] = useState(null) // nota en modo edición (texto escribible + paleta)
+  const editTextRef = useRef(null)
+  // Al entrar en edición, enfoca el textarea y deja el cursor al final.
+  useEffect(() => {
+    if (editingId && editTextRef.current) {
+      const el = editTextRef.current
+      el.focus()
+      const len = el.value.length
+      el.setSelectionRange(len, len)
+    }
+  }, [editingId])
 
   // Reporte de cambios (debounced) → el padre persiste (capa de overrides editedTabs) y limpia "guardado".
   const stateRef = useRef({ title, nodes, edges })
@@ -85,7 +96,9 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
 
   const onNodePointerDown = (e, node) => {
     if (connecting) { handleConnectClick(node.id); return }
-    if (e.target.closest('[data-no-drag]')) return // texto/botones: no arrastrar
+    if (editingId === node.id) return // en edición no se arrastra: se escribe/selecciona texto
+    if (e.target.closest('[data-no-drag]')) return // botones/paleta: no arrastrar
+    if (editingId) setEditingId(null) // agarrar otra nota cierra la edición previa
     e.preventDefault()
     dragRef.current = { id: node.id, sx: e.clientX, sy: e.clientY, ox: node.x, oy: node.y }
     window.addEventListener('pointermove', onMove)
@@ -94,14 +107,13 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
 
   // ── Mutadores ────────────────────────────────────────────────────────────────
   const setNodeText = (id, text) => { setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, text } : n))); scheduleFire() }
-  const cycleColor = (id) => {
-    setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, color: COLOR_KEYS[(COLOR_KEYS.indexOf(n.color) + 1) % COLOR_KEYS.length] } : n)))
-    scheduleFire()
-  }
+  const setNodeColor = (id, color) => { setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, color } : n))); scheduleFire() }
+  const toggleEdit = (id) => { setConnecting(false); setConnectFrom(null); setEditingId((cur) => (cur === id ? null : id)) }
   const removeNode = (id) => {
     setNodes((prev) => prev.filter((n) => n.id !== id))
     setEdges((prev) => prev.filter((e) => e.from !== id && e.to !== id))
     if (connectFrom === id) setConnectFrom(null)
+    if (editingId === id) setEditingId(null)
     scheduleFire()
   }
   const addNode = () => {
@@ -121,7 +133,7 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
     setConnectFrom(null)
     scheduleFire()
   }
-  const toggleConnect = () => { setConnecting((v) => !v); setConnectFrom(null) }
+  const toggleConnect = () => { setConnecting((v) => !v); setConnectFrom(null); setEditingId(null) }
 
   const scrollRef = useRef(null)
 
@@ -191,7 +203,11 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
 
       {/* Lienzo scrollable */}
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto relative" style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '22px 22px' }}>
-        <div className="relative" style={{ width: bounds.w, height: bounds.h }}>
+        <div
+          className="relative"
+          style={{ width: bounds.w, height: bounds.h }}
+          onPointerDown={(e) => { if (e.target === e.currentTarget) setEditingId(null) }}
+        >
           {/* Conexiones (SVG detrás de las notas) */}
           <svg className="absolute inset-0 pointer-events-none" width={bounds.w} height={bounds.h}>
             <defs>
@@ -246,30 +262,40 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
           {nodes.map((n) => {
             const c = COLORS[n.color] || COLORS.slate
             const isFrom = connectFrom === n.id
+            const isEditing = editingId === n.id && !connecting
             return (
               <div
                 key={n.id}
                 onPointerDown={(e) => onNodePointerDown(e, n)}
-                className={`group absolute rounded-xl border shadow-lg select-none ${c.bg} ${c.border} ${
-                  connecting ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
-                } ${isFrom ? 'ring-2 ring-nina-silver' : ''}`}
+                className={`group absolute rounded-xl border shadow-lg ${c.bg} ${c.border} ${
+                  connecting ? 'cursor-pointer' : isEditing ? 'cursor-text' : 'cursor-grab active:cursor-grabbing'
+                } ${isFrom ? 'ring-2 ring-nina-silver' : isEditing ? 'ring-2 ring-nina-silver/70' : ''}`}
                 style={{ left: n.x, top: n.y, width: NW, height: NH }}
               >
                 <textarea
-                  data-no-drag
+                  {...(isEditing ? { 'data-no-drag': true } : {})}
+                  ref={isEditing ? editTextRef : null}
                   value={n.text}
                   onChange={(e) => setNodeText(n.id, e.target.value)}
-                  readOnly={connecting}
-                  placeholder="Escribe…"
-                  className="w-full h-full resize-none bg-transparent px-2.5 py-2 text-[12px] leading-snug text-nina-chrome outline-none placeholder:text-nina-mute/40"
+                  onKeyDown={(e) => { if (e.key === 'Escape') setEditingId(null) }}
+                  readOnly={!isEditing}
+                  placeholder={isEditing ? 'Escribe…' : ''}
+                  className={`w-full h-full resize-none bg-transparent px-2.5 py-2 text-[12px] leading-snug text-nina-chrome outline-none placeholder:text-nina-mute/40 ${
+                    isEditing ? '' : 'pointer-events-none select-none'
+                  }`}
                 />
-                {/* Controles (aparecen al hover) */}
-                <div data-no-drag className="absolute -top-2.5 -right-2.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                {/* Controles arriba-derecha: ✎ editar (a la izquierda) + 🗑 eliminar. Siempre visibles
+                    en edición; al pasar el cursor en el resto. */}
+                <div data-no-drag className={`absolute -top-2.5 -right-2.5 flex items-center gap-1 transition ${isEditing ? '' : 'opacity-0 group-hover:opacity-100'}`}>
                   <button
-                    onClick={() => cycleColor(n.id)}
-                    className={`w-4 h-4 rounded-full border border-nina-panel ${c.dot}`}
-                    title="Cambiar color"
-                  />
+                    onClick={() => toggleEdit(n.id)}
+                    className={`w-4 h-4 grid place-items-center rounded-full border transition ${
+                      isEditing ? 'bg-silver-gradient text-nina-black border-transparent' : 'bg-nina-panel border-nina-line text-nina-mute hover:text-nina-chrome'
+                    }`}
+                    title={isEditing ? 'Terminar edición' : 'Editar nota'}
+                  >
+                    <Pencil size={9} />
+                  </button>
                   <button
                     onClick={() => removeNode(n.id)}
                     className="w-4 h-4 grid place-items-center rounded-full bg-nina-panel border border-nina-line text-nina-mute hover:text-red-300"
@@ -278,6 +304,19 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
                     <Trash2 size={9} />
                   </button>
                 </div>
+                {/* Paleta de color — se abre al editar */}
+                {isEditing && (
+                  <div data-no-drag className="absolute -bottom-9 left-0 z-20 flex items-center gap-1.5 rounded-lg border border-nina-line bg-nina-panel px-2 py-1.5 shadow-xl">
+                    {COLOR_KEYS.map((ck) => (
+                      <button
+                        key={ck}
+                        onClick={() => setNodeColor(n.id, ck)}
+                        className={`w-4 h-4 rounded-full ${COLORS[ck].dot} ${n.color === ck ? 'ring-2 ring-nina-chrome ring-offset-1 ring-offset-nina-panel' : ''}`}
+                        title={ck}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             )
           })}

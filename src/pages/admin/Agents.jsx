@@ -1601,7 +1601,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         ) : active?.type === 'sheet' ? (
           <>Hoja editable · clic en una celda para escribir · totales automáticos de columnas numéricas · CSV arriba · "Guardar" la manda a la biblioteca.</>
         ) : active?.type === 'board' ? (
-          <>Pizarra editable · arrastra las notas · clic para editar · "Conectar" une notas · "Guardar" la manda a la biblioteca.</>
+          <>Pizarra editable · arrastra las notas para moverlas · <span className="text-nina-chrome">✎</span> edita texto y color · "Conectar" une notas · "Guardar" la manda a la biblioteca.</>
         ) : active?.type === 'calendar' ? (
           <>Agenda del calendario de marca · pídele al agente que agende o liste más eventos.</>
         ) : active?.type === 'image' ? (
