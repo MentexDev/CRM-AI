@@ -14,8 +14,8 @@ const NEW_ITEMS = [
   { id: 'calendar', label: 'Agendar', desc: 'Programar contenido', icon: CalendarDays, active: true },
   { id: 'slides', label: 'Presentación', desc: 'Mazo de diapositivas con IA', icon: Presentation, active: true },
   { id: 'sheet', label: 'Hoja de cálculo', desc: 'Tabla de datos con totales', icon: Table, active: true },
+  { id: 'board', label: 'Pizarra', desc: 'Notas y conexiones visuales', icon: LayoutGrid, active: true },
   { id: 'web', label: 'Navegar web', desc: 'Próximamente', icon: Globe, active: false },
-  { id: 'board', label: 'Pizarra', desc: 'Próximamente', icon: LayoutGrid, active: false },
 ]
 
 // Prompts de arranque para las acciones que dispara el agente (usa ask_questions y precisa).
@@ -27,6 +27,7 @@ const AGENT_PROMPTS = {
   calendar: 'Hoy quiero agendar algo en el calendario.',
   slides: 'Hoy quiero crear una presentación.',
   sheet: 'Hoy quiero crear una hoja de cálculo.',
+  board: 'Hoy quiero crear una pizarra.',
 }
 
 export default function CommandPalette({ open, onClose, onNewDocument, onAgentPrompt }) {

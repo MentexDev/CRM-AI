@@ -335,6 +335,75 @@ export const TOOL_SPECS: ToolSpecData[] = [
     "isActive": true
   },
   {
+    "name": "draft_board",
+    "description": "Crea una PIZARRA (lienzo visual) editable en el canvas: mapa de campaña, lluvia de ideas, flujo de proceso, organigrama, mapa mental. Devuelve NOTAS (nodos) y CONEXIONES entre ellas; el usuario arrastra las notas, edita su texto, cambia colores, conecta/desconecta y la guarda. NO publica nada — solo crea la pizarra. Para texto largo usa draft_document; para diapositivas draft_slides; para tablas draft_sheet.",
+    "category": "document",
+    "parameters": {
+      "type": "object",
+      "required": [
+        "title",
+        "nodes"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Título de la pizarra."
+        },
+        "nodes": {
+          "type": "array",
+          "description": "Notas del lienzo (4–14 es lo ideal). Cada una con un id único y su texto.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "text"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Identificador único de la nota (ej: 'n1', 'objetivo'). Se usa para conectar."
+              },
+              "text": {
+                "type": "string",
+                "description": "Texto de la nota (breve, una idea por nota)."
+              },
+              "color": {
+                "type": "string",
+                "enum": [
+                  "slate",
+                  "amber",
+                  "sky",
+                  "emerald",
+                  "rose",
+                  "violet"
+                ],
+                "description": "Color de la nota (opcional). Úsalo para agrupar por tema/fase."
+              }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "description": "Conexiones dirigidas entre notas (opcional). Cada una une dos ids de 'nodes'.",
+          "items": {
+            "type": "object",
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": { "type": "string", "description": "id de la nota origen." },
+              "to": { "type": "string", "description": "id de la nota destino." },
+              "label": { "type": "string", "description": "Etiqueta de la flecha (opcional, breve)." }
+            }
+          }
+        }
+      }
+    },
+    "requiresApproval": false,
+    "isActive": true
+  },
+  {
     "name": "ingest_document",
     "description": "Ingesta un documento de texto en el brain de la marca: lo divide en fragmentos semánticos, genera embeddings, extrae entidades nombradas y relaciones entre ellas.",
     "category": "knowledge",

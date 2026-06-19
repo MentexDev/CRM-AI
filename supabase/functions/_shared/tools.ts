@@ -1436,6 +1436,40 @@ async function draftSheet(_ctx: ToolContext, args: Record<string, unknown>): Pro
   return { ok: true, data: { kind: 'sheet', title, columns, rows } }
 }
 
+// draft_board: crea una PIZARRA editable (artefacto kind:'board'). Sin side-effects — normaliza
+// notas (ids únicos, color válido) y descarta conexiones que apunten a ids inexistentes.
+const BOARD_COLORS = new Set(['slate', 'amber', 'sky', 'emerald', 'rose', 'violet'])
+async function draftBoard(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const title = (args.title as string)?.trim() || 'Pizarra'
+  const rawNodes = Array.isArray(args.nodes) ? args.nodes : []
+  if (!rawNodes.length) return { ok: false, error: 'Faltan las notas (nodes)' }
+  const seen = new Set<string>()
+  const nodes = rawNodes
+    .slice(0, 40) // tope defensivo
+    .map((n, i) => {
+      const o = (n ?? {}) as Record<string, unknown>
+      let id = typeof o.id === 'string' && o.id.trim() ? o.id.trim().slice(0, 60) : ''
+      if (!id || seen.has(id)) id = `n${i + 1}`
+      while (seen.has(id)) id = `${id}_` // garantiza unicidad
+      seen.add(id)
+      const text = typeof o.text === 'string' ? o.text.slice(0, 240) : ''
+      const color = typeof o.color === 'string' && BOARD_COLORS.has(o.color) ? o.color : 'slate'
+      const x = typeof o.x === 'number' && Number.isFinite(o.x) ? o.x : undefined
+      const y = typeof o.y === 'number' && Number.isFinite(o.y) ? o.y : undefined
+      return { id, text, color, ...(x != null ? { x } : {}), ...(y != null ? { y } : {}) }
+    })
+    .filter((n) => n.text) // descarta notas vacías
+  if (!nodes.length) return { ok: false, error: 'Las notas vienen sin texto' }
+  const ids = new Set(nodes.map((n) => n.id))
+  const rawEdges = Array.isArray(args.edges) ? args.edges : []
+  const edges = rawEdges
+    .slice(0, 80)
+    .map((e) => (e ?? {}) as Record<string, unknown>)
+    .filter((e) => typeof e.from === 'string' && typeof e.to === 'string' && ids.has(e.from) && ids.has(e.to) && e.from !== e.to)
+    .map((e) => ({ from: e.from as string, to: e.to as string, ...(typeof e.label === 'string' && e.label ? { label: (e.label as string).slice(0, 80) } : {}) }))
+  return { ok: true, data: { kind: 'board', title, nodes, edges } }
+}
+
 const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>) => Promise<ToolResult>> = {
   delegate_task: delegateTask,
   request_approval: requestApproval,
@@ -1464,6 +1498,7 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   draft_document: draftDocument,
   draft_slides: draftSlides,
   draft_sheet: draftSheet,
+  draft_board: draftBoard,
 }
 
 // =====================================================================

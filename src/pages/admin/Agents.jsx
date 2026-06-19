@@ -20,6 +20,7 @@ import {
   Hammer,
   History,
   Image as ImageIcon,
+  LayoutGrid,
   ListTodo,
   Loader2,
   MessageSquare,
@@ -60,6 +61,7 @@ import { TasksBoard } from './Tasks'
 import DocumentEditor from '../../components/DocumentEditor'
 import SlideDeck from '../../components/SlideDeck'
 import SheetView from '../../components/SheetView'
+import BoardView from '../../components/BoardView'
 import CommandPalette from '../../components/CommandPalette'
 import { useVoiceTranscription } from '../../hooks/useVoiceTranscription'
 import { useAuth } from '../../context/AuthContext'
@@ -554,6 +556,18 @@ function slidesToMarkdown(title, subtitle, slides) {
   return lines.join('\n')
 }
 
+// Serializa una pizarra (draft_board) a Markdown (notas + conexiones) para la biblioteca.
+function boardToMarkdown(title, nodes, edges) {
+  const byId = Object.fromEntries((nodes || []).map((n) => [n.id, n.text || n.id]))
+  const lines = [`# ${title || 'Pizarra'}`, '', '## Notas']
+  for (const n of nodes || []) if (n.text) lines.push(`- ${n.text}`)
+  if ((edges || []).length) {
+    lines.push('', '## Conexiones')
+    for (const e of edges) lines.push(`- ${byId[e.from] ?? e.from} → ${byId[e.to] ?? e.to}${e.label ? ` (${e.label})` : ''}`)
+  }
+  return lines.join('\n')
+}
+
 // Serializa una hoja (draft_sheet) a una tabla Markdown para guardarla en la biblioteca.
 function sheetToMarkdown(title, columns, rows) {
   const cols = (columns && columns.length ? columns : ['Columna 1']).map((c) => String(c).replace(/\|/g, '\\|') || ' ')
@@ -680,6 +694,16 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
             title: d.title || 'Hoja de cálculo',
             columns: d.columns,
             rows: Array.isArray(d.rows) ? d.rows : [],
+            messageId: m.id,
+            key: String(m.id),
+          })
+        } else if (d.kind === 'board' && Array.isArray(d.nodes)) {
+          // Pizarra editable (draft_board) → lienzo de notas + conexiones en el canvas.
+          out.push({
+            type: 'board',
+            title: d.title || 'Pizarra',
+            nodes: d.nodes,
+            edges: Array.isArray(d.edges) ? d.edges : [],
             messageId: m.id,
             key: String(m.id),
           })
@@ -842,6 +866,14 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         const cols = Array.isArray(live?.columns) ? live.columns : artifact.columns || []
         const rws = Array.isArray(live?.rows) ? live.rows : artifact.rows || []
         const md = sheetToMarkdown(ttl, cols, rws)
+        row = { title: ttl, kind: 'document', content: md, source: 'canvas', size_bytes: new Blob([md]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
+      } else if (artifact.type === 'board') {
+        // Toma lo EDITADO (docContentRef del BoardView activo) y serializa a Markdown.
+        const live = docContentRef.current?.()
+        const ttl = (live?.title || artifact.title || 'Pizarra NINA').trim() || 'Pizarra NINA'
+        const nds = Array.isArray(live?.nodes) ? live.nodes : artifact.nodes || []
+        const eds = Array.isArray(live?.edges) ? live.edges : artifact.edges || []
+        const md = boardToMarkdown(ttl, nds, eds)
         row = { title: ttl, kind: 'document', content: md, source: 'canvas', size_bytes: new Blob([md]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
       } else {
         row = { title: artifact.subject || 'Correo NINA', kind: 'campaign', content: artifact.html, source: 'canvas', size_bytes: new Blob([artifact.html]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
@@ -1271,6 +1303,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
     a.type === 'document' ? a.title || 'Documento'
       : a.type === 'slides' ? a.title || 'Presentación'
       : a.type === 'sheet' ? a.title || 'Hoja de cálculo'
+      : a.type === 'board' ? a.title || 'Pizarra'
       : a.type === 'calendar' ? 'Calendario'
       : a.type === 'image' ? a.title
       : a.subject
@@ -1343,7 +1376,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
                 ) : (
                   [...(history || [])].reverse().map((a) => {
                     const HIcon =
-                      a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : MessageSquare
+                      a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : a.type === 'board' ? LayoutGrid : MessageSquare
                     const isOpen = artifacts.some((t) => t.key === a.key)
                     return (
                       <button
@@ -1365,7 +1398,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
           {artifacts.map((a) => {
             const isActive = active && a.key === active.key
-            const TabIcon = a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : MessageSquare
+            const TabIcon = a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : a.type === 'board' ? LayoutGrid : MessageSquare
             return (
               <button
                 key={a.key}
@@ -1451,7 +1484,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         </button>
       </div>
       {/* Preview del artefacto activo: documento editable, agenda, imagen o correo HTML. */}
-      <div className={`relative flex-1 min-h-0 bg-nina-ink ${['document', 'slides', 'sheet'].includes(active?.type) ? '' : 'p-3'}`}>
+      <div className={`relative flex-1 min-h-0 bg-nina-ink ${['document', 'slides', 'sheet', 'board'].includes(active?.type) ? '' : 'p-3'}`}>
         {!active ? (
           <div className="h-full grid place-items-center text-center px-8">
             <div className="max-w-sm">
@@ -1485,6 +1518,15 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
             title={active.title}
             columns={active.columns}
             rows={active.rows}
+            getContentRef={docContentRef}
+            onChange={(p) => onDocChange?.(active.key, p)}
+          />
+        ) : active?.type === 'board' ? (
+          <BoardView
+            key={active.key}
+            title={active.title}
+            nodes={active.nodes}
+            edges={active.edges}
             getContentRef={docContentRef}
             onChange={(p) => onDocChange?.(active.key, p)}
           />
@@ -1558,6 +1600,8 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
           <>Presentación editable · <span className="text-nina-chrome">← →</span> para navegar · clic en el texto para editar · PDF arriba · "Guardar" la manda a la biblioteca.</>
         ) : active?.type === 'sheet' ? (
           <>Hoja editable · clic en una celda para escribir · totales automáticos de columnas numéricas · CSV arriba · "Guardar" la manda a la biblioteca.</>
+        ) : active?.type === 'board' ? (
+          <>Pizarra editable · arrastra las notas · clic para editar · "Conectar" une notas · "Guardar" la manda a la biblioteca.</>
         ) : active?.type === 'calendar' ? (
           <>Agenda del calendario de marca · pídele al agente que agende o liste más eventos.</>
         ) : active?.type === 'image' ? (
