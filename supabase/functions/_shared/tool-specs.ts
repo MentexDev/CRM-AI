@@ -297,6 +297,44 @@ export const TOOL_SPECS: ToolSpecData[] = [
     "isActive": true
   },
   {
+    "name": "draft_sheet",
+    "description": "Crea una HOJA DE CÁLCULO editable en el canvas: tabla de datos, comparativo, catálogo, presupuesto, reporte de ventas. Devuelve columnas y filas; el usuario edita celdas, agrega/quita filas y columnas, ve totales de columnas numéricas y exporta a CSV. NO publica ni envía nada — solo crea la tabla. Para texto largo usa draft_document; para diapositivas usa draft_slides.",
+    "category": "document",
+    "parameters": {
+      "type": "object",
+      "required": [
+        "title",
+        "columns",
+        "rows"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Título de la hoja."
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Encabezados de columna, en orden. Ej: [\"Producto\", \"Precio\", \"Stock\"]."
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "Filas de datos. Cada fila es un arreglo de celdas alineado a 'columns' (mismo orden y cantidad). Los números van como texto; la hoja calcula totales de las columnas que sean 100% numéricas."
+        }
+      }
+    },
+    "requiresApproval": false,
+    "isActive": true
+  },
+  {
     "name": "ingest_document",
     "description": "Ingesta un documento de texto en el brain de la marca: lo divide en fragmentos semánticos, genera embeddings, extrae entidades nombradas y relaciones entre ellas.",
     "category": "knowledge",

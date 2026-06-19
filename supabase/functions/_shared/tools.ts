@@ -1412,6 +1412,30 @@ async function draftSlides(_ctx: ToolContext, args: Record<string, unknown>): Pr
   return { ok: true, data: { kind: 'slides', title, subtitle, slides } }
 }
 
+// draft_sheet: crea una HOJA DE CÁLCULO editable (artefacto kind:'sheet' que el canvas abre en
+// la grilla). Sin side-effects — normaliza columnas/filas y alinea cada fila a las columnas.
+async function draftSheet(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const title = (args.title as string)?.trim() || 'Hoja de cálculo'
+  const rawCols = Array.isArray(args.columns) ? args.columns : []
+  const columns = rawCols
+    .filter((c) => typeof c === 'string' || typeof c === 'number')
+    .slice(0, 30) // tope defensivo de columnas
+    .map((c) => String(c).slice(0, 80))
+  if (!columns.length) return { ok: false, error: 'Faltan las columnas (columns)' }
+  const rawRows = Array.isArray(args.rows) ? args.rows : []
+  const rows = rawRows
+    .slice(0, 500) // tope defensivo de filas
+    .map((r) => {
+      const cells = Array.isArray(r) ? r : [r]
+      // Alinea cada fila a la cantidad de columnas (rellena vacíos, recorta excedente).
+      return Array.from({ length: columns.length }, (_, i) => {
+        const v = cells[i]
+        return v == null ? '' : String(v).slice(0, 500)
+      })
+    })
+  return { ok: true, data: { kind: 'sheet', title, columns, rows } }
+}
+
 const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>) => Promise<ToolResult>> = {
   delegate_task: delegateTask,
   request_approval: requestApproval,
@@ -1439,6 +1463,7 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   suitecrm_sales: suitecrmSales,
   draft_document: draftDocument,
   draft_slides: draftSlides,
+  draft_sheet: draftSheet,
 }
 
 // =====================================================================

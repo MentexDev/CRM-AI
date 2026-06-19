@@ -19,7 +19,7 @@
   },
   {
     "name": "draft_slides",
-    "description": "Crea una PRESENTACIÓN (mazo de diapositivas) EDITABLE en el canvas: pitch de colección, propuesta comercial, reporte visual, plan de campaña. Devuelve diapositivas estructuradas (portada, viñetas, frase de impacto, secciones, cita); el usuario las edita, navega y exporta a PDF. NO publica — solo crea. Para texto largo usa draft_document; para correo HTML usa compose_email.",
+    "description": "Crea una PRESENTACIÓN (mazo de diapositivas) que se abre EDITABLE en el canvas: pitch de colección, propuesta comercial, reporte visual, plan de campaña. Devuelve diapositivas estructuradas (portada, viñetas, frase de impacto, secciones, cita). El usuario las edita, navega y exporta a PDF. NO publica nada — solo crea la presentación. Para texto largo corrido usa draft_document; para una campaña de correo HTML usa compose_email.",
     "category": "document",
     "args_schema": {
       "type": "object",
@@ -45,6 +45,26 @@
             }
           }
         }
+      }
+    },
+    "requires_approval": false,
+    "is_active": true
+  },
+  {
+    "name": "draft_sheet",
+    "description": "Crea una HOJA DE CÁLCULO editable en el canvas: tabla de datos, comparativo, catálogo, presupuesto, reporte de ventas. Devuelve columnas y filas; el usuario edita celdas, agrega/quita filas y columnas, ve totales de columnas numéricas y exporta a CSV. NO publica ni envía nada — solo crea la tabla. Para texto largo usa draft_document; para diapositivas usa draft_slides.",
+    "category": "document",
+    "args_schema": {
+      "type": "object",
+      "required": [
+        "title",
+        "columns",
+        "rows"
+      ],
+      "properties": {
+        "title": { "type": "string", "description": "Título de la hoja." },
+        "columns": { "type": "array", "items": { "type": "string" }, "description": "Encabezados de columna, en orden. Ej: [\"Producto\", \"Precio\", \"Stock\"]." },
+        "rows": { "type": "array", "items": { "type": "array", "items": { "type": "string" } }, "description": "Filas; cada fila es un arreglo de celdas alineado a 'columns'. Números como texto; la hoja totaliza columnas 100% numéricas." }
       }
     },
     "requires_approval": false,

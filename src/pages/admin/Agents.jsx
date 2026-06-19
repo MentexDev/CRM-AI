@@ -41,6 +41,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Square,
+  Table,
   Thermometer,
   Trash2,
   TrendingUp,
@@ -58,6 +59,7 @@ import { ConversationMenu } from '../../components/ConversationMenu'
 import { TasksBoard } from './Tasks'
 import DocumentEditor from '../../components/DocumentEditor'
 import SlideDeck from '../../components/SlideDeck'
+import SheetView from '../../components/SheetView'
 import CommandPalette from '../../components/CommandPalette'
 import { useVoiceTranscription } from '../../hooks/useVoiceTranscription'
 import { useAuth } from '../../context/AuthContext'
@@ -543,8 +545,23 @@ function slidesToMarkdown(title, subtitle, slides) {
   for (const s of slides || []) {
     lines.push('', '---', '')
     if (s.heading) lines.push(s.layout === 'quote' ? `> ${s.heading}` : `## ${s.heading}`)
-    for (const b of s.bullets || []) if (b) lines.push(`- ${b}`)
+    // Solo el layout 'bullets' (o el default) muestra viñetas; en quote/statement/section las
+    // viñetas quedan ocultas en el editor y en el PDF, así que tampoco van al Markdown.
+    if (!s.layout || s.layout === 'bullets') for (const b of s.bullets || []) if (b) lines.push(`- ${b}`)
     if (s.body) lines.push('', s.body)
+    if (s.note) lines.push('', `> _Nota: ${s.note}_`)
+  }
+  return lines.join('\n')
+}
+
+// Serializa una hoja (draft_sheet) a una tabla Markdown para guardarla en la biblioteca.
+function sheetToMarkdown(title, columns, rows) {
+  const cols = (columns && columns.length ? columns : ['Columna 1']).map((c) => String(c).replace(/\|/g, '\\|') || ' ')
+  const esc = (v) => String(v ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ')
+  const lines = [`# ${title || 'Hoja de cálculo'}`, '', `| ${cols.join(' | ')} |`, `| ${cols.map(() => '---').join(' | ')} |`]
+  for (const r of rows || []) {
+    const cells = cols.map((_, i) => esc(Array.isArray(r) ? r[i] : ''))
+    lines.push(`| ${cells.join(' | ')} |`)
   }
   return lines.join('\n')
 }
@@ -656,6 +673,16 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
             messageId: m.id,
             key: String(m.id),
           })
+        } else if (d.kind === 'sheet' && Array.isArray(d.columns)) {
+          // Hoja de cálculo editable (draft_sheet) → grilla en el canvas.
+          out.push({
+            type: 'sheet',
+            title: d.title || 'Hoja de cálculo',
+            columns: d.columns,
+            rows: Array.isArray(d.rows) ? d.rows : [],
+            messageId: m.id,
+            key: String(m.id),
+          })
         }
       } catch {
         /* no es JSON / no es artefacto */
@@ -671,7 +698,15 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // NO vienen de un mensaje del agente. Conviven con los artefactos del hilo en la barra.
   const [localTabs, setLocalTabs] = useState(() => loadLocalTabs(agent.slug))
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const allTabs = useMemo(() => [...canvasArtifacts, ...localTabs], [canvasArtifacts, localTabs])
+  // Overrides de ediciones EN VIVO por key. Los artefactos del hilo (slides/sheet/document que
+  // vienen de un mensaje) se montan con key fija y su editor guarda el estado en useState propio;
+  // sin esto, al cambiar de pestaña y volver el editor se remonta desde el artefacto ORIGINAL y se
+  // pierde lo editado. onDocChange escribe aquí (no solo para pestañas 'local-') y allTabs lo fusiona.
+  const [editedTabs, setEditedTabs] = useState({})
+  const allTabs = useMemo(
+    () => [...canvasArtifacts, ...localTabs].map((a) => (editedTabs[a.key] ? { ...a, ...editedTabs[a.key] } : a)),
+    [canvasArtifacts, localTabs, editedTabs],
+  )
   // Pestañas CERRADAS (recuperables desde el historial). Cerrar ≠ Eliminar: cerrar solo las
   // saca de la tira (siguen en el historial); "Eliminar" sí las borra (soft-hide) y entonces
   // también desaparecen del historial (porque salen de canvasArtifacts/allTabs).
@@ -706,8 +741,11 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // cambio de pestaña / cierre del browser NO pierda lo escrito y la etiqueta refleje el
   // título) y limpiamos el "guardado" para reactivar el botón Guardar (dirty).
   const onDocChange = (key, payload) => {
+    // Override en vivo para TODA pestaña (incluye slides/sheet/document del hilo) → no se pierde
+    // lo editado al cambiar de pestaña, y el label/título de la pestaña se actualiza al renombrar.
+    setEditedTabs((prev) => ({ ...prev, [key]: { ...prev[key], ...payload } }))
     if (typeof key === 'string' && key.startsWith('local-')) {
-      setLocalTabs((prev) => prev.map((t) => (t.key === key ? { ...t, title: payload.title, markdown: payload.markdown } : t)))
+      setLocalTabs((prev) => prev.map((t) => (t.key === key ? { ...t, ...payload } : t)))
     }
     setSavedKeys((s) => {
       if (!s.has(key)) return s
@@ -796,6 +834,14 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         const ttl = (live?.title || artifact.title || 'Presentación NINA').trim() || 'Presentación NINA'
         const deck = Array.isArray(live?.slides) ? live.slides : artifact.slides || []
         const md = slidesToMarkdown(ttl, live?.subtitle ?? artifact.subtitle, deck)
+        row = { title: ttl, kind: 'document', content: md, source: 'canvas', size_bytes: new Blob([md]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
+      } else if (artifact.type === 'sheet') {
+        // Toma lo EDITADO (docContentRef del SheetView activo) y serializa a tabla Markdown.
+        const live = docContentRef.current?.()
+        const ttl = (live?.title || artifact.title || 'Hoja NINA').trim() || 'Hoja NINA'
+        const cols = Array.isArray(live?.columns) ? live.columns : artifact.columns || []
+        const rws = Array.isArray(live?.rows) ? live.rows : artifact.rows || []
+        const md = sheetToMarkdown(ttl, cols, rws)
         row = { title: ttl, kind: 'document', content: md, source: 'canvas', size_bytes: new Blob([md]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
       } else {
         row = { title: artifact.subject || 'Correo NINA', kind: 'campaign', content: artifact.html, source: 'canvas', size_bytes: new Blob([artifact.html]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
@@ -1224,6 +1270,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
   const label = (a) =>
     a.type === 'document' ? a.title || 'Documento'
       : a.type === 'slides' ? a.title || 'Presentación'
+      : a.type === 'sheet' ? a.title || 'Hoja de cálculo'
       : a.type === 'calendar' ? 'Calendario'
       : a.type === 'image' ? a.title
       : a.subject
@@ -1296,7 +1343,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
                 ) : (
                   [...(history || [])].reverse().map((a) => {
                     const HIcon =
-                      a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : MessageSquare
+                      a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : MessageSquare
                     const isOpen = artifacts.some((t) => t.key === a.key)
                     return (
                       <button
@@ -1318,7 +1365,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
           {artifacts.map((a) => {
             const isActive = active && a.key === active.key
-            const TabIcon = a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : MessageSquare
+            const TabIcon = a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : MessageSquare
             return (
               <button
                 key={a.key}
@@ -1404,7 +1451,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         </button>
       </div>
       {/* Preview del artefacto activo: documento editable, agenda, imagen o correo HTML. */}
-      <div className={`relative flex-1 min-h-0 bg-nina-ink ${active?.type === 'document' || active?.type === 'slides' ? '' : 'p-3'}`}>
+      <div className={`relative flex-1 min-h-0 bg-nina-ink ${['document', 'slides', 'sheet'].includes(active?.type) ? '' : 'p-3'}`}>
         {!active ? (
           <div className="h-full grid place-items-center text-center px-8">
             <div className="max-w-sm">
@@ -1429,6 +1476,15 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
             title={active.title}
             subtitle={active.subtitle}
             slides={active.slides}
+            getContentRef={docContentRef}
+            onChange={(p) => onDocChange?.(active.key, p)}
+          />
+        ) : active?.type === 'sheet' ? (
+          <SheetView
+            key={active.key}
+            title={active.title}
+            columns={active.columns}
+            rows={active.rows}
             getContentRef={docContentRef}
             onChange={(p) => onDocChange?.(active.key, p)}
           />
@@ -1500,6 +1556,8 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
           <>Documento editable · usa <span className="text-nina-chrome">/</span> para bloques · MD/PDF arriba · "Guardar" lo manda a la biblioteca.</>
         ) : active?.type === 'slides' ? (
           <>Presentación editable · <span className="text-nina-chrome">← →</span> para navegar · clic en el texto para editar · PDF arriba · "Guardar" la manda a la biblioteca.</>
+        ) : active?.type === 'sheet' ? (
+          <>Hoja editable · clic en una celda para escribir · totales automáticos de columnas numéricas · CSV arriba · "Guardar" la manda a la biblioteca.</>
         ) : active?.type === 'calendar' ? (
           <>Agenda del calendario de marca · pídele al agente que agende o liste más eventos.</>
         ) : active?.type === 'image' ? (

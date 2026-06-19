@@ -21,6 +21,15 @@ const LAYOUT_SET = new Set(LAYOUTS.map((l) => l.id))
 // Diapositiva en blanco según layout.
 const blankSlide = (layout = 'bullets') => ({ layout, heading: '', bullets: layout === 'bullets' ? [''] : [], body: '', note: '' })
 
+// Normaliza una diapositiva entrante: en layout 'bullets' garantiza al menos una viñeta editable.
+// Si llegara con bullets:[] (el modelo dio solo heading), escribir en la viñeta fantasma se perdería
+// porque [].map() devuelve []. Forzar [''] aquí lo evita en origen.
+const normalizeSlide = (x) => {
+  const layout = x?.layout || 'bullets'
+  const bullets = Array.isArray(x?.bullets) ? x.bullets : []
+  return { ...blankSlide(layout), ...x, layout, bullets: layout === 'bullets' && !bullets.length ? [''] : bullets }
+}
+
 const SLIDE_CSS = `
 .nina-slide-edit:focus { outline: none; }
 .nina-slide-edit[data-empty="true"]::before { content: attr(data-placeholder); color: rgba(255,255,255,0.28); pointer-events: none; }
@@ -58,7 +67,7 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
   const [subtitle, setSubtitle] = useState(initialSubtitle || '')
   const [slides, setSlides] = useState(() => {
     const s = Array.isArray(initialSlides) ? initialSlides : []
-    return s.length ? s.map((x) => ({ ...blankSlide(x?.layout), ...x, bullets: Array.isArray(x?.bullets) ? x.bullets : [] })) : [blankSlide('cover')]
+    return s.length ? s.map(normalizeSlide) : [blankSlide('cover')]
   })
   const [idx, setIdx] = useState(0)
   const safeIdx = Math.min(idx, slides.length - 1)
@@ -80,18 +89,21 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
   // El canvas lee esto on-demand al "Guardar" → toma lo EDITADO, no el artefacto original.
   if (getContentRef) getContentRef.current = () => ({ title, subtitle, slides })
 
-  // Mutadores
+  // Mutadores — todos derivan desde `prev` dentro del updater funcional (no del closure del render)
+  // para no pisar ediciones concurrentes (escritura rápida + Enter, etc.).
   const patchSlide = (i, patch) => { setSlides((prev) => prev.map((s, j) => (j === i ? { ...s, ...patch } : s))); scheduleFire() }
-  const patchBullet = (i, bi, text) => patchSlide(i, { bullets: slides[i].bullets.map((b, k) => (k === bi ? text : b)) })
+  // Parte de la lista EFECTIVA (['' ] si está vacía) para que escribir en la viñeta fantasma sí persista.
+  const updateBullets = (i, fn) => {
+    setSlides((prev) => prev.map((s, j) => (j === i ? { ...s, bullets: fn(s.bullets.length ? s.bullets : ['']) } : s)))
+    scheduleFire()
+  }
+  const patchBullet = (i, bi, text) => updateBullets(i, (bs) => bs.map((b, k) => (k === bi ? text : b)))
   const addBullet = (i, at) => {
-    const next = [...slides[i].bullets]
-    next.splice(at + 1, 0, '')
-    patchSlide(i, { bullets: next })
+    updateBullets(i, (bs) => { const next = [...bs]; next.splice(at + 1, 0, ''); return next })
     requestAnimationFrame(() => focusBullet(at + 1))
   }
   const removeBullet = (i, bi) => {
-    if (slides[i].bullets.length <= 1) return patchBullet(i, bi, '')
-    patchSlide(i, { bullets: slides[i].bullets.filter((_, k) => k !== bi) })
+    updateBullets(i, (bs) => (bs.length <= 1 ? [''] : bs.filter((_, k) => k !== bi)))
     requestAnimationFrame(() => focusBullet(Math.max(0, bi - 1)))
   }
   const focusBullet = (bi) => {
@@ -122,15 +134,26 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
   }
   const setLayout = (layout) => {
     // Al pasar a 'bullets' garantizamos al menos una viñeta para que se pueda escribir.
-    const patch = { layout }
-    if (layout === 'bullets' && (!cur.bullets || cur.bullets.length === 0)) patch.bullets = ['']
-    patchSlide(safeIdx, patch)
+    setSlides((prev) =>
+      prev.map((s, j) => {
+        if (j !== safeIdx) return s
+        const bullets = layout === 'bullets' && (!s.bullets || !s.bullets.length) ? [''] : s.bullets
+        return { ...s, layout, bullets }
+      }),
+    )
+    scheduleFire()
   }
 
-  // Navegación con teclado — salvo cuando se está editando (que las flechas muevan el cursor).
+  // Navegación con teclado — solo cuando el deck está "activo" (cursor encima o foco dentro de él),
+  // para NO secuestrar las flechas del resto del workspace (el canvas es split-view con el chat).
+  // Y nunca mientras se edita una celda/viñeta/título (que las flechas muevan el cursor).
+  const rootRef = useRef(null)
+  const hoverRef = useRef(false)
   useEffect(() => {
     const onKey = (e) => {
-      if (document.activeElement?.isContentEditable || ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return
+      const ae = document.activeElement
+      if (ae?.isContentEditable || ['INPUT', 'TEXTAREA'].includes(ae?.tagName)) return
+      if (!hoverRef.current && !rootRef.current?.contains(ae)) return
       if (e.key === 'ArrowRight' || e.key === 'PageDown') { setIdx((v) => Math.min(v + 1, slides.length - 1)); }
       else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { setIdx((v) => Math.max(v - 1, 0)); }
     }
@@ -152,7 +175,10 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
       const items = (s.bullets || []).filter(Boolean).map((b) => `<li>${esc(b)}</li>`).join('')
       return `<div class="c"><h2>${esc(s.heading)}</h2><ul>${items}</ul>${s.body ? `<p class="sub">${esc(s.body)}</p>` : ''}</div>`
     }
-    const pages = slides.map((s) => `<section class="slide">${slideHTML(s)}</section>`).join('')
+    // Saltamos diapositivas sin contenido renderizable para no generar páginas mudas en el PDF
+    // (mismo criterio que el filtro del motor; 'cover' siempre cae al título del mazo).
+    const renderable = (s) => s.layout === 'cover' || s.heading || s.body || (s.bullets || []).some(Boolean)
+    const pages = slides.filter(renderable).map((s) => `<section class="slide">${slideHTML(s)}</section>`).join('')
     w.document.write(
       `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>` +
         `@page{size:A4 landscape;margin:0}*{box-sizing:border-box}` +
@@ -255,7 +281,12 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
   const tbBtn = 'flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition-colors'
 
   return (
-    <div className="h-full flex flex-col bg-nina-ink">
+    <div
+      ref={rootRef}
+      onMouseEnter={() => { hoverRef.current = true }}
+      onMouseLeave={() => { hoverRef.current = false }}
+      className="h-full flex flex-col bg-nina-ink"
+    >
       <style>{SLIDE_CSS}</style>
       {/* Barra superior: título del mazo + acciones */}
       <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-nina-line/50 shrink-0">
@@ -320,6 +351,18 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
             <ChevronRight size={18} />
           </button>
         </div>
+      </div>
+
+      {/* Notas del presentador (privadas): NO se muestran en la diapositiva ni en el PDF, pero se
+          editan aquí y se conservan al guardar en la biblioteca. */}
+      <div className="px-4 pb-2 shrink-0">
+        <textarea
+          value={cur.note || ''}
+          onChange={(e) => patchSlide(safeIdx, { note: e.target.value })}
+          placeholder="Notas del presentador (privadas)…"
+          rows={1}
+          className="w-full resize-none bg-nina-panel/40 border border-nina-line/50 rounded-lg px-2.5 py-1.5 text-[11.5px] text-nina-mute outline-none focus:text-nina-chrome focus:border-nina-silver/40 placeholder:text-nina-mute/40"
+        />
       </div>
 
       {/* Tira de miniaturas */}

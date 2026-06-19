@@ -13,8 +13,8 @@ const NEW_ITEMS = [
   { id: 'image', label: 'Imagen', desc: 'Genérala con IA', icon: ImageIcon, active: true },
   { id: 'calendar', label: 'Agendar', desc: 'Programar contenido', icon: CalendarDays, active: true },
   { id: 'slides', label: 'Presentación', desc: 'Mazo de diapositivas con IA', icon: Presentation, active: true },
+  { id: 'sheet', label: 'Hoja de cálculo', desc: 'Tabla de datos con totales', icon: Table, active: true },
   { id: 'web', label: 'Navegar web', desc: 'Próximamente', icon: Globe, active: false },
-  { id: 'sheet', label: 'Hoja de cálculo', desc: 'Próximamente', icon: Table, active: false },
   { id: 'board', label: 'Pizarra', desc: 'Próximamente', icon: LayoutGrid, active: false },
 ]
 
@@ -26,6 +26,7 @@ const AGENT_PROMPTS = {
   image: 'Hoy quiero crear una imagen.',
   calendar: 'Hoy quiero agendar algo en el calendario.',
   slides: 'Hoy quiero crear una presentación.',
+  sheet: 'Hoy quiero crear una hoja de cálculo.',
 }
 
 export default function CommandPalette({ open, onClose, onNewDocument, onAgentPrompt }) {
