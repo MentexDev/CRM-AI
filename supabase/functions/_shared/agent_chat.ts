@@ -266,12 +266,34 @@ export async function runAgentChatTurn(
             : undefined,
       }
       let result: ChatCompleteResult
+      let streamed = ''
+      // Poller del "Stop": marca canceledMid cuando conversations.canceled_at cambia respecto
+      // al baseline. El stream se corta al instante vía onText (throw); el no-stream, al volver.
+      let canceledMid = false
+      const cancelPoll = setInterval(() => {
+        db.from('conversations').select('canceled_at').eq('id', convId).maybeSingle().then(
+          ({ data }) => {
+            if (((data as { canceled_at?: string } | null)?.canceled_at ?? null) !== cancelBaseline) canceledMid = true
+          },
+          () => {},
+        )
+      }, 1000)
+      const finalizeCanceled = async () => {
+        if (assistantMsgId) {
+          await db
+            .from('messages')
+            .update({ content: streamed || '⏹️ Detenido.', metadata: { source: 'chat', streaming: false, canceled: true } })
+            .eq('id', assistantMsgId)
+        }
+        stopReason = 'canceled'
+        finished = true
+      }
       try {
         if (provider.completeStream && assistantMsgId) {
-          let streamed = ''
           let lastFlush = 0
           result = await provider.completeStream(completeParams, {
             onText: (delta) => {
+              if (canceledMid) throw new Error('__user_canceled__') // Stop → corta el stream ya
               streamed += delta
               const now = Date.now()
               if (now - lastFlush > 180) {
@@ -285,6 +307,12 @@ export async function runAgentChatTurn(
           result = await provider.complete(completeParams)
         }
       } catch (e) {
+        clearInterval(cancelPoll)
+        // Stop del usuario a mitad de la respuesta: cerramos el mensaje (parcial) y cortamos.
+        if (canceledMid || (e instanceof Error && e.message === '__user_canceled__')) {
+          await finalizeCanceled()
+          break
+        }
         // Si NO es un límite de tokens, propaga (lo maneja index.ts como 500).
         if (!isRateOrSizeLimitError(e)) throw e
         // Degradación con gracia: el agente responde en el chat con un mensaje
@@ -300,6 +328,12 @@ export async function runAgentChatTurn(
         }
         stopReason = 'rate_or_size_limit'
         finished = true
+        break
+      }
+      clearInterval(cancelPoll)
+      // Stop justo al terminar (caso no-stream): cortamos antes de procesar el resultado.
+      if (canceledMid) {
+        await finalizeCanceled()
         break
       }
 

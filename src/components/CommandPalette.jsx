@@ -19,13 +19,12 @@ const NEW_ITEMS = [
 ]
 
 // Prompts de arranque para las acciones que dispara el agente (usa ask_questions y precisa).
+// Prompts NATURALES (sin mencionar tools): el formulario de preguntas se garantiza forzando
+// ask_questions a nivel del LLM (force_tool), no diciéndoselo al agente en el texto.
 const AGENT_PROMPTS = {
-  email:
-    'Hoy quiero crear un correo. Usa la herramienta ask_questions para preguntarme, en un formulario, lo necesario (tema, objetivo, tono, a quién va y si hay oferta). Con mis respuestas, prepáralo con compose_email. NO escribas las preguntas como texto: usa ask_questions.',
-  image:
-    'Quiero crear una imagen. Usa la herramienta ask_questions para preguntarme, en un formulario, lo necesario (concepto, formato y estilo). Con mis respuestas, générala con generate_image. NO escribas las preguntas como texto: usa ask_questions.',
-  calendar:
-    'Quiero agendar algo. Usa la herramienta ask_questions para preguntarme, en un formulario, lo necesario (qué, fecha y hora). Con mis respuestas, agéndalo en el calendario. NO escribas las preguntas como texto: usa ask_questions.',
+  email: 'Hoy quiero crear un correo.',
+  image: 'Hoy quiero crear una imagen.',
+  calendar: 'Hoy quiero agendar algo en el calendario.',
 }
 
 export default function CommandPalette({ open, onClose, onNewDocument, onAgentPrompt }) {
