@@ -556,7 +556,9 @@ export default function AdminLayout() {
   // Siempre colapsado al cargar la página — Brandon quiere maximizar el
   // espacio del chat por default. El toggle expande dentro de la sesión
   // pero el refresh resetea.
-  const [collapsed, setCollapsed] = useState(true)
+  const [collapsed, setCollapsed] = useState(
+    () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('canvas') === '1',
+  )
   const [settingsOpen, setSettingsOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
@@ -568,11 +570,11 @@ export default function AdminLayout() {
   // para darle todo el espacio al canvas.
   const [searchParams] = useSearchParams()
   const canvasOpen = searchParams.get('canvas') === '1'
-  // Al abrir el canvas, auto-colapsamos el sidebar (solo iconos) para darle
-  // espacio — pero NO lo bloqueamos: el usuario puede volver a expandirlo con el
-  // toggle aunque el canvas siga abierto.
+  // El sidebar sigue al browser: al ABRIRLO se colapsa (más espacio para el canvas) y al
+  // OCULTARLO se EXPANDE de nuevo automáticamente. Entre cambios del browser, el toggle
+  // manual manda (este efecto solo corre cuando canvasOpen cambia).
   useEffect(() => {
-    if (canvasOpen) setCollapsed(true)
+    setCollapsed(canvasOpen)
   }, [canvasOpen])
 
   useEffect(() => {
