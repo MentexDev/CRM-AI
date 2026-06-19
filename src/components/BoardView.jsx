@@ -125,8 +125,34 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
 
   const scrollRef = useRef(null)
 
-  // Centro de una nota (ancla de conexión).
-  const center = (n) => ({ x: n.x + NW / 2, y: n.y + NH / 2 })
+  // Geometría de conexiones estilo n8n: la flecha SALE/ENTRA por el BORDE del bloque (no por el
+  // centro, que la haría pasar por encima de la nota) y la curva arranca perpendicular a esa cara.
+  // anchor() = intersección del rayo centro→destino con el rectángulo de la nota + su normal.
+  const anchor = (n, tx, ty) => {
+    const cx = n.x + NW / 2
+    const cy = n.y + NH / 2
+    const dx = tx - cx
+    const dy = ty - cy
+    if (dx === 0 && dy === 0) return { x: cx, y: cy, nx: 0, ny: 0 }
+    const sx = dx !== 0 ? NW / 2 / Math.abs(dx) : Infinity
+    const sy = dy !== 0 ? NH / 2 / Math.abs(dy) : Infinity
+    const sc = Math.min(sx, sy)
+    const horiz = sx < sy // cae en la cara izquierda/derecha → normal horizontal
+    return { x: cx + dx * sc, y: cy + dy * sc, nx: horiz ? Math.sign(dx) : 0, ny: horiz ? 0 : Math.sign(dy) }
+  }
+  // Devuelve el path (cubic bezier) y el punto medio aprox de una conexión a→b.
+  const edgeGeom = (a, b) => {
+    const ac = { x: a.x + NW / 2, y: a.y + NH / 2 }
+    const bc = { x: b.x + NW / 2, y: b.y + NH / 2 }
+    const s = anchor(a, bc.x, bc.y)
+    const t = anchor(b, ac.x, ac.y)
+    const k = Math.max(28, Math.hypot(t.x - s.x, t.y - s.y) * 0.4)
+    const c1 = { x: s.x + s.nx * k, y: s.y + s.ny * k }
+    const c2 = { x: t.x + t.nx * k, y: t.y + t.ny * k }
+    // Bezier en u=0.5: (P0+P3)/8 + 3(P1+P2)/8.
+    const mid = { x: 0.125 * (s.x + t.x) + 0.375 * (c1.x + c2.x), y: 0.125 * (s.y + t.y) + 0.375 * (c1.y + c2.y) }
+    return { d: `M ${s.x} ${s.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${t.x} ${t.y}`, mid }
+  }
 
   return (
     <div className="h-full flex flex-col bg-nina-ink">
@@ -177,13 +203,18 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
               const a = nodeById[e.from]
               const b = nodeById[e.to]
               if (!a || !b) return null
-              const ca = center(a)
-              const cb = center(b)
+              const g = edgeGeom(a, b)
               return (
                 <g key={i}>
-                  <line x1={ca.x} y1={ca.y} x2={cb.x} y2={cb.y} stroke="rgba(180,184,193,0.5)" strokeWidth="1.5" markerEnd="url(#nina-arrow)" />
+                  <path d={g.d} fill="none" stroke="rgba(180,184,193,0.55)" strokeWidth="1.5" markerEnd="url(#nina-arrow)" />
                   {e.label && (
-                    <text x={(ca.x + cb.x) / 2} y={(ca.y + cb.y) / 2 - 4} textAnchor="middle" className="fill-nina-mute" style={{ fontSize: 10 }}>
+                    <text
+                      x={g.mid.x}
+                      y={g.mid.y - 4}
+                      textAnchor="middle"
+                      className="fill-nina-silver"
+                      style={{ fontSize: 10, paintOrder: 'stroke', stroke: '#0d0e12', strokeWidth: 3, strokeLinejoin: 'round' }}
+                    >
                       {e.label}
                     </text>
                   )}
@@ -192,19 +223,18 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
             })}
           </svg>
 
-          {/* Botones para eliminar conexión (capa HTML sobre el punto medio) */}
+          {/* Botones para eliminar conexión (capa HTML sobre el punto medio del bezier) */}
           {edges.map((e, i) => {
             const a = nodeById[e.from]
             const b = nodeById[e.to]
             if (!a || !b) return null
-            const mx = (a.x + b.x) / 2 + NW / 2
-            const my = (a.y + b.y) / 2 + NH / 2
+            const g = edgeGeom(a, b)
             return (
               <button
                 key={`del-${i}`}
                 onClick={() => removeEdge(i)}
                 className="absolute z-10 w-4 h-4 grid place-items-center rounded-full bg-nina-panel border border-nina-line text-nina-mute hover:text-red-300 opacity-0 hover:opacity-100 transition"
-                style={{ left: mx - 8, top: my - 8 }}
+                style={{ left: g.mid.x - 8, top: g.mid.y - 8 }}
                 title="Eliminar conexión"
               >
                 <X size={10} />
