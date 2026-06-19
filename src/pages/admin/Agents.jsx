@@ -626,10 +626,10 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId])
 
-  const addOptimistic = (content) => {
+  const addOptimistic = (content, meta) => {
     setOptimistic((prev) => [
       ...prev,
-      { id: `opt-${Date.now()}`, role: 'user', content, created_at: new Date().toISOString(), optimistic: true },
+      { id: `opt-${Date.now()}`, role: 'user', content, created_at: new Date().toISOString(), optimistic: true, metadata: meta || undefined },
     ])
     setThinking(true)
   }
@@ -1697,9 +1697,16 @@ function inferProvider(model) {
   return 'groq'
 }
 
+// Límites del composer (estilo Manus): sobre SOFT_LIMIT sugerimos "convertir a archivo"; sobre
+// MAX_RAW (tope del backend para un mensaje normal) se auto-convierte a archivo al enviar.
+const COMPOSER_SOFT_LIMIT = 3000
+const COMPOSER_MAX_RAW = 4000
+const fmtKB = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(2)} KB`)
+
 function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend, onSettled, bare = false, suggestions }) {
   const { isJunta } = useAuth()
   const [text, setText] = useState('')
+  const [attachment, setAttachment] = useState(null) // { name, text } al "Convertir texto a archivo"
   const [sending, setSending] = useState(false)
   const sendingConvIdRef = useRef(null) // convId del turno en curso (para el botón Stop)
   const [voiceGhost, setVoiceGhost] = useState('')
@@ -1767,16 +1774,37 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
     ta.style.height = Math.min(Math.max(64, ta.scrollHeight), 200) + 'px'
   }, [text, voiceGhost])
 
+  // "Convertir texto a archivo": el texto pasa a ser un documento adjunto (chip), el input se limpia.
+  const convertToFile = () => {
+    const t = text.trim()
+    if (!t) return
+    setAttachment({ name: 'pasted_content.txt', text: t })
+    setText('')
+    requestAnimationFrame(() => taRef.current?.focus())
+  }
+
   const send = async () => {
-    const content = text.trim()
-    if (!content || sending) return
+    if (sending) return
+    const typed = text.trim()
+    // Resolvemos nota (instrucción) + documento adjunto:
+    let att = attachment
+    let note = ''
+    let fileText = ''
+    if (att) { note = typed; fileText = att.text } // adjunto manual: el textarea es la instrucción
+    else if (typed.length > COMPOSER_MAX_RAW) { att = { name: 'pasted_content.txt', text: typed }; fileText = typed } // auto-convertir
+    // content que recibe el agente: nota (si la hay) + texto del documento, en ese orden.
+    const content = att ? (note ? `${note}\n\n${fileText}` : fileText) : typed
+    if (!content) return
     if (agent.status === 'disabled') {
       toast.error('Este agente está deshabilitado. Reactívalo para conversar.')
       return
     }
     if (voice.status !== 'idle') voice.stopListening()
+    // chars = longitud del DOCUMENTO (no de la nota) → la burbuja separa nota y archivo por el final.
+    const attMeta = att ? { name: att.name, chars: fileText.length } : null
     setSending(true)
     setText('')
+    setAttachment(null)
     setVoiceGhost('')
     // Pintar el mensaje del usuario al instante (optimistic UI). Si el bot
     // tarda en responder no importa — lo tuyo ya aparece.
@@ -1787,10 +1815,10 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
     const targetConvId = conversationId ?? crypto.randomUUID()
     sendingConvIdRef.current = targetConvId
     if (isNewConvo) onConversationCreated?.(targetConvId)
-    onUserSend?.(content)
+    onUserSend?.(content, attMeta ? { attachment: attMeta } : undefined)
     try {
       const { data, error } = await supabase.functions.invoke('chat-with-agent', {
-        body: { agent_slug: agent.slug, content, conversation_id: targetConvId },
+        body: { agent_slug: agent.slug, content, conversation_id: targetConvId, ...(attMeta ? { attachment: attMeta } : {}) },
       })
       if (error) throw error
       if (data?.error) throw new Error(data.error)
@@ -1801,7 +1829,9 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
       }
     } catch (e) {
       toast.error(e?.message || 'No se pudo enviar')
-      setText((prev) => (prev ? prev : content))
+      // Restauramos lo que el usuario tenía (la nota o el documento adjunto).
+      if (att) { setAttachment(att); if (note) setText((prev) => prev || note) }
+      else setText((prev) => prev || content)
     } finally {
       setSending(false)
       onSettled?.()
@@ -1899,6 +1929,28 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
       {!bare && renderPrompts('top')}
 
       <div className="rounded-2xl border border-nina-line bg-nina-panel/40 focus-within:border-nina-silver/40 transition-colors">
+        {/* Chip del documento adjunto (texto convertido a archivo, estilo Manus) */}
+        {attachment && (
+          <div className="px-3 pt-2.5">
+            <div className="inline-flex items-center gap-2 max-w-full rounded-xl border border-nina-line bg-nina-ink px-2.5 py-1.5">
+              <span className="w-7 h-7 grid place-items-center rounded-lg bg-blue-500/15 text-blue-300 shrink-0">
+                <FileText className="w-4 h-4" />
+              </span>
+              <div className="min-w-0">
+                <div className="text-[12.5px] text-nina-chrome truncate">{attachment.name}</div>
+                <div className="text-[10px] text-nina-mute">Texto · {fmtKB(attachment.text.length)}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAttachment(null)}
+                className="ml-1 w-5 h-5 grid place-items-center rounded text-nina-mute hover:text-nina-chrome shrink-0"
+                title="Quitar adjunto"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
         <div className="relative px-3 pt-2.5 pb-1">
           <textarea
             ref={taRef}
@@ -1914,13 +1966,30 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
             onKeyDown={onKeyDown}
             onFocus={() => setFocused(true)}
             onBlur={() => setTimeout(() => setFocused(false), 150)}
-            placeholder={`Escríbele a ${agent.name}…`}
+            placeholder={attachment ? 'Describe qué hacer con el documento…' : `Escríbele a ${agent.name}…`}
             rows={1}
             className="w-full bg-transparent outline-none resize-none text-sm leading-snug text-nina-chrome placeholder:text-nina-mute"
             style={{ minHeight: '64px', maxHeight: '200px' }}
             disabled={sending}
           />
         </div>
+
+        {/* Contador + "Convertir texto a archivo" cuando el texto es largo (estilo Manus) */}
+        {!attachment && text.length > 2000 && (
+          <div className="flex items-center gap-2 px-3 pb-1 text-[11px]">
+            <span className={text.length > COMPOSER_SOFT_LIMIT ? 'text-red-400 font-medium' : 'text-nina-mute'}>
+              {text.length}/{COMPOSER_SOFT_LIMIT}
+            </span>
+            {text.length > COMPOSER_SOFT_LIMIT && (
+              <>
+                <span className="text-nina-mute/40">·</span>
+                <button type="button" onClick={convertToFile} className="text-blue-400 hover:text-blue-300 font-medium">
+                  Convertir texto a archivo
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         <div className="flex items-center gap-1 px-2 pb-2">
           {/* Izquierda — attach + settings + agent pill */}
@@ -3018,6 +3087,38 @@ function SystemNote({ message }) {
   )
 }
 
+// Burbuja de un mensaje que es un DOCUMENTO adjunto ("Convertir texto a archivo"): muestra la nota
+// (si la hay) + un chip de archivo expandible, en vez del muro de texto. chars = longitud del
+// documento → el resto del content (al inicio) es la nota/instrucción.
+function AttachmentMessage({ content, attachment }) {
+  const [open, setOpen] = useState(false)
+  const chars = Math.min(attachment?.chars || content.length, content.length)
+  const fileText = content.slice(content.length - chars)
+  const note = content.slice(0, content.length - chars).replace(/\n+$/, '')
+  return (
+    <div className="space-y-2">
+      {note && <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{note}</div>}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 rounded-xl bg-nina-black/10 border border-nina-black/15 px-2.5 py-1.5 text-left w-full max-w-[280px] hover:bg-nina-black/15 transition"
+        title="Ver/ocultar el documento"
+      >
+        <span className="w-7 h-7 grid place-items-center rounded-lg bg-nina-black/15 shrink-0">
+          <FileText className="w-4 h-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[12.5px] font-medium truncate">{attachment?.name || 'documento.txt'}</span>
+          <span className="block text-[10px] opacity-70">Texto · {fmtKB(fileText.length)} · {open ? 'ocultar' : 'ver'}</span>
+        </span>
+      </button>
+      {open && (
+        <pre className="max-h-64 overflow-auto rounded-lg bg-nina-black/10 border border-nina-black/15 p-2.5 text-[11.5px] whitespace-pre-wrap break-words font-mono leading-relaxed">{fileText}</pre>
+      )}
+    </div>
+  )
+}
+
 function MessageBubble({ message, hideTools = false }) {
   const { role, content, tool_calls, created_at } = message
 
@@ -3061,7 +3162,11 @@ function MessageBubble({ message, hideTools = false }) {
             }`}
           >
             {isUser ? (
-              <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{content}</div>
+              message.metadata?.attachment ? (
+                <AttachmentMessage content={content} attachment={message.metadata.attachment} />
+              ) : (
+                <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{content}</div>
+              )
             ) : (
               <Markdown className="text-sm leading-relaxed">{content}</Markdown>
             )}

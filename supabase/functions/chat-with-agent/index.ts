@@ -18,6 +18,9 @@ const CORS_HEADERS = {
 }
 
 const MAX_CONTENT_LEN = 4000
+// Cuando el mensaje viene como "documento adjunto" (texto largo convertido a archivo en el chat),
+// permitimos mucho más texto: es un documento que el agente debe leer, no un mensaje suelto.
+const ATTACHMENT_MAX_LEN = 100_000
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS })
@@ -39,17 +42,24 @@ Deno.serve(async (req) => {
   const { data: userData, error: userErr } = await callerClient.auth.getUser(token)
   if (userErr || !userData?.user) return json({ error: 'Token inválido' }, 401)
 
-  let body: { agent_id?: string; agent_slug?: string; content?: string; conversation_id?: string; edit_context?: string; force_tool?: string }
+  let body: { agent_id?: string; agent_slug?: string; content?: string; conversation_id?: string; edit_context?: string; force_tool?: string; attachment?: { name?: string; chars?: number } }
   try {
     body = await req.json()
   } catch {
     return json({ error: 'Body JSON inválido' }, 400)
   }
 
+  // Adjunto opcional: "Convertir texto a archivo" del chat. Si viene, el contenido es un documento
+  // (texto largo) → se permite un tope mucho mayor y se guarda metadata para pintar el chip.
+  const attachment = body.attachment && typeof body.attachment.name === 'string'
+    ? { name: body.attachment.name.slice(0, 120), chars: Number(body.attachment.chars) || 0 }
+    : null
+
   const content = (body.content ?? '').toString().trim()
   if (!content) return json({ error: 'Falta content' }, 400)
-  if (content.length > MAX_CONTENT_LEN) {
-    return json({ error: `Mensaje muy largo (>${MAX_CONTENT_LEN} chars)` }, 400)
+  const maxLen = attachment ? ATTACHMENT_MAX_LEN : MAX_CONTENT_LEN
+  if (content.length > maxLen) {
+    return json({ error: `Mensaje muy largo (>${maxLen} chars)` }, 400)
   }
 
   let agentId = body.agent_id
@@ -90,6 +100,9 @@ Deno.serve(async (req) => {
   }
   // forceFirstTool va SIN source → suppressClarify queda false y ask_questions sigue disponible.
   if (forceTool) triggerMeta.forceFirstTool = forceTool
+  // Metadata del adjunto (chars = longitud del texto del documento, para pintar el chip y poder
+  // separar la nota del documento en la burbuja). Se persiste en messages.metadata.
+  if (attachment) triggerMeta.attachment = { name: attachment.name, chars: Math.min(attachment.chars || content.length, content.length) }
 
   try {
     const result = await runAgentChatTurn(agentId, content, body.conversation_id ?? null, userData.user.id, triggerMeta)
