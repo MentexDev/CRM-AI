@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
@@ -298,6 +299,37 @@ const WORKSPACE_NAV = {
   equipo: [],
 }
 
+// Tooltip estilo Manus para el sidebar COLAPSADO: un pill oscuro a la derecha del ícono que
+// dice de qué trata esa pestaña. Usa portal + posición FIXED medida al hacer hover, para
+// escapar del overflow-hidden del layout raíz y del overflow-y-auto del sidebar (un tooltip
+// posicionado con CSS absolute quedaría recortado por esos contenedores).
+function SidebarTip({ label, children, disabled = false }) {
+  const ref = useRef(null)
+  const [coords, setCoords] = useState(null)
+  const show = () => {
+    if (disabled || !label) return
+    const r = ref.current?.getBoundingClientRect()
+    if (r) setCoords({ top: r.top + r.height / 2, left: r.right + 10 })
+  }
+  const hide = () => setCoords(null)
+  return (
+    <div ref={ref} onMouseEnter={show} onMouseLeave={hide} onMouseDown={hide} className="relative">
+      {children}
+      {coords &&
+        createPortal(
+          <div
+            role="tooltip"
+            style={{ top: coords.top, left: coords.left }}
+            className="fixed -translate-y-1/2 z-[200] px-2.5 py-1 rounded-lg bg-[#0b0c10] border border-nina-line text-nina-chrome text-[12.5px] font-medium whitespace-nowrap shadow-xl pointer-events-none"
+          >
+            {label}
+          </div>,
+          document.body,
+        )}
+    </div>
+  )
+}
+
 function SectionSwitcher({ collapsed, active, onSelect }) {
   const navigate = useNavigate()
   const go = (to) => {
@@ -309,19 +341,19 @@ function SectionSwitcher({ collapsed, active, onSelect }) {
     return (
       <div className="px-2 pt-3 flex flex-col gap-1">
         {WORKSPACES.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => go(s.to)}
-            title={s.label}
-            aria-label={s.label}
-            className={`h-9 grid place-items-center rounded-xl transition ${
-              active === s.id
-                ? 'bg-silver-gradient text-nina-black shadow-chrome'
-                : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'
-            }`}
-          >
-            <s.icon className="w-4 h-4" />
-          </button>
+          <SidebarTip key={s.id} label={s.label}>
+            <button
+              onClick={() => go(s.to)}
+              aria-label={s.label}
+              className={`w-full h-9 grid place-items-center rounded-xl transition ${
+                active === s.id
+                  ? 'bg-silver-gradient text-nina-black shadow-chrome'
+                  : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'
+              }`}
+            >
+              <s.icon className="w-4 h-4" />
+            </button>
+          </SidebarTip>
         ))}
       </div>
     )
@@ -368,42 +400,47 @@ function NavItems({ items, collapsed, onSelect }) {
   if (!items?.length) return null
   return (
     <nav className={`shrink-0 ${collapsed ? 'px-2' : 'px-2.5'} py-3 space-y-0.5`}>
-      {items.map((t) => (
-        <NavLink
-          key={t.to}
-          to={t.to}
-          onClick={onSelect}
-          title={collapsed ? t.label : undefined}
-          aria-label={t.label}
-          className={({ isActive }) =>
-            `relative flex items-center ${
-              collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'
-            } rounded-xl text-sm font-medium transition ${
-              isActive ? 'text-nina-black' : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'
-            }`
-          }
-        >
-          {({ isActive }) => (
-            <>
-              {isActive && (
-                <motion.span
-                  layoutId="sidebarActive"
-                  className="absolute inset-0 rounded-xl bg-silver-gradient shadow-chrome"
-                  transition={{ type: 'spring', stiffness: 400, damping: 32 }}
-                />
-              )}
-              <span
-                className={`relative flex items-center ${
-                  collapsed ? 'justify-center' : 'gap-3'
-                }`}
-              >
-                <t.icon className="w-4 h-4" />
-                {!collapsed && <span>{t.label}</span>}
-              </span>
-            </>
-          )}
-        </NavLink>
-      ))}
+      {items.map((t) => {
+        const link = (
+          <NavLink
+            to={t.to}
+            onClick={onSelect}
+            aria-label={t.label}
+            className={({ isActive }) =>
+              `relative flex items-center ${
+                collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'
+              } rounded-xl text-sm font-medium transition ${
+                isActive ? 'text-nina-black' : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                {isActive && (
+                  <motion.span
+                    layoutId="sidebarActive"
+                    className="absolute inset-0 rounded-xl bg-silver-gradient shadow-chrome"
+                    transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+                  />
+                )}
+                <span
+                  className={`relative flex items-center ${
+                    collapsed ? 'justify-center' : 'gap-3'
+                  }`}
+                >
+                  <t.icon className="w-4 h-4" />
+                  {!collapsed && <span>{t.label}</span>}
+                </span>
+              </>
+            )}
+          </NavLink>
+        )
+        return collapsed ? (
+          <SidebarTip key={t.to} label={t.label}>{link}</SidebarTip>
+        ) : (
+          <Fragment key={t.to}>{link}</Fragment>
+        )
+      })}
     </nav>
   )
 }
@@ -416,22 +453,25 @@ function SidebarUserBlock({ collapsed, onOpenSettings }) {
   if (collapsed) {
     return (
       <div className="px-2 py-2 border-t border-nina-line flex flex-col items-center gap-1.5">
-        <div className="relative" title={user?.fullName}>
-          <div className="w-9 h-9 rounded-full grid place-items-center bg-silver-gradient text-nina-black font-bold text-xs shadow-chrome">
-            {user?.avatarText}
+        <SidebarTip label={user?.fullName ? `${user.fullName}${user.roleLabel ? ` · ${user.roleLabel}` : ''} — ${indicator.label}` : indicator.label}>
+          <div className="relative">
+            <div className="w-9 h-9 rounded-full grid place-items-center bg-silver-gradient text-nina-black font-bold text-xs shadow-chrome">
+              {user?.avatarText}
+            </div>
+            <span
+              className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-nina-panel ${indicator.dot} ${indicator.shadow}`}
+            />
           </div>
-          <span
-            className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-nina-panel ${indicator.dot} ${indicator.shadow}`}
-          />
-        </div>
-        <button
-          onClick={onOpenSettings}
-          className="w-8 h-8 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30 transition"
-          title="Configuración"
-          aria-label="Configuración"
-        >
-          <Settings className="w-4 h-4" />
-        </button>
+        </SidebarTip>
+        <SidebarTip label="Configuración">
+          <button
+            onClick={onOpenSettings}
+            className="w-8 h-8 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30 transition"
+            aria-label="Configuración"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </SidebarTip>
       </div>
     )
   }
@@ -519,19 +559,20 @@ function SidebarHeader({ collapsed, onToggle }) {
     // panel para abrir el sidebar.
     return (
       <div className="px-2 py-3 border-b border-nina-line flex justify-center">
-        <button
-          onClick={onToggle}
-          className="group relative w-9 h-9 grid place-items-center rounded-lg hover:bg-nina-line/30 transition"
-          title="Mostrar menú"
-          aria-label="Mostrar menú"
-        >
-          <img
-            src="/favicon-32.png"
-            alt="A"
-            className="w-6 h-6 object-contain transition group-hover:opacity-0"
-          />
-          <PanelLeft className="w-4 h-4 absolute text-nina-chrome opacity-0 transition group-hover:opacity-100" />
-        </button>
+        <SidebarTip label="Mostrar menú">
+          <button
+            onClick={onToggle}
+            className="group relative w-9 h-9 grid place-items-center rounded-lg hover:bg-nina-line/30 transition"
+            aria-label="Mostrar menú"
+          >
+            <img
+              src="/favicon-32.png"
+              alt="A"
+              className="w-6 h-6 object-contain transition group-hover:opacity-0"
+            />
+            <PanelLeft className="w-4 h-4 absolute text-nina-chrome opacity-0 transition group-hover:opacity-100" />
+          </button>
+        </SidebarTip>
       </div>
     )
   }
