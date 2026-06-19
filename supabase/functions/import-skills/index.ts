@@ -56,7 +56,9 @@ async function ghFetch(url: string): Promise<Response> {
   const token = Deno.env.get('GITHUB_TOKEN')
   const headers: Record<string, string> = { 'User-Agent': 'nina-crm-skills', Accept: 'application/vnd.github+json' }
   if (token) headers.Authorization = `Bearer ${token}`
-  return await fetch(url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+  // redirect:'manual' → no seguimos redirecciones fuera de github.com/raw.githubusercontent.com
+  // (anti-SSRF en profundidad; los .md normales se sirven 200 directo, sin redirección).
+  return await fetch(url, { headers, redirect: 'manual', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
 }
 
 // Frontmatter YAML simple (name/description) + cuerpo. Sin dependencias.
@@ -131,7 +133,9 @@ Deno.serve(async (req) => {
       const repoRes = await ghFetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}`)
       if (repoRes.status === 404) return json({ error: 'Repositorio no encontrado (¿es público?).' }, 404)
       if (!repoRes.ok) return json({ error: `GitHub respondió ${repoRes.status} (¿límite de tasa?).` }, 502)
-      ref = (await repoRes.json()).default_branch || 'main'
+      const dflt = (await repoRes.json())?.default_branch || 'main'
+      // Validamos el branch (aunque venga de GitHub) con la misma regex que el resto de segmentos.
+      ref = /^[A-Za-z0-9_.\-/]+$/.test(dflt) ? dflt : 'main'
     }
 
     // Árbol del repo.
@@ -155,17 +159,18 @@ Deno.serve(async (req) => {
     const sourceRepo = `${parsed.owner}/${parsed.repo}`
     const db = adminDb()
     // Skills ya importadas de este repo para esta marca → para actualizar en vez de duplicar.
-    const { data: existing } = await db
-      .from('skills')
-      .select('id, source_path')
-      .eq('source_repo', sourceRepo)
-      .eq('brand_id', agent.brand_id ?? null)
+    // OJO: brand_id puede ser null (agente de la junta) → con .eq(...,null) PostgREST nunca empareja;
+    // hay que usar .is('brand_id', null) o el dedup falla y se acumulan duplicados.
+    let exq = db.from('skills').select('id, source_path').eq('source_repo', sourceRepo)
+    exq = agent.brand_id ? exq.eq('brand_id', agent.brand_id) : exq.is('brand_id', null)
+    const { data: existing } = await exq
     const byPath = new Map<string, string>((existing ?? []).map((r: { id: string; source_path: string }) => [r.source_path, r.id]))
 
     const imported: { id: string; name: string }[] = []
+    const skipped: { path: string; status: number }[] = []
     for (const f of files) {
       const rawRes = await ghFetch(`https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${ref}/${f.path}`)
-      if (!rawRes.ok) continue
+      if (!rawRes.ok) { skipped.push({ path: f.path, status: rawRes.status }); continue }
       let text = await rawRes.text()
       if (text.length > MAX_CONTENT) text = text.slice(0, MAX_CONTENT)
       const fm = parseFrontmatter(text)
@@ -195,7 +200,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    return json({ ok: true, repo: sourceRepo, branch: ref, imported_count: imported.length, imported })
+    return json({ ok: true, repo: sourceRepo, branch: ref, imported_count: imported.length, imported, skipped_count: skipped.length, skipped })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return json({ error: `Fallo importando: ${msg}` }, 500)

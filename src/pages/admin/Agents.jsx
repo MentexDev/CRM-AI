@@ -2201,23 +2201,33 @@ function InstructionsTab({ agentId, isJunta, onEdit }) {
 // Tab · Skills (playbooks de conocimiento) — importables de repos GitHub, asignables al agente.
 // El runtime las inyecta en el contexto del agente (loadAgentSkillsPrompt). Son CONOCIMIENTO/método,
 // no acciones (eso son las Tools).
-function PlaybooksTab({ agentId }) {
+function PlaybooksTab({ agentId, agentBasic }) {
   const [assigned, setAssigned] = useState([])
   const [brandSkills, setBrandSkills] = useState([])
   const [loading, setLoading] = useState(true)
   const [repo, setRepo] = useState('')
   const [importing, setImporting] = useState(false)
   const [viewing, setViewing] = useState(null)
+  const brandId = agentBasic?.brand_id ?? null
 
   const load = useCallback(async () => {
-    const [{ data: links }, { data: all }] = await Promise.all([
-      supabase.from('agent_skills').select('skill_id, skills(*)').eq('agent_id', agentId),
-      supabase.from('skills').select('*').order('updated_at', { ascending: false }),
+    // Acotamos las skills a la marca del agente (+ globales) → "Disponibles en la marca" no muestra
+    // skills de otras marcas del usuario.
+    let skillsQ = supabase.from('skills').select('*').order('updated_at', { ascending: false })
+    skillsQ = brandId ? skillsQ.or(`brand_id.eq.${brandId},brand_id.is.null`) : skillsQ.is('brand_id', null)
+    const [linksRes, allRes] = await Promise.all([
+      supabase.from('agent_skills').select('skill_id, skills(*)').eq('agent_id', agentId).order('created_at', { ascending: false }),
+      skillsQ,
     ])
-    setAssigned((links ?? []).map((l) => l.skills).filter(Boolean))
-    setBrandSkills(all ?? [])
+    if (linksRes.error || allRes.error) {
+      toast.error('No se pudieron cargar las skills')
+      setLoading(false)
+      return
+    }
+    setAssigned((linksRes.data ?? []).map((l) => l.skills).filter(Boolean))
+    setBrandSkills(allRes.data ?? [])
     setLoading(false)
-  }, [agentId])
+  }, [agentId, brandId])
   useEffect(() => { setLoading(true); load() }, [load])
 
   const assignedIds = new Set(assigned.map((s) => s.id))
@@ -2230,9 +2240,15 @@ function PlaybooksTab({ agentId }) {
     const t = toast.loading('Importando skills del repo…')
     try {
       const { data, error } = await supabase.functions.invoke('import-skills', { body: { repo: r, agent_id: agentId } })
-      if (error) throw error
+      if (error) {
+        // supabase-js mete el body del error (motivo en español) en error.context (Response).
+        let detail = ''
+        try { detail = (await error.context?.json?.())?.error } catch { /* sin cuerpo legible */ }
+        throw new Error(detail || error.message)
+      }
       if (data?.error) throw new Error(data.error)
-      toast.success(`${data.imported_count} skill(s) importada(s)`, { id: t })
+      const skipMsg = data.skipped_count ? ` · ${data.skipped_count} omitida(s)` : ''
+      toast.success(`${data.imported_count} skill(s) importada(s)${skipMsg}`, { id: t })
       setRepo('')
       await load()
     } catch (e) {
@@ -2293,7 +2309,7 @@ function PlaybooksTab({ agentId }) {
             {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Importar
           </button>
         </div>
-        <p className="text-[10.5px] text-nina-mute/70 mt-1.5">Busca archivos SKILL.md (o .md) en el repo público y los asigna a este agente.</p>
+        <p className="text-[10.5px] text-nina-mute/70 mt-1.5">Busca archivos SKILL.md (o .md) en el repo público y los asigna a este agente. El contenido se inyecta como referencia en el contexto del agente — importa solo de repos de confianza.</p>
       </div>
 
       {/* Asignadas al agente */}
