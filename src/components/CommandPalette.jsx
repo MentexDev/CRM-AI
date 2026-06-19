@@ -20,9 +20,12 @@ const NEW_ITEMS = [
 
 // Prompts de arranque para las acciones que dispara el agente (usa ask_questions y precisa).
 const AGENT_PROMPTS = {
-  email: 'Hoy quiero crear un correo. Pregúntame de qué se trata (para qué marca, el tema, el objetivo, el tono y a quién va) y, cuando tengas lo necesario, prepáralo con compose_email.',
-  image: 'Quiero crear una imagen. Pregúntame qué necesito (concepto, formato y estilo) y luego générala con generate_image.',
-  calendar: 'Quiero agendar algo. Pregúntame los detalles (qué, fecha y hora) y agéndalo en el calendario.',
+  email:
+    'Hoy quiero crear un correo. Usa la herramienta ask_questions para preguntarme, en un formulario, lo necesario (tema, objetivo, tono, a quién va y si hay oferta). Con mis respuestas, prepáralo con compose_email. NO escribas las preguntas como texto: usa ask_questions.',
+  image:
+    'Quiero crear una imagen. Usa la herramienta ask_questions para preguntarme, en un formulario, lo necesario (concepto, formato y estilo). Con mis respuestas, générala con generate_image. NO escribas las preguntas como texto: usa ask_questions.',
+  calendar:
+    'Quiero agendar algo. Usa la herramienta ask_questions para preguntarme, en un formulario, lo necesario (qué, fecha y hora). Con mis respuestas, agéndalo en el calendario. NO escribas las preguntas como texto: usa ask_questions.',
 }
 
 export default function CommandPalette({ open, onClose, onNewDocument, onAgentPrompt }) {
