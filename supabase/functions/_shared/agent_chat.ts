@@ -209,6 +209,10 @@ export async function runAgentChatTurn(
       messages.push({ role: 'user', content: editContext })
     }
 
+    // Quick-actions del palette: forzar una tool (p.ej. ask_questions) en el PRIMER turno,
+    // para que el modelo NO escriba las preguntas como texto sino que abra el formulario.
+    const forceFirstTool = (triggerMeta as { forceFirstTool?: string })?.forceFirstTool
+
     // Baseline de cancelación: si conversations.canceled_at CAMBIA durante este turno (el
     // usuario pulsó "Stop"), cortamos. Comparamos contra el valor inicial para no confundir
     // cancelaciones de turnos anteriores ni depender de relojes sincronizados.
@@ -254,6 +258,12 @@ export async function runAgentChatTurn(
         tools: toolDefs.length > 0 ? toolDefs : undefined,
         temperature: cfg.temperature ?? 0.4,
         max_tokens: cfg.max_tokens ?? 1500,
+        // Forzamos la tool SOLO en el primer turno y solo si está disponible (si no, el API
+        // daría error). Tras ese turno, el modelo decide normal ('auto').
+        toolChoice:
+          iterations === 1 && forceFirstTool && toolDefs.some((t) => t.function?.name === forceFirstTool)
+            ? { name: forceFirstTool }
+            : undefined,
       }
       let result: ChatCompleteResult
       try {

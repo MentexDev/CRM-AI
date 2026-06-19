@@ -36,6 +36,16 @@ export interface ChatCompleteParams {
   tools?: ToolDefinition[]
   temperature?: number
   max_tokens?: number
+  // Forzar que el modelo llame a una tool específica en esta respuesta (p.ej. ask_questions
+  // en el primer turno de un quick-action). Si se omite, el modelo decide (tool_choice 'auto').
+  toolChoice?: { name: string }
+}
+
+// tool_choice para APIs OpenAI-compat: fuerza una tool específica si se pide; si no, 'auto'.
+function oaiToolChoice(params: ChatCompleteParams): unknown {
+  if (!params.tools || params.tools.length === 0) return undefined
+  if (params.toolChoice?.name) return { type: 'function', function: { name: params.toolChoice.name } }
+  return 'auto'
 }
 
 export interface ChatCompleteResult {
@@ -71,7 +81,7 @@ class OpenAICompatProvider implements LLMProvider {
       model: params.model,
       messages: params.messages as never,
       tools: useTools ? (params.tools as never) : undefined,
-      tool_choice: useTools ? 'auto' : undefined,
+      tool_choice: oaiToolChoice(params) as never,
       temperature: params.temperature,
       max_tokens: params.max_tokens,
     })
@@ -90,7 +100,7 @@ class OpenAICompatProvider implements LLMProvider {
       model: params.model,
       messages: params.messages as never,
       tools: useTools ? (params.tools as never) : undefined,
-      tool_choice: useTools ? 'auto' : undefined,
+      tool_choice: oaiToolChoice(params) as never,
       temperature: params.temperature,
       max_tokens: params.max_tokens,
       stream: true,
@@ -235,6 +245,7 @@ class AnthropicProvider implements LLMProvider {
       system,
       messages: msgs as never,
       tools: tools && tools.length > 0 ? (tools as never) : undefined,
+      ...(params.toolChoice?.name ? { tool_choice: { type: 'tool', name: params.toolChoice.name } } : {}),
       // Opus 4.7/4.8 rechazan temperature; el resto de modelos Claude la aceptan.
       ...(params.temperature != null && !anthropicRejectsSampling(params.model)
         ? { temperature: params.temperature }
@@ -280,6 +291,7 @@ class AnthropicProvider implements LLMProvider {
       system,
       messages: msgs as never,
       tools: tools && tools.length > 0 ? (tools as never) : undefined,
+      ...(params.toolChoice?.name ? { tool_choice: { type: 'tool', name: params.toolChoice.name } } : {}),
       ...(params.temperature != null && !anthropicRejectsSampling(params.model)
         ? { temperature: params.temperature }
         : {}),

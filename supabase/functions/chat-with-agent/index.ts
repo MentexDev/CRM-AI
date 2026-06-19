@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
   const { data: userData, error: userErr } = await callerClient.auth.getUser(token)
   if (userErr || !userData?.user) return json({ error: 'Token inválido' }, 401)
 
-  let body: { agent_id?: string; agent_slug?: string; content?: string; conversation_id?: string; edit_context?: string }
+  let body: { agent_id?: string; agent_slug?: string; content?: string; conversation_id?: string; edit_context?: string; force_tool?: string }
   try {
     body = await req.json()
   } catch {
@@ -82,7 +82,14 @@ Deno.serve(async (req) => {
   // defensivo de tamaño para no inflar el request al modelo.
   const EDIT_CTX_MAX = 300_000
   const editContext = typeof body.edit_context === 'string' ? body.edit_context.slice(0, EDIT_CTX_MAX) : undefined
-  const triggerMeta = editContext ? { source: 'html_edit', editContext } : {}
+  const forceTool = typeof body.force_tool === 'string' ? body.force_tool : undefined
+  const triggerMeta: Record<string, unknown> = {}
+  if (editContext) {
+    triggerMeta.source = 'html_edit'
+    triggerMeta.editContext = editContext
+  }
+  // forceFirstTool va SIN source → suppressClarify queda false y ask_questions sigue disponible.
+  if (forceTool) triggerMeta.forceFirstTool = forceTool
 
   try {
     const result = await runAgentChatTurn(agentId, content, body.conversation_id ?? null, userData.user.id, triggerMeta)

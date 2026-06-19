@@ -43,7 +43,8 @@ export default function CommandPalette({ open, onClose, onNewDocument, onAgentPr
   const pick = (item) => {
     if (!item.active) return
     if (item.id === 'document') return onNewDocument()
-    onAgentPrompt(AGENT_PROMPTS[item.id] || item.label)
+    // Forzamos ask_questions en el primer turno → aparece el formulario, no preguntas en texto.
+    onAgentPrompt(AGENT_PROMPTS[item.id] || item.label, 'ask_questions')
   }
   const submitDescribe = () => {
     const t = q.trim()

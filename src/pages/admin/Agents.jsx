@@ -694,7 +694,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // Acciones del palette / "describe lo que necesitas" → prompt de arranque al agente
   // (mismo camino optimista que el composer). El agente puede preguntar con ask_questions.
   const cpSendingRef = useRef(false)
-  const sendAgentPrompt = async (text) => {
+  const sendAgentPrompt = async (text, forceTool) => {
     if (cpSendingRef.current) return // guard anti doble envío (Enter sostenido / doble clic)
     cpSendingRef.current = true
     setPaletteOpen(false)
@@ -707,7 +707,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     setThinking(true)
     try {
       const { data, error } = await supabase.functions.invoke('chat-with-agent', {
-        body: { agent_slug: agent.slug, content: text, conversation_id: conversationId },
+        body: { agent_slug: agent.slug, content: text, conversation_id: conversationId, ...(forceTool ? { force_tool: forceTool } : {}) },
       })
       if (error) throw error
       if (data?.error) throw new Error(data.error)
