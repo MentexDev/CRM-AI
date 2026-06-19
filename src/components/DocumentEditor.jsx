@@ -239,8 +239,11 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
     const n = blockNode()
     if (!n) return
     const at = blockNodePos + n.nodeSize
-    editor.chain().focus().insertContentAt(at, { type: 'paragraph' }).setTextSelection(at + 1).run()
+    // Inserta un párrafo vacío debajo, escribe "/" y abre el menú de bloques (como Notion):
+    // así, al crear el campo, salen automáticamente las opciones del "/".
+    editor.chain().focus().insertContentAt(at, { type: 'paragraph' }).setTextSelection(at + 1).insertContent('/').run()
     setBlockMenuOpen(false)
+    requestAnimationFrame(() => openSlashRef.current())
   }
   const duplicateBlock = () => {
     const n = blockNode()
