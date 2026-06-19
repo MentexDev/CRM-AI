@@ -42,22 +42,25 @@ Deno.serve(async (req) => {
   const { data: userData, error: userErr } = await callerClient.auth.getUser(token)
   if (userErr || !userData?.user) return json({ error: 'Token inválido' }, 401)
 
-  let body: { agent_id?: string; agent_slug?: string; content?: string; conversation_id?: string; edit_context?: string; force_tool?: string; attachment?: { name?: string; chars?: number } }
+  let body: { agent_id?: string; agent_slug?: string; content?: string; conversation_id?: string; edit_context?: string; force_tool?: string; attachments?: { name?: string; chars?: number }[]; note_chars?: number }
   try {
     body = await req.json()
   } catch {
     return json({ error: 'Body JSON inválido' }, 400)
   }
 
-  // Adjunto opcional: "Convertir texto a archivo" del chat. Si viene, el contenido es un documento
-  // (texto largo) → se permite un tope mucho mayor y se guarda metadata para pintar el chip.
-  const attachment = body.attachment && typeof body.attachment.name === 'string'
-    ? { name: body.attachment.name.slice(0, 120), chars: Number(body.attachment.chars) || 0 }
-    : null
+  // Adjuntos opcionales (clip / "convertir texto a archivo"): cuando vienen, el contenido es un
+  // documento → se permite un tope mucho mayor y se guarda metadata para pintar los chips.
+  const attachments = Array.isArray(body.attachments)
+    ? body.attachments
+        .filter((a) => a && typeof a.name === 'string')
+        .slice(0, 12)
+        .map((a) => ({ name: (a.name as string).slice(0, 160), chars: Math.max(0, Number(a.chars) || 0) }))
+    : []
 
   const content = (body.content ?? '').toString().trim()
   if (!content) return json({ error: 'Falta content' }, 400)
-  const maxLen = attachment ? ATTACHMENT_MAX_LEN : MAX_CONTENT_LEN
+  const maxLen = attachments.length ? ATTACHMENT_MAX_LEN : MAX_CONTENT_LEN
   if (content.length > maxLen) {
     return json({ error: `Mensaje muy largo (>${maxLen} chars)` }, 400)
   }
@@ -100,9 +103,13 @@ Deno.serve(async (req) => {
   }
   // forceFirstTool va SIN source → suppressClarify queda false y ask_questions sigue disponible.
   if (forceTool) triggerMeta.forceFirstTool = forceTool
-  // Metadata del adjunto (chars = longitud del texto del documento, para pintar el chip y poder
-  // separar la nota del documento en la burbuja). Se persiste en messages.metadata.
-  if (attachment) triggerMeta.attachment = { name: attachment.name, chars: Math.min(attachment.chars || content.length, content.length) }
+  // Metadata de los adjuntos (chips) + note_chars (longitud de la nota para que la burbuja separe
+  // la nota de los documentos). Se persiste en messages.metadata.
+  if (attachments.length) {
+    triggerMeta.attachments = attachments
+    const nc = Number(body.note_chars)
+    triggerMeta.note_chars = Number.isFinite(nc) ? Math.max(0, Math.min(nc, content.length)) : 0
+  }
 
   try {
     const result = await runAgentChatTurn(agentId, content, body.conversation_id ?? null, userData.user.id, triggerMeta)
