@@ -202,7 +202,13 @@ export async function runAgentChatTurn(
     }
 
     const provider = makeProvider(agent.provider ?? 'groq')
-    const cfg = (agent.config ?? {}) as { temperature?: number; max_tokens?: number }
+    const rawCfg = (agent.config ?? {}) as { temperature?: number; max_tokens?: number }
+    // Clamp DEFENSIVO en el servidor (no confiar en el saneamiento del composer): un config con
+    // temperature/max_tokens fuera de rango (o escrito por otra vía) no debe romper o encarecer el turno.
+    const cfg = {
+      temperature: Math.min(1.5, Math.max(0, Number(rawCfg.temperature ?? 0.4) || 0.4)),
+      max_tokens: Math.min(32000, Math.max(1, Math.trunc(Number(rawCfg.max_tokens ?? 1500) || 1500))),
+    }
 
     // Contexto de edición efímero (selector visual de HTML): el frontend mandó el HTML
     // completo + el elemento señalado. Lo inyectamos SOLO para este turno (NO se persiste)

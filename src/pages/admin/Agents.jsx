@@ -437,7 +437,7 @@ function AgentWorkspace({
               onSeedConsumed={() => setPendingMsg(null)}
             />
           ) : (
-            <AgentHome agent={agent} onOpenConversation={onOpenConversation} onUserSend={setPendingMsg} />
+            <AgentHome agent={agent} onOpenConversation={onOpenConversation} onUserSend={(content, meta) => setPendingMsg({ content, meta })} />
           ))}
         {view === 'tasks' && <TasksBoard agentId={agent.id} embedded />}
         {view === 'instructions' && (
@@ -612,11 +612,15 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   useEffect(() => {
     setThinking(false)
     if (seedMessage) {
+      // seedMessage puede ser string (legacy) u objeto { content, meta } → así la primera burbuja
+      // del perfil también pinta los chips de adjuntos (no el muro de texto con [Documento: …]).
+      const sm = typeof seedMessage === 'string' ? { content: seedMessage } : seedMessage
       setOptimistic([
         {
           id: `opt-seed-${conversationId}`,
           role: 'user',
-          content: seedMessage,
+          content: sm.content,
+          metadata: sm.meta || undefined,
           created_at: new Date().toISOString(),
           optimistic: true,
         },
@@ -735,7 +739,10 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // ⌘K / Ctrl+K → abre el command palette (nueva pestaña / herramienta) desde cualquier parte del chat.
   useEffect(() => {
     const onKey = (e) => {
+      if (e.isComposing) return // no interferir con IME
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        // No secuestrar ⌘K dentro de un editor de texto enriquecido (TipTap = insertar enlace).
+        if (document.activeElement?.isContentEditable) return
         e.preventDefault()
         setPaletteOpen((o) => !o)
       }
@@ -1199,6 +1206,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         onConversationCreated={onConversationCreated}
         onUserSend={addOptimistic}
         onSettled={() => setThinking(false)}
+        onOpenPalette={() => setPaletteOpen(true)}
         suggestions={suggestions}
       />
       </div>
@@ -1716,10 +1724,11 @@ const COMPOSER_SOFT_LIMIT = 3000
 const COMPOSER_MAX_RAW = 4000
 const fmtKB = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(2)} KB`)
 
-function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend, onSettled, bare = false, suggestions }) {
+function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend, onSettled, onOpenPalette, bare = false, suggestions }) {
   const { isJunta } = useAuth()
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState([]) // [{ name, text }] — archivos adjuntos / texto convertido
+  const [reading, setReading] = useState(0) // archivos en proceso de lectura (feedback del clip)
   const fileInputRef = useRef(null)
   const [sending, setSending] = useState(false)
   const sendingConvIdRef = useRef(null) // convId del turno en curso (para el botón Stop)
@@ -1764,11 +1773,11 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
   // Parámetros del turno (⚙️): temperatura + máx tokens, persistidos en agent.config (jsonb).
   const [paramsOpen, setParamsOpen] = useState(false)
   const [cfg, setCfg] = useState({
-    temperature: agent.config?.temperature ?? 0.7,
+    temperature: agent.config?.temperature ?? 0.4,
     max_tokens: agent.config?.max_tokens ?? '',
   })
   useEffect(() => {
-    setCfg({ temperature: agent.config?.temperature ?? 0.7, max_tokens: agent.config?.max_tokens ?? '' })
+    setCfg({ temperature: agent.config?.temperature ?? 0.4, max_tokens: agent.config?.max_tokens ?? '' })
   }, [agent.config?.temperature, agent.config?.max_tokens])
   const saveCfg = async (next) => {
     setCfg(next)
@@ -1807,10 +1816,13 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
     ta.style.height = Math.min(Math.max(64, ta.scrollHeight), 200) + 'px'
   }, [text, voiceGhost])
 
+  const MAX_ATTACHMENTS = 12 // mismo tope que el backend → content y metadata siempre cuadran
+
   // "Convertir texto a archivo": el texto pasa a ser un documento adjunto (chip), el input se limpia.
   const convertToFile = () => {
     const t = text.trim()
     if (!t) return
+    if (attachments.length >= MAX_ATTACHMENTS) { toast.error(`Máximo ${MAX_ATTACHMENTS} documentos por mensaje`); return }
     setAttachments((a) => [...a, { name: 'pasted_content.txt', text: t }])
     setText('')
     requestAnimationFrame(() => taRef.current?.focus())
@@ -1819,13 +1831,18 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
   // Clip → leer los archivos elegidos (texto / PDF) y agregarlos como adjuntos.
   const onPickFiles = async (fileList) => {
     const files = Array.from(fileList || [])
+    let room = MAX_ATTACHMENTS - attachments.length
+    if (files.length) setReading((r) => r + files.length)
     for (const f of files) {
+      if (room <= 0) { toast.error(`Máximo ${MAX_ATTACHMENTS} documentos por mensaje`); setReading((r) => Math.max(0, r - 1)); continue }
       try {
         const a = await readAttachmentFile(f)
-        if (!a.text.trim()) { toast.error(`"${f.name}" no tiene texto`); continue }
-        setAttachments((prev) => [...prev, a])
+        if (!a.text.trim()) { toast.error(`"${f.name}" no tiene texto`) }
+        else { setAttachments((prev) => [...prev, a]); room-- }
       } catch (e) {
         toast.error(e?.message || `No pude leer "${f.name}"`)
+      } finally {
+        setReading((r) => Math.max(0, r - 1))
       }
     }
   }
@@ -1844,8 +1861,11 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
     let content = noteText
     const metaAtts = []
     for (const a of atts) {
-      content += `\n\n[Documento: ${a.name}]\n`
-      metaAtts.push({ name: a.name, chars: a.text.length })
+      // Truncamos el nombre AQUÍ (igual que el backend) para que el encabezado del content y el
+      // nombre persistido en metadata coincidan → la burbuja reconstruye el texto sin desfases.
+      const nm = (a.name || 'documento.txt').slice(0, 160)
+      content += `\n\n[Documento: ${nm}]\n`
+      metaAtts.push({ name: nm, chars: a.text.length })
       content += a.text
     }
     if (!content.trim()) return
@@ -1882,8 +1902,10 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
       }
     } catch (e) {
       toast.error(e?.message || 'No se pudo enviar')
-      // Restauramos lo que el usuario tenía (los adjuntos o la nota).
-      if (atts.length) { setAttachments(atts); if (noteText) setText((prev) => prev || noteText) }
+      // Restauramos lo que el usuario tenía. Si fue auto-conversión (texto plano largo), devolvemos
+      // el TEXTO al campo (no un chip de archivo, que confundiría); si adjuntó de verdad, los chips.
+      if (usedAutoConvert) setText((prev) => prev || note)
+      else if (atts.length) { setAttachments(atts); if (noteText) setText((prev) => prev || noteText) }
       else setText((prev) => prev || content)
     } finally {
       setSending(false)
@@ -1983,8 +2005,13 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
 
       <div className="rounded-2xl border border-nina-line bg-nina-panel/40 focus-within:border-nina-silver/40 transition-colors">
         {/* Chips de los documentos adjuntos (archivos leídos o texto convertido, estilo Manus) */}
-        {attachments.length > 0 && (
+        {(attachments.length > 0 || reading > 0) && (
           <div className="px-3 pt-2.5 flex flex-wrap gap-2">
+            {reading > 0 && (
+              <div className="inline-flex items-center gap-2 rounded-xl border border-nina-line bg-nina-ink px-2.5 py-1.5 text-[12px] text-nina-mute">
+                <Loader2 className="w-4 h-4 animate-spin" /> Leyendo {reading} archivo{reading > 1 ? 's' : ''}…
+              </div>
+            )}
             {attachments.map((a, i) => (
               <div key={i} className="inline-flex items-center gap-2 max-w-full rounded-xl border border-nina-line bg-nina-ink px-2.5 py-1.5">
                 <span className="w-7 h-7 grid place-items-center rounded-lg bg-blue-500/15 text-blue-300 shrink-0">
@@ -2029,11 +2056,12 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
           />
         </div>
 
-        {/* Contador + "Convertir texto a archivo" cuando el texto es largo (estilo Manus) */}
+        {/* Contador contra el tope REAL (4000): ámbar al sugerir convertir (>3000), rojo solo al
+            superar el tope (>4000, donde se auto-convierte). El enlace aparece desde 3000. */}
         {!attachments.length && text.length > 2000 && (
           <div className="flex items-center gap-2 px-3 pb-1 text-[11px]">
-            <span className={text.length > COMPOSER_SOFT_LIMIT ? 'text-red-400 font-medium' : 'text-nina-mute'}>
-              {text.length}/{COMPOSER_SOFT_LIMIT}
+            <span className={text.length > COMPOSER_MAX_RAW ? 'text-red-400 font-medium' : text.length > COMPOSER_SOFT_LIMIT ? 'text-amber-400' : 'text-nina-mute'}>
+              {text.length}/{COMPOSER_MAX_RAW}
             </span>
             {text.length > COMPOSER_SOFT_LIMIT && (
               <>
@@ -2052,7 +2080,7 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.yaml,.yml,.xml,.html,.htm,.css,.js,.jsx,.ts,.tsx,.py,.rb,.go,.rs,.java,.kt,.c,.cpp,.h,.hpp,.cs,.php,.swift,.sh,.sql,.log,.pdf,text/*,application/pdf,application/json"
+            accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.yaml,.yml,.xml,.html,.htm,.css,.js,.jsx,.ts,.tsx,.py,.rb,.go,.rs,.java,.kt,.c,.cpp,.h,.hpp,.cs,.php,.swift,.sh,.bash,.zsh,.sql,.env,.ini,.toml,.conf,.srt,.vtt,.tex,.log,.pdf,text/*,application/pdf,application/json"
             className="hidden"
             onChange={(e) => { onPickFiles(e.target.files); e.target.value = '' }}
           />
@@ -2095,7 +2123,9 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
                         </div>
                         <input
                           type="range" min="0" max="1.5" step="0.05" value={cfg.temperature}
-                          onChange={(e) => saveCfg({ ...cfg, temperature: e.target.value })}
+                          onChange={(e) => setCfg((c) => ({ ...c, temperature: e.target.value }))}
+                          onPointerUp={(e) => saveCfg({ ...cfg, temperature: e.target.value })}
+                          onKeyUp={(e) => saveCfg({ ...cfg, temperature: e.target.value })}
                           className="w-full accent-nina-silver"
                         />
                         <div className="flex justify-between text-[9px] text-nina-mute/60 mt-0.5"><span>preciso</span><span>creativo</span></div>
@@ -2133,12 +2163,16 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
           <div className="flex-1" />
 
           {/* Derecha — ⌘K hint + model pill + mic + send */}
-          <kbd
-            className="hidden sm:flex items-center gap-0.5 px-1.5 h-6 rounded text-[10px] font-mono text-nina-mute bg-nina-line/30 border border-nina-line"
-            title="⌘K / Ctrl+K — abrir el menú de herramientas"
-          >
-            ⌘K
-          </kbd>
+          {!bare && onOpenPalette && (
+            <button
+              type="button"
+              onClick={onOpenPalette}
+              className="hidden sm:flex items-center gap-0.5 px-1.5 h-6 rounded text-[10px] font-mono text-nina-mute bg-nina-line/30 border border-nina-line hover:text-nina-chrome hover:bg-nina-line/50 transition"
+              title="⌘K / Ctrl+K — abrir el menú de herramientas"
+            >
+              ⌘K
+            </button>
+          )}
           <div className="relative">
             <button
               type="button"
