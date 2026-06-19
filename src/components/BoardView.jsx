@@ -90,13 +90,16 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
   const stateRef = useRef({ title, nodes, edges })
   stateRef.current = { title, nodes, edges }
   const fireTimer = useRef(null)
+  const dirtyRef = useRef(false) // solo true tras una edición real → no ensucia "guardado" al solo abrir
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
   const scheduleFire = useCallback(() => {
+    dirtyRef.current = true
     clearTimeout(fireTimer.current)
     fireTimer.current = setTimeout(() => onChangeRef.current?.(stateRef.current), 400)
   }, [])
-  useEffect(() => () => { clearTimeout(fireTimer.current); onChangeRef.current?.(stateRef.current) }, [])
+  // Al desmontar volcamos lo último SOLO si hubo cambios (abrir y cambiar de pestaña no marca dirty).
+  useEffect(() => () => { clearTimeout(fireTimer.current); if (dirtyRef.current) onChangeRef.current?.(stateRef.current) }, [])
 
   if (getContentRef) getContentRef.current = () => ({ title, nodes, edges })
 
@@ -120,13 +123,20 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
     setNodes((prev) => prev.map((n) => (n.id === d.id ? { ...n, x: Math.max(0, d.ox + dx), y: Math.max(0, d.oy + dy) } : n)))
   }, [])
   const onUp = useCallback(() => {
+    const d = dragRef.current
+    if (d?.el && d.pointerId != null) { try { d.el.releasePointerCapture(d.pointerId) } catch { /* ya liberado */ } }
     dragRef.current = null
     window.removeEventListener('pointermove', onMove)
     window.removeEventListener('pointerup', onUp)
+    window.removeEventListener('pointercancel', onUp)
     scheduleFire()
   }, [onMove, scheduleFire])
   // Limpieza defensiva si se desmonta a mitad de un arrastre.
-  useEffect(() => () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp) }, [onMove, onUp])
+  useEffect(() => () => {
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    window.removeEventListener('pointercancel', onUp)
+  }, [onMove, onUp])
 
   const onNodePointerDown = (e, node) => {
     if (connecting) { handleConnectClick(node.id); return }
@@ -134,9 +144,12 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
     if (e.target.closest('[data-no-drag]')) return // botones/paleta: no arrastrar
     if (editingId) setEditingId(null) // agarrar otra nota cierra la edición previa
     e.preventDefault()
-    dragRef.current = { id: node.id, sx: e.clientX, sy: e.clientY, ox: node.x, oy: node.y }
+    // Captura el puntero (clave en táctil: el move/up siguen llegando aunque el dedo salga de la nota).
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* navegadores sin soporte */ }
+    dragRef.current = { id: node.id, sx: e.clientX, sy: e.clientY, ox: node.x, oy: node.y, el: e.currentTarget, pointerId: e.pointerId }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }
 
   // ── Mutadores ────────────────────────────────────────────────────────────────
@@ -146,16 +159,19 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
   const removeNode = (id) => {
     setNodes((prev) => prev.filter((n) => n.id !== id))
     setEdges((prev) => prev.filter((e) => e.from !== id && e.to !== id))
+    setHeights((prev) => { if (!(id in prev)) return prev; const n = { ...prev }; delete n[id]; return n }) // higiene: no acumular ids muertos
     if (connectFrom === id) setConnectFrom(null)
     if (editingId === id) setEditingId(null)
     scheduleFire()
   }
   const addNode = () => {
-    const id = `n${Date.now().toString(36)}`
-    // Lo ubicamos cerca de la esquina visible del lienzo (scroll actual).
+    // id robusto (timestamp + aleatorio) → sin colisión de claves React aunque se pulse rápido.
+    const id = `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
+    // Cascada diagonal desde la esquina visible para que varias notas seguidas no caigan encima.
     const sc = scrollRef.current
-    const x = (sc?.scrollLeft ?? 0) + 60
-    const y = (sc?.scrollTop ?? 0) + 60
+    const step = (nodes.length % 6) * 26
+    const x = (sc?.scrollLeft ?? 0) + 60 + step
+    const y = (sc?.scrollTop ?? 0) + 60 + step
     setNodes((prev) => [...prev, { id, text: '', color: 'slate', x, y }])
     scheduleFire()
   }
@@ -286,7 +302,7 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
                 key={`del-${i}`}
                 onClick={() => removeEdge(i)}
                 className="absolute z-10 w-4 h-4 grid place-items-center rounded-full bg-nina-panel border border-nina-line text-nina-mute hover:text-red-300 opacity-0 hover:opacity-100 transition"
-                style={{ left: g.mid.x - 8, top: g.mid.y - 8 }}
+                style={{ left: g.mid.x - 8, top: g.mid.y + 5 }}
                 title="Eliminar conexión"
               >
                 <X size={10} />
@@ -308,7 +324,7 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
                 className={`group absolute rounded-xl border shadow-lg ${c.bg} ${c.border} ${
                   connecting ? 'cursor-pointer' : isEditing ? 'cursor-text' : 'cursor-grab active:cursor-grabbing'
                 } ${isFrom ? 'ring-2 ring-nina-silver' : isEditing ? 'ring-2 ring-nina-silver/70' : ''}`}
-                style={{ left: n.x, top: n.y, width: NW, minHeight: NH }}
+                style={{ left: n.x, top: n.y, width: NW, minHeight: NH, touchAction: isEditing ? 'auto' : 'none' }}
               >
                 {isEditing ? (
                   <textarea

@@ -1454,9 +1454,8 @@ async function draftBoard(_ctx: ToolContext, args: Record<string, unknown>): Pro
       seen.add(id)
       const text = typeof o.text === 'string' ? o.text.slice(0, 240) : ''
       const color = typeof o.color === 'string' && BOARD_COLORS.has(o.color) ? o.color : 'slate'
-      const x = typeof o.x === 'number' && Number.isFinite(o.x) ? o.x : undefined
-      const y = typeof o.y === 'number' && Number.isFinite(o.y) ? o.y : undefined
-      return { id, text, color, ...(x != null ? { x } : {}), ...(y != null ? { y } : {}) }
+      // La posición la decide el frontend (withLayout): el modelo se enfoca en contenido + relaciones.
+      return { id, text, color }
     })
     .filter((n) => n.text) // descarta notas vacías
   if (!nodes.length) return { ok: false, error: 'Las notas vienen sin texto' }

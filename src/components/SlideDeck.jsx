@@ -77,14 +77,16 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
   const stateRef = useRef({ title, subtitle, slides })
   stateRef.current = { title, subtitle, slides }
   const fireTimer = useRef(null)
+  const dirtyRef = useRef(false) // solo true tras una edición real → abrir+cambiar de pestaña no marca dirty
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
   const scheduleFire = useCallback(() => {
+    dirtyRef.current = true
     clearTimeout(fireTimer.current)
     fireTimer.current = setTimeout(() => onChangeRef.current?.(stateRef.current), 400)
   }, [])
-  // Vuelca cambios al desmontar (cambio de pestaña / cierre del canvas) para no perder lo último.
-  useEffect(() => () => { clearTimeout(fireTimer.current); onChangeRef.current?.(stateRef.current) }, [])
+  // Vuelca cambios al desmontar SOLO si hubo edición (no ensucia "guardado" al solo abrir).
+  useEffect(() => () => { clearTimeout(fireTimer.current); if (dirtyRef.current) onChangeRef.current?.(stateRef.current) }, [])
 
   // El canvas lee esto on-demand al "Guardar" → toma lo EDITADO, no el artefacto original.
   if (getContentRef) getContentRef.current = () => ({ title, subtitle, slides })

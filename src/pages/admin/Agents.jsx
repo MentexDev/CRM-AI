@@ -557,10 +557,13 @@ function slidesToMarkdown(title, subtitle, slides) {
 }
 
 // Serializa una pizarra (draft_board) a Markdown (notas + conexiones) para la biblioteca.
+// Incluye las notas vacías como "(sin texto)" para que lo guardado refleje lo que se ve y las
+// conexiones queden legibles (sin ids crudos).
 function boardToMarkdown(title, nodes, edges) {
-  const byId = Object.fromEntries((nodes || []).map((n) => [n.id, n.text || n.id]))
+  const labelOf = (n) => (n?.text ? n.text : '(sin texto)')
+  const byId = Object.fromEntries((nodes || []).map((n) => [n.id, labelOf(n)]))
   const lines = [`# ${title || 'Pizarra'}`, '', '## Notas']
-  for (const n of nodes || []) if (n.text) lines.push(`- ${n.text}`)
+  for (const n of nodes || []) lines.push(`- ${labelOf(n)}`)
   if ((edges || []).length) {
     lines.push('', '## Conexiones')
     for (const e of edges) lines.push(`- ${byId[e.from] ?? e.from} → ${byId[e.to] ?? e.to}${e.label ? ` (${e.label})` : ''}`)

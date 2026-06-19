@@ -33,13 +33,15 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
   const stateRef = useRef({ title, columns, rows })
   stateRef.current = { title, columns, rows }
   const fireTimer = useRef(null)
+  const dirtyRef = useRef(false) // solo true tras una edición real → abrir+cambiar de pestaña no marca dirty
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
   const scheduleFire = useCallback(() => {
+    dirtyRef.current = true
     clearTimeout(fireTimer.current)
     fireTimer.current = setTimeout(() => onChangeRef.current?.(stateRef.current), 400)
   }, [])
-  useEffect(() => () => { clearTimeout(fireTimer.current); onChangeRef.current?.(stateRef.current) }, [])
+  useEffect(() => () => { clearTimeout(fireTimer.current); if (dirtyRef.current) onChangeRef.current?.(stateRef.current) }, [])
 
   if (getContentRef) getContentRef.current = () => ({ title, columns, rows })
 
