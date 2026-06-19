@@ -5,10 +5,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link2, Pencil, Plus, Trash2, X } from 'lucide-react'
 
-// Tamaño fijo de cada nota (sticky) → anclas de las conexiones exactas (centro = x+W/2, y+H/2).
+// Ancho fijo de la nota; la ALTURA se adapta al contenido (se mide en runtime). NH = altura
+// mínima / fallback antes de medir, usada también para las anclas de conexión.
 const NW = 184
-const NH = 84
+const NH = 64
 const PAD = 80 // margen del lienzo alrededor de las notas
+const LAYOUT_ROW = 168 // separación vertical del auto-layout (deja aire para notas más altas)
 
 // Paleta de colores de nota (clave → clases de fondo/borde/texto en tema oscuro).
 const COLORS = {
@@ -30,7 +32,7 @@ function withLayout(nodes) {
     if (typeof nd.x === 'number' && typeof nd.y === 'number') return nd
     const col = i % cols
     const row = Math.floor(i / cols)
-    return { ...nd, x: PAD + col * (NW + 56), y: PAD + row * (NH + 64) }
+    return { ...nd, x: PAD + col * (NW + 56), y: PAD + row * LAYOUT_ROW }
   })
 }
 
@@ -52,6 +54,38 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
     }
   }, [editingId])
 
+  // Altura REAL de cada nota (crece con el texto). Se mide con ResizeObserver para que las
+  // conexiones se anclen al borde correcto aunque las notas tengan distinta altura.
+  const [heights, setHeights] = useState({})
+  const roRef = useRef(null)
+  const elsRef = useRef(new Map())
+  useEffect(() => {
+    const ro = new ResizeObserver((entries) => {
+      setHeights((prev) => {
+        let changed = false
+        const next = { ...prev }
+        for (const en of entries) {
+          const id = en.target.dataset.nid
+          const h = Math.round(en.target.offsetHeight)
+          if (id && h && next[id] !== h) { next[id] = h; changed = true }
+        }
+        return changed ? next : prev
+      })
+    })
+    roRef.current = ro
+    for (const el of elsRef.current.values()) ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  const nodeRef = (id) => (el) => {
+    const map = elsRef.current
+    const prev = map.get(id)
+    if (prev && prev !== el) roRef.current?.unobserve(prev)
+    if (el) { map.set(id, el); roRef.current?.observe(el) } else { map.delete(id) }
+  }
+  const hOf = (id) => heights[id] || NH
+  // Ajusta el alto del textarea (en edición) al contenido escrito.
+  const autoSize = (el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` } }
+
   // Reporte de cambios (debounced) → el padre persiste (capa de overrides editedTabs) y limpia "guardado".
   const stateRef = useRef({ title, nodes, edges })
   stateRef.current = { title, nodes, edges }
@@ -72,9 +106,9 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
   const bounds = useMemo(() => {
     let w = 900
     let h = 600
-    for (const n of nodes) { w = Math.max(w, n.x + NW + PAD); h = Math.max(h, n.y + NH + PAD) }
+    for (const n of nodes) { w = Math.max(w, n.x + NW + PAD); h = Math.max(h, n.y + (heights[n.id] || NH) + PAD) }
     return { w, h }
-  }, [nodes])
+  }, [nodes, heights])
 
   // ── Arrastre de notas (pointer events + listeners de window) ─────────────────
   const dragRef = useRef(null)
@@ -140,24 +174,26 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
   // Geometría de conexiones estilo n8n: la flecha SALE/ENTRA por el BORDE del bloque (no por el
   // centro, que la haría pasar por encima de la nota) y la curva arranca perpendicular a esa cara.
   // anchor() = intersección del rayo centro→destino con el rectángulo de la nota + su normal.
-  const anchor = (n, tx, ty) => {
+  const anchor = (n, h, tx, ty) => {
     const cx = n.x + NW / 2
-    const cy = n.y + NH / 2
+    const cy = n.y + h / 2
     const dx = tx - cx
     const dy = ty - cy
     if (dx === 0 && dy === 0) return { x: cx, y: cy, nx: 0, ny: 0 }
     const sx = dx !== 0 ? NW / 2 / Math.abs(dx) : Infinity
-    const sy = dy !== 0 ? NH / 2 / Math.abs(dy) : Infinity
+    const sy = dy !== 0 ? h / 2 / Math.abs(dy) : Infinity
     const sc = Math.min(sx, sy)
     const horiz = sx < sy // cae en la cara izquierda/derecha → normal horizontal
     return { x: cx + dx * sc, y: cy + dy * sc, nx: horiz ? Math.sign(dx) : 0, ny: horiz ? 0 : Math.sign(dy) }
   }
-  // Devuelve el path (cubic bezier) y el punto medio aprox de una conexión a→b.
+  // Devuelve el path (cubic bezier) y el punto medio aprox de una conexión a→b (alturas reales).
   const edgeGeom = (a, b) => {
-    const ac = { x: a.x + NW / 2, y: a.y + NH / 2 }
-    const bc = { x: b.x + NW / 2, y: b.y + NH / 2 }
-    const s = anchor(a, bc.x, bc.y)
-    const t = anchor(b, ac.x, ac.y)
+    const ha = hOf(a.id)
+    const hb = hOf(b.id)
+    const ac = { x: a.x + NW / 2, y: a.y + ha / 2 }
+    const bc = { x: b.x + NW / 2, y: b.y + hb / 2 }
+    const s = anchor(a, ha, bc.x, bc.y)
+    const t = anchor(b, hb, ac.x, ac.y)
     const k = Math.max(28, Math.hypot(t.x - s.x, t.y - s.y) * 0.4)
     const c1 = { x: s.x + s.nx * k, y: s.y + s.ny * k }
     const c2 = { x: t.x + t.nx * k, y: t.y + t.ny * k }
@@ -266,24 +302,30 @@ export default function BoardView({ title: initialTitle, nodes: initialNodes, ed
             return (
               <div
                 key={n.id}
+                ref={nodeRef(n.id)}
+                data-nid={n.id}
                 onPointerDown={(e) => onNodePointerDown(e, n)}
                 className={`group absolute rounded-xl border shadow-lg ${c.bg} ${c.border} ${
                   connecting ? 'cursor-pointer' : isEditing ? 'cursor-text' : 'cursor-grab active:cursor-grabbing'
                 } ${isFrom ? 'ring-2 ring-nina-silver' : isEditing ? 'ring-2 ring-nina-silver/70' : ''}`}
-                style={{ left: n.x, top: n.y, width: NW, height: NH }}
+                style={{ left: n.x, top: n.y, width: NW, minHeight: NH }}
               >
-                <textarea
-                  {...(isEditing ? { 'data-no-drag': true } : {})}
-                  ref={isEditing ? editTextRef : null}
-                  value={n.text}
-                  onChange={(e) => setNodeText(n.id, e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Escape') setEditingId(null) }}
-                  readOnly={!isEditing}
-                  placeholder={isEditing ? 'Escribe…' : ''}
-                  className={`w-full h-full resize-none bg-transparent px-2.5 py-2 text-[12px] leading-snug text-nina-chrome outline-none placeholder:text-nina-mute/40 ${
-                    isEditing ? '' : 'pointer-events-none select-none'
-                  }`}
-                />
+                {isEditing ? (
+                  <textarea
+                    data-no-drag
+                    ref={(el) => { editTextRef.current = el; autoSize(el) }}
+                    value={n.text}
+                    onChange={(e) => { setNodeText(n.id, e.target.value); autoSize(e.target) }}
+                    onKeyDown={(e) => { if (e.key === 'Escape') setEditingId(null) }}
+                    placeholder="Escribe…"
+                    rows={1}
+                    className="block w-full resize-none overflow-hidden bg-transparent px-2.5 py-2 text-[12px] leading-snug text-nina-chrome outline-none placeholder:text-nina-mute/40"
+                  />
+                ) : (
+                  <div className="px-2.5 py-2 text-[12px] leading-snug text-nina-chrome whitespace-pre-wrap break-words pointer-events-none select-none">
+                    {n.text || <span className="text-nina-mute/40">(nota vacía)</span>}
+                  </div>
+                )}
                 {/* Controles arriba-derecha: ✎ editar (a la izquierda) + 🗑 eliminar. Siempre visibles
                     en edición; al pasar el cursor en el resto. */}
                 <div data-no-drag className={`absolute -top-2.5 -right-2.5 flex items-center gap-1 transition ${isEditing ? '' : 'opacity-0 group-hover:opacity-100'}`}>
