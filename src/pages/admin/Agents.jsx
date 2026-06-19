@@ -512,6 +512,25 @@ function AgentHome({ agent, onOpenConversation, onUserSend }) {
 // =====================================================================
 // Tab · Mensajes (chat real-time + composer para hablarle al agente)
 // =====================================================================
+// Persistencia de las pestañas LOCALES del workspace (documentos en blanco) en localStorage,
+// por agente, para que no se pierdan al recargar. Guardan título + markdown (vía onDocChange).
+const localTabsKey = (slug) => `nina:localtabs:${slug || 'default'}`
+function loadLocalTabs(slug) {
+  try {
+    const arr = JSON.parse(localStorage.getItem(localTabsKey(slug)) || '[]')
+    return Array.isArray(arr) ? arr.filter((t) => t && t.key && t.type === 'document') : []
+  } catch {
+    return []
+  }
+}
+function saveLocalTabs(slug, tabs) {
+  try {
+    localStorage.setItem(localTabsKey(slug), JSON.stringify(tabs || []))
+  } catch {
+    /* quota / entorno sin localStorage */
+  }
+}
+
 function MessagesTab({ agent, conversationId, conversation, onConversationCreated, onGoHome, seedMessage, onSeedConsumed }) {
   const { messages, loading } = useAgentMessages(agent.id, conversationId, 200)
   const [optimistic, setOptimistic] = useState([])
@@ -622,10 +641,14 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   const [activeKey, setActiveKey] = useState(null)
   // Pestañas LOCALES del workspace (p.ej. un documento en blanco creado desde el "+"), que
   // NO vienen de un mensaje del agente. Conviven con los artefactos del hilo en la barra.
-  const [localTabs, setLocalTabs] = useState([])
+  const [localTabs, setLocalTabs] = useState(() => loadLocalTabs(agent.slug))
   const [paletteOpen, setPaletteOpen] = useState(false)
   const allTabs = useMemo(() => [...canvasArtifacts, ...localTabs], [canvasArtifacts, localTabs])
-  const activeArtifact = allTabs.find((a) => a.key === activeKey) ?? latestArtifact
+  const activeArtifact = allTabs.find((a) => a.key === activeKey) ?? latestArtifact ?? allTabs[allTabs.length - 1] ?? null
+  // Persistir las pestañas locales (por agente) cuando cambian → sobreviven al recargar.
+  useEffect(() => {
+    saveLocalTabs(agent.slug, localTabs)
+  }, [localTabs, agent.slug])
 
   // "Documento" del palette → abre un documento en blanco como pestaña local.
   const openBlankDocument = () => {
