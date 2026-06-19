@@ -18,6 +18,7 @@ import {
   FileText,
   Globe,
   Hammer,
+  History,
   Image as ImageIcon,
   ListTodo,
   Loader2,
@@ -644,7 +645,18 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   const [localTabs, setLocalTabs] = useState(() => loadLocalTabs(agent.slug))
   const [paletteOpen, setPaletteOpen] = useState(false)
   const allTabs = useMemo(() => [...canvasArtifacts, ...localTabs], [canvasArtifacts, localTabs])
-  const activeArtifact = allTabs.find((a) => a.key === activeKey) ?? latestArtifact ?? allTabs[allTabs.length - 1] ?? null
+  // Pestañas CERRADAS (recuperables desde el historial). Cerrar ≠ Eliminar: cerrar solo las
+  // saca de la tira (siguen en el historial); "Eliminar" sí las borra (soft-hide) y entonces
+  // también desaparecen del historial (porque salen de canvasArtifacts/allTabs).
+  const [closedKeys, setClosedKeys] = useState(() => new Set())
+  const openTabs = useMemo(() => allTabs.filter((a) => !closedKeys.has(a.key)), [allTabs, closedKeys])
+  const activeArtifact = openTabs.find((a) => a.key === activeKey) ?? openTabs[openTabs.length - 1] ?? null
+  const closeTab = (key) => setClosedKeys((s) => new Set(s).add(key))
+  const reopenFromHistory = (key) => {
+    setClosedKeys((s) => { const n = new Set(s); n.delete(key); return n })
+    setActiveKey(key)
+    setCanvasOpen(true)
+  }
   // Persistir las pestañas locales (por agente) cuando cambian → sobreviven al recargar.
   useEffect(() => {
     saveLocalTabs(agent.slug, localTabs)
@@ -1078,8 +1090,11 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               </div>
             </div>
             <ArtifactCanvas
-              artifacts={allTabs}
+              artifacts={openTabs}
+              history={allTabs}
               onOpenPalette={() => setPaletteOpen(true)}
+              onCloseTab={closeTab}
+              onReopen={reopenFromHistory}
               active={activeArtifact}
               onSelect={setActiveKey}
               onClose={() => setCanvasOpen(false)}
@@ -1170,12 +1185,13 @@ const SELECTOR_SCRIPT = `<script>(function(){
   document.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var el=e.target;if(last&&last.classList)last.classList.remove('__ninaHov');var c=el.cloneNode(true);if(c.classList)c.classList.remove('__ninaHov');parent.postMessage({type:'nina-select',selector:path(el),tag:(el.tagName||'').toLowerCase(),text:(el.textContent||'').replace(/\\s+/g,' ').trim().slice(0,90),outerHTML:(c.outerHTML||'').slice(0,4000)},'*');},true);
 })();</script>`
 
-function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, saved, docContentRef, onElementEdit, onOpenPalette, onDocChange }) {
+function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave, onDelete, saved, docContentRef, onElementEdit, onOpenPalette, onDocChange, onCloseTab, onReopen }) {
   const label = (a) =>
     a.type === 'document' ? a.title || 'Documento' : a.type === 'calendar' ? 'Calendario' : a.type === 'image' ? a.title : a.subject
   const [selecting, setSelecting] = useState(false)
   const [selection, setSelection] = useState(null) // { selector, tag, text, outerHTML }
   const [editText, setEditText] = useState('')
+  const [historyOpen, setHistoryOpen] = useState(false)
   const canSelect = active?.type === 'email'
   const selectingRef = useRef(false)
   selectingRef.current = selecting
@@ -1219,6 +1235,47 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
       {/* Barra de pestañas estilo Chrome: la activa muestra el título; las demás colapsan
           a solo el ícono (clic para traerlas al frente). Maneja correos e imágenes. */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-nina-line/60 shrink-0">
+        {/* Historial: TODO lo que el agente ha creado en este chat (abierto o cerrado). Cerrar
+            una pestaña la deja aquí para reabrirla; solo "Eliminar" la borra de verdad. */}
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setHistoryOpen((o) => !o)}
+            title="Historial: lo que el agente ha creado en este chat"
+            className={`w-8 h-8 grid place-items-center rounded-lg transition ${
+              historyOpen ? 'text-nina-chrome bg-nina-line/40' : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'
+            }`}
+          >
+            <History className="w-4 h-4" />
+          </button>
+          {historyOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setHistoryOpen(false)} />
+              <div className="absolute left-0 top-10 z-50 w-72 max-h-80 overflow-y-auto rounded-xl border border-nina-line bg-nina-panel shadow-2xl py-1.5">
+                <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-nina-mute">Historial del chat</div>
+                {(history || []).length === 0 ? (
+                  <div className="px-3 py-3 text-[12px] text-nina-mute">Aún no hay nada creado.</div>
+                ) : (
+                  [...(history || [])].reverse().map((a) => {
+                    const HIcon =
+                      a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : MessageSquare
+                    const isOpen = artifacts.some((t) => t.key === a.key)
+                    return (
+                      <button
+                        key={a.key}
+                        onClick={() => { onReopen?.(a.key); setHistoryOpen(false) }}
+                        className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12.5px] text-nina-mute hover:bg-nina-line/40 hover:text-nina-chrome"
+                      >
+                        <HIcon className="w-3.5 h-3.5 shrink-0 opacity-80" />
+                        <span className="truncate flex-1">{label(a)}</span>
+                        {!isOpen && <span className="text-[10px] text-nina-mute/60 shrink-0">cerrada</span>}
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+            </>
+          )}
+        </div>
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
           {artifacts.map((a) => {
             const isActive = active && a.key === active.key
@@ -1238,6 +1295,17 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
                   <TabIcon className="w-2.5 h-2.5" />
                 </span>
                 {isActive && <span className="truncate">{label(a)}</span>}
+                {isActive && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); onCloseTab?.(a.key) }}
+                    title="Cerrar pestaña (sigue en el historial)"
+                    className="ml-0.5 w-4 h-4 grid place-items-center rounded hover:bg-nina-line/70 text-nina-mute hover:text-nina-chrome shrink-0"
+                  >
+                    <X className="w-3 h-3" />
+                  </span>
+                )}
               </button>
             )
           })}
