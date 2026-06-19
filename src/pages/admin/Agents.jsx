@@ -732,6 +732,17 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // NO vienen de un mensaje del agente. Conviven con los artefactos del hilo en la barra.
   const [localTabs, setLocalTabs] = useState(() => loadLocalTabs(agent.slug))
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // ⌘K / Ctrl+K → abre el command palette (nueva pestaña / herramienta) desde cualquier parte del chat.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setPaletteOpen((o) => !o)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   // Overrides de ediciones EN VIVO por key. Los artefactos del hilo (slides/sheet/document que
   // vienen de un mensaje) se montan con key fija y su editor guarda el estado en useState propio;
   // sin esto, al cambiar de pestaña y volver el editor se remonta desde el artefacto ORIGINAL y se
@@ -1750,6 +1761,25 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
     }
   }
 
+  // Parámetros del turno (⚙️): temperatura + máx tokens, persistidos en agent.config (jsonb).
+  const [paramsOpen, setParamsOpen] = useState(false)
+  const [cfg, setCfg] = useState({
+    temperature: agent.config?.temperature ?? 0.7,
+    max_tokens: agent.config?.max_tokens ?? '',
+  })
+  useEffect(() => {
+    setCfg({ temperature: agent.config?.temperature ?? 0.7, max_tokens: agent.config?.max_tokens ?? '' })
+  }, [agent.config?.temperature, agent.config?.max_tokens])
+  const saveCfg = async (next) => {
+    setCfg(next)
+    const config = { ...(agent.config ?? {}) }
+    config.temperature = Math.round((Number(next.temperature) || 0) * 100) / 100
+    if (next.max_tokens === '' || next.max_tokens == null) delete config.max_tokens
+    else config.max_tokens = Math.max(1, Math.min(32000, Math.trunc(Number(next.max_tokens) || 0)))
+    const { error } = await supabase.from('agents').update({ config }).eq('slug', agent.slug)
+    if (error) toast.error('No se pudo guardar: ' + error.message)
+  }
+
   // Hook de voz — bilingüe ES/EN con 12 capas de NLP (filler removal,
   // comandos por voz, normalización de números, etc).
   const voice = useVoiceTranscription({
@@ -2035,15 +2065,57 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
           >
             <Paperclip className="w-4 h-4" />
           </button>
-          <button
-            type="button"
-            onClick={stub('Próximamente: parámetros del turno (temp, tokens)')}
-            className="w-8 h-8 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
-            title="Parámetros"
-            aria-label="Parámetros"
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => (isJunta ? setParamsOpen((o) => !o) : toast('Solo la Junta puede cambiar los parámetros.', { icon: '🔒' }))}
+              className={`w-8 h-8 grid place-items-center rounded-lg transition ${paramsOpen ? 'text-nina-chrome bg-nina-line/40' : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40'}`}
+              title="Parámetros del turno (temperatura, tokens)"
+              aria-label="Parámetros"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+            <AnimatePresence>
+              {paramsOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setParamsOpen(false)} />
+                  <motion.div
+                    initial={{ opacity: 0, y: bare ? -6 : 6, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: bare ? -6 : 6, scale: 0.97 }}
+                    transition={{ duration: 0.12 }}
+                    className={`absolute left-0 z-50 w-64 rounded-xl border border-nina-line bg-nina-panel shadow-xl shadow-black/40 p-3 ${bare ? 'top-full mt-2' : 'bottom-full mb-2'}`}
+                  >
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-nina-mute mb-2.5">Parámetros del turno</div>
+                    <div className="space-y-3.5">
+                      <div>
+                        <div className="flex items-center justify-between text-[11.5px] text-nina-chrome mb-1">
+                          <span>Temperatura</span>
+                          <span className="font-mono text-nina-mute">{Number(cfg.temperature).toFixed(2)}</span>
+                        </div>
+                        <input
+                          type="range" min="0" max="1.5" step="0.05" value={cfg.temperature}
+                          onChange={(e) => saveCfg({ ...cfg, temperature: e.target.value })}
+                          className="w-full accent-nina-silver"
+                        />
+                        <div className="flex justify-between text-[9px] text-nina-mute/60 mt-0.5"><span>preciso</span><span>creativo</span></div>
+                      </div>
+                      <div>
+                        <div className="text-[11.5px] text-nina-chrome mb-1">Máx. tokens de respuesta</div>
+                        <input
+                          type="number" min="1" max="32000" placeholder="por defecto" value={cfg.max_tokens}
+                          onChange={(e) => setCfg({ ...cfg, max_tokens: e.target.value })}
+                          onBlur={() => saveCfg(cfg)}
+                          className="w-full bg-nina-ink border border-nina-line rounded-lg px-2.5 py-1.5 text-[12.5px] text-nina-chrome outline-none focus:border-nina-silver/50 placeholder:text-nina-mute/50"
+                        />
+                        <div className="text-[9.5px] text-nina-mute/60 mt-1">Vacío = el del modelo. Aplica al próximo turno.</div>
+                      </div>
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
           <button
             type="button"
             onClick={stub('Estás hablando con este agente — cambia desde la lista de la izquierda')}
@@ -2063,7 +2135,7 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
           {/* Derecha — ⌘K hint + model pill + mic + send */}
           <kbd
             className="hidden sm:flex items-center gap-0.5 px-1.5 h-6 rounded text-[10px] font-mono text-nina-mute bg-nina-line/30 border border-nina-line"
-            title="Atajo (próximamente)"
+            title="⌘K / Ctrl+K — abrir el menú de herramientas"
           >
             ⌘K
           </kbd>
