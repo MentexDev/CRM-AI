@@ -58,8 +58,11 @@ Deno.serve(async (req) => {
         .map((a) => ({ name: (a.name as string).slice(0, 160), chars: Math.max(0, Number(a.chars) || 0) }))
     : []
 
-  const content = (body.content ?? '').toString().trim()
-  if (!content) return json({ error: 'Falta content' }, 400)
+  // Con adjuntos NO recortamos el contenido: el layout exacto (nota + encabezados [Documento: …])
+  // permite a la burbuja reconstruir el texto de cada archivo sin desfases.
+  const rawContent = (body.content ?? '').toString()
+  const content = attachments.length ? rawContent : rawContent.trim()
+  if (!content.trim()) return json({ error: 'Falta content' }, 400)
   const maxLen = attachments.length ? ATTACHMENT_MAX_LEN : MAX_CONTENT_LEN
   if (content.length > maxLen) {
     return json({ error: `Mensaje muy largo (>${maxLen} chars)` }, 400)

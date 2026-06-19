@@ -15,6 +15,7 @@ import {
   Clapperboard,
   Crown,
   Database,
+  Download,
   Eye,
   FileText,
   Github,
@@ -3123,28 +3124,68 @@ function SystemNote({ message }) {
 // nota (si la hay, recuperada con note_chars) + un chip por archivo, en vez del muro de texto.
 // Soporta el formato nuevo (metadata.attachments[]) y el viejo (metadata.attachment único).
 function AttachmentMessage({ content, metadata }) {
-  const atts = metadata?.attachments?.length
-    ? metadata.attachments
-    : metadata?.attachment ? [metadata.attachment] : []
+  const [viewing, setViewing] = useState(null)
+  const isNew = !!metadata?.attachments?.length
+  const atts = isNew ? metadata.attachments : metadata?.attachment ? [metadata.attachment] : []
+  // Nota: en el formato nuevo se recupera con note_chars; en el viejo (1 doc), es lo que va antes
+  // del documento (que está al final del content).
   let note = ''
   if (metadata?.note_chars != null) note = content.slice(0, metadata.note_chars).replace(/\n+$/, '')
-  else if (atts.length === 1 && atts[0]?.chars != null) note = content.slice(0, content.length - atts[0].chars).replace(/\n+$/, '')
+  else if (!isNew && atts[0]?.chars != null) note = content.slice(0, content.length - atts[0].chars).replace(/\n+$/, '')
+  // Texto de cada documento (reconstruido del content por posición: nota + encabezados + texto).
+  const files = []
+  if (isNew) {
+    let pos = metadata.note_chars ?? 0
+    for (const a of atts) {
+      pos += `\n\n[Documento: ${a?.name}]\n`.length
+      const n = a?.chars || 0
+      files.push({ name: a?.name || 'documento.txt', text: content.slice(pos, pos + n) })
+      pos += n
+    }
+  } else if (atts[0]) {
+    files.push({ name: atts[0]?.name || 'documento.txt', text: content.slice(content.length - (atts[0]?.chars || 0)) })
+  }
+  const download = (f) => {
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([f.text], { type: 'text/plain;charset=utf-8' }))
+    a.download = f.name || 'documento.txt'
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
   return (
     <div className="space-y-2">
       {note && <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{note}</div>}
       <div className="flex flex-col gap-1.5">
-        {atts.map((a, i) => (
-          <div key={i} className="flex items-center gap-2 rounded-xl bg-nina-black/10 border border-nina-black/15 px-2.5 py-1.5 max-w-[280px]">
+        {files.map((f, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => setViewing(f)}
+            className="flex items-center gap-2 rounded-xl bg-nina-black/10 border border-nina-black/15 px-2.5 py-1.5 max-w-[280px] text-left hover:bg-nina-black/15 transition"
+            title="Abrir documento"
+          >
             <span className="w-7 h-7 grid place-items-center rounded-lg bg-nina-black/15 shrink-0">
               <FileText className="w-4 h-4" />
             </span>
-            <span className="min-w-0">
-              <span className="block text-[12.5px] font-medium truncate">{a?.name || 'documento.txt'}</span>
-              <span className="block text-[10px] opacity-70">Documento · {fmtKB(a?.chars || 0)}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[12.5px] font-medium truncate">{f.name}</span>
+              <span className="block text-[10px] opacity-70">Documento · {fmtKB(f.text.length)} · abrir</span>
             </span>
-          </div>
+          </button>
         ))}
       </div>
+
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing?.name} maxWidth="max-w-3xl">
+        <div className="flex justify-end mb-2">
+          <button
+            onClick={() => viewing && download(viewing)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
+          >
+            <Download className="w-4 h-4" /> Descargar
+          </button>
+        </div>
+        <pre className="max-h-[65vh] overflow-auto rounded-lg bg-nina-ink border border-nina-line p-3 text-[12.5px] whitespace-pre-wrap break-words font-mono leading-relaxed text-nina-chrome">{viewing?.text}</pre>
+      </Modal>
     </div>
   )
 }
