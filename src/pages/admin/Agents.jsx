@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -15,8 +15,11 @@ import {
   Clapperboard,
   Crown,
   Database,
+  Eye,
   FileText,
+  Github,
   Globe,
+  GraduationCap,
   Hammer,
   History,
   Image as ImageIcon,
@@ -305,6 +308,7 @@ const WORKSPACE_TABS = [
   { id: 'tasks', label: 'Tareas', icon: ListTodo },
   { id: 'instructions', label: 'Prompt', icon: BookOpen },
   { id: 'skills', label: 'Tools', icon: Wrench },
+  { id: 'playbooks', label: 'Skills', icon: GraduationCap },
   { id: 'connectors', label: 'Conectores', icon: Plug },
   { id: 'config', label: 'Config', icon: SettingsIcon },
 ]
@@ -438,6 +442,7 @@ function AgentWorkspace({
           <InstructionsTab agentId={agent.id} isJunta={isJunta} onEdit={onEdit} />
         )}
         {view === 'skills' && <SkillsTab agentId={agent.id} />}
+        {view === 'playbooks' && <PlaybooksTab agentId={agent.id} agentBasic={agent} />}
         {view === 'connectors' && <ConnectorsTab agentId={agent.id} agentBasic={agent} />}
         {view === 'config' && (
           <ConfigTab agentId={agent.id} agentBasic={agent} isJunta={isJunta} onEdit={onEdit} />
@@ -2193,6 +2198,159 @@ function InstructionsTab({ agentId, isJunta, onEdit }) {
 // =====================================================================
 // Tab · Habilidades (tools permitidas)
 // =====================================================================
+// Tab · Skills (playbooks de conocimiento) — importables de repos GitHub, asignables al agente.
+// El runtime las inyecta en el contexto del agente (loadAgentSkillsPrompt). Son CONOCIMIENTO/método,
+// no acciones (eso son las Tools).
+function PlaybooksTab({ agentId }) {
+  const [assigned, setAssigned] = useState([])
+  const [brandSkills, setBrandSkills] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [repo, setRepo] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [viewing, setViewing] = useState(null)
+
+  const load = useCallback(async () => {
+    const [{ data: links }, { data: all }] = await Promise.all([
+      supabase.from('agent_skills').select('skill_id, skills(*)').eq('agent_id', agentId),
+      supabase.from('skills').select('*').order('updated_at', { ascending: false }),
+    ])
+    setAssigned((links ?? []).map((l) => l.skills).filter(Boolean))
+    setBrandSkills(all ?? [])
+    setLoading(false)
+  }, [agentId])
+  useEffect(() => { setLoading(true); load() }, [load])
+
+  const assignedIds = new Set(assigned.map((s) => s.id))
+  const available = brandSkills.filter((s) => !assignedIds.has(s.id))
+
+  const importRepo = async () => {
+    const r = repo.trim()
+    if (!r || importing) return
+    setImporting(true)
+    const t = toast.loading('Importando skills del repo…')
+    try {
+      const { data, error } = await supabase.functions.invoke('import-skills', { body: { repo: r, agent_id: agentId } })
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
+      toast.success(`${data.imported_count} skill(s) importada(s)`, { id: t })
+      setRepo('')
+      await load()
+    } catch (e) {
+      toast.error(e?.message || 'No se pudo importar', { id: t })
+    } finally {
+      setImporting(false)
+    }
+  }
+  const assign = async (skill) => {
+    const { error } = await supabase.from('agent_skills').insert({ agent_id: agentId, skill_id: skill.id })
+    if (error) return toast.error('No se pudo asignar')
+    setAssigned((p) => [skill, ...p])
+  }
+  const unassign = async (skill) => {
+    const { error } = await supabase.from('agent_skills').delete().eq('agent_id', agentId).eq('skill_id', skill.id)
+    if (error) return toast.error('No se pudo quitar')
+    setAssigned((p) => p.filter((s) => s.id !== skill.id))
+  }
+  const remove = async (skill) => {
+    const { error } = await supabase.from('skills').delete().eq('id', skill.id)
+    if (error) return toast.error('No se pudo eliminar')
+    setAssigned((p) => p.filter((s) => s.id !== skill.id))
+    setBrandSkills((p) => p.filter((s) => s.id !== skill.id))
+    toast.success('Skill eliminada')
+  }
+
+  if (loading) {
+    return <div className="h-full grid place-items-center text-nina-mute"><Loader2 className="w-5 h-5 animate-spin" /></div>
+  }
+
+  return (
+    <div className="h-full overflow-y-auto px-4 sm:px-6 py-4 space-y-5">
+      <header>
+        <h3 className="text-xs uppercase tracking-[0.2em] text-nina-mute">Skills (playbooks) · {assigned.length}</h3>
+        <p className="text-[12px] text-nina-mute mt-1">
+          Guías y métodos que el agente lee para trabajar mejor (no son acciones — eso son las Tools). Se inyectan en su contexto.
+        </p>
+      </header>
+
+      {/* Importar de un repositorio */}
+      <div className="rounded-lg border border-nina-line bg-nina-ink p-3">
+        <div className="flex items-center gap-2 text-[10.5px] uppercase tracking-[0.18em] text-nina-mute mb-2">
+          <Github className="w-3.5 h-3.5" /> Importar de un repositorio
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            value={repo}
+            onChange={(e) => setRepo(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') importRepo() }}
+            placeholder="github.com/owner/repo  (o owner/repo)"
+            className="flex-1 min-w-0 bg-nina-panel border border-nina-line rounded-lg px-3 py-2 text-[13px] text-nina-chrome outline-none focus:border-nina-silver/50 placeholder:text-nina-mute/50"
+          />
+          <button
+            onClick={importRepo}
+            disabled={!repo.trim() || importing}
+            className="h-9 px-3 rounded-lg bg-silver-gradient text-nina-black text-[12px] font-medium flex items-center gap-1.5 disabled:opacity-40 shrink-0"
+          >
+            {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Importar
+          </button>
+        </div>
+        <p className="text-[10.5px] text-nina-mute/70 mt-1.5">Busca archivos SKILL.md (o .md) en el repo público y los asigna a este agente.</p>
+      </div>
+
+      {/* Asignadas al agente */}
+      {assigned.length === 0 ? (
+        <div className="text-sm text-nina-mute">Aún no tiene skills. Impórtalas de un repo arriba.</div>
+      ) : (
+        <div className="space-y-2">
+          {assigned.map((s) => (
+            <SkillCard key={s.id} s={s} assigned onView={() => setViewing(s)} onUnassign={() => unassign(s)} onRemove={() => remove(s)} />
+          ))}
+        </div>
+      )}
+
+      {/* Disponibles en la marca (importadas pero no asignadas a este agente) */}
+      {available.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-[10.5px] uppercase tracking-[0.18em] text-nina-mute">Disponibles en la marca</h4>
+          {available.map((s) => (
+            <SkillCard key={s.id} s={s} onView={() => setViewing(s)} onAssign={() => assign(s)} onRemove={() => remove(s)} />
+          ))}
+        </div>
+      )}
+
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing?.name} maxWidth="max-w-2xl">
+        <Markdown>{viewing?.content || '(sin contenido)'}</Markdown>
+      </Modal>
+    </div>
+  )
+}
+
+function SkillCard({ s, assigned, onView, onAssign, onUnassign, onRemove }) {
+  return (
+    <div className="rounded-lg border border-nina-line bg-nina-ink p-3 flex items-start gap-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[13px] font-medium text-nina-chrome truncate">{s.name}</span>
+          {s.source_repo && (
+            <span className="text-[9px] uppercase tracking-[0.15em] text-nina-mute inline-flex items-center gap-1">
+              <Github className="w-3 h-3" />{s.source_repo}
+            </span>
+          )}
+        </div>
+        {s.description && <p className="text-[12px] text-nina-mute mt-1 line-clamp-2">{s.description}</p>}
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <button onClick={onView} title="Ver contenido" className="w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40"><Eye className="w-4 h-4" /></button>
+        {assigned ? (
+          <button onClick={onUnassign} title="Quitar del agente" className="h-7 px-2 rounded-lg text-[11px] text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40">Quitar</button>
+        ) : (
+          <button onClick={onAssign} title="Asignar al agente" className="h-7 px-2 rounded-lg text-[11px] text-nina-black bg-silver-gradient font-medium flex items-center gap-1"><Plus className="w-3.5 h-3.5" />Asignar</button>
+        )}
+        <button onClick={onRemove} title="Eliminar skill (de la marca)" className="w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-red-300 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></button>
+      </div>
+    </div>
+  )
+}
+
 function SkillsTab({ agentId }) {
   const { agent: detail, loading } = useAgentDetail(agentId)
   const [tools, setTools] = useState([])

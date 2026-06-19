@@ -6,6 +6,7 @@
 import { adminDb } from './db.ts'
 import { makeProvider, isRateOrSizeLimitError, type ChatMessage, type ChatCompleteResult } from './llm.ts'
 import { loadTools, runTool, toToolDefinitions, capToolResultForContext, capToolContentString, dailyBudgetExceeded, dropOrphanToolMessages } from './tools.ts'
+import { loadAgentSkillsPrompt } from './skills.ts'
 
 const MAX_TOOL_ITERATIONS = 4
 const HISTORY_WINDOW = 40
@@ -179,9 +180,12 @@ export async function runAgentChatTurn(
     const toolDefs = toToolDefinitions(toolDescs)
 
     const messages: ChatMessage[] = []
+    // Skills asignadas (playbooks de conocimiento) → se anexan al system prompt del agente.
+    const skillsBlock = await loadAgentSkillsPrompt(db, agentId)
+    const baseSystem = suppressClarify ? agent.system_prompt : `${agent.system_prompt}\n\n${CHAT_GUIDANCE}`
     messages.push({
       role: 'system',
-      content: suppressClarify ? agent.system_prompt : `${agent.system_prompt}\n\n${CHAT_GUIDANCE}`,
+      content: skillsBlock ? `${baseSystem}\n\n${skillsBlock}` : baseSystem,
     })
     for (const m of cleanHistory) {
       messages.push({
