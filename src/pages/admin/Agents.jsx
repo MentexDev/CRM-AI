@@ -34,6 +34,7 @@ import {
   Play,
   Plug,
   Plus,
+  Presentation,
   Save,
   Settings as SettingsIcon,
   ShoppingBag,
@@ -56,6 +57,7 @@ import { useConversations } from '../../hooks/useConversations'
 import { ConversationMenu } from '../../components/ConversationMenu'
 import { TasksBoard } from './Tasks'
 import DocumentEditor from '../../components/DocumentEditor'
+import SlideDeck from '../../components/SlideDeck'
 import CommandPalette from '../../components/CommandPalette'
 import { useVoiceTranscription } from '../../hooks/useVoiceTranscription'
 import { useAuth } from '../../context/AuthContext'
@@ -534,6 +536,19 @@ function saveLocalTabs(slug, tabs) {
   }
 }
 
+// Serializa una presentación (draft_slides) a Markdown legible para guardarla en la biblioteca.
+function slidesToMarkdown(title, subtitle, slides) {
+  const lines = [`# ${title || 'Presentación'}`]
+  if (subtitle) lines.push('', `_${subtitle}_`)
+  for (const s of slides || []) {
+    lines.push('', '---', '')
+    if (s.heading) lines.push(s.layout === 'quote' ? `> ${s.heading}` : `## ${s.heading}`)
+    for (const b of s.bullets || []) if (b) lines.push(`- ${b}`)
+    if (s.body) lines.push('', s.body)
+  }
+  return lines.join('\n')
+}
+
 function MessagesTab({ agent, conversationId, conversation, onConversationCreated, onGoHome, seedMessage, onSeedConsumed }) {
   const { messages, loading } = useAgentMessages(agent.id, conversationId, 200)
   const [optimistic, setOptimistic] = useState([])
@@ -628,6 +643,16 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
             type: 'document',
             title: d.title || 'Documento',
             markdown: typeof d.markdown === 'string' ? d.markdown : typeof d.content === 'string' ? d.content : '',
+            messageId: m.id,
+            key: String(m.id),
+          })
+        } else if (d.kind === 'slides' && Array.isArray(d.slides)) {
+          // Presentación editable (draft_slides) → visor de diapositivas en el canvas.
+          out.push({
+            type: 'slides',
+            title: d.title || 'Presentación',
+            subtitle: typeof d.subtitle === 'string' ? d.subtitle : '',
+            slides: d.slides,
             messageId: m.id,
             key: String(m.id),
           })
@@ -763,6 +788,14 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         const live = docContentRef.current?.()
         const md = live?.markdown ?? artifact.markdown ?? ''
         const ttl = (live?.title || artifact.title || 'Documento NINA').trim() || 'Documento NINA'
+        row = { title: ttl, kind: 'document', content: md, source: 'canvas', size_bytes: new Blob([md]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
+      } else if (artifact.type === 'slides') {
+        // Tomamos lo EDITADO (docContentRef lo expone el SlideDeck activo) y serializamos a
+        // Markdown para que la presentación quede legible/exportable en la biblioteca.
+        const live = docContentRef.current?.()
+        const ttl = (live?.title || artifact.title || 'Presentación NINA').trim() || 'Presentación NINA'
+        const deck = Array.isArray(live?.slides) ? live.slides : artifact.slides || []
+        const md = slidesToMarkdown(ttl, live?.subtitle ?? artifact.subtitle, deck)
         row = { title: ttl, kind: 'document', content: md, source: 'canvas', size_bytes: new Blob([md]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
       } else {
         row = { title: artifact.subject || 'Correo NINA', kind: 'campaign', content: artifact.html, source: 'canvas', size_bytes: new Blob([artifact.html]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
@@ -1189,7 +1222,11 @@ const SELECTOR_SCRIPT = `<script>(function(){
 
 function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave, onDelete, saved, docContentRef, onElementEdit, onOpenPalette, onDocChange, onCloseTab, onReopen }) {
   const label = (a) =>
-    a.type === 'document' ? a.title || 'Documento' : a.type === 'calendar' ? 'Calendario' : a.type === 'image' ? a.title : a.subject
+    a.type === 'document' ? a.title || 'Documento'
+      : a.type === 'slides' ? a.title || 'Presentación'
+      : a.type === 'calendar' ? 'Calendario'
+      : a.type === 'image' ? a.title
+      : a.subject
   const [selecting, setSelecting] = useState(false)
   const [selection, setSelection] = useState(null) // { selector, tag, text, outerHTML }
   const [editText, setEditText] = useState('')
@@ -1259,7 +1296,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
                 ) : (
                   [...(history || [])].reverse().map((a) => {
                     const HIcon =
-                      a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : MessageSquare
+                      a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : MessageSquare
                     const isOpen = artifacts.some((t) => t.key === a.key)
                     return (
                       <button
@@ -1281,7 +1318,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
           {artifacts.map((a) => {
             const isActive = active && a.key === active.key
-            const TabIcon = a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : MessageSquare
+            const TabIcon = a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : MessageSquare
             return (
               <button
                 key={a.key}
@@ -1367,7 +1404,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         </button>
       </div>
       {/* Preview del artefacto activo: documento editable, agenda, imagen o correo HTML. */}
-      <div className={`relative flex-1 min-h-0 bg-nina-ink ${active?.type === 'document' ? '' : 'p-3'}`}>
+      <div className={`relative flex-1 min-h-0 bg-nina-ink ${active?.type === 'document' || active?.type === 'slides' ? '' : 'p-3'}`}>
         {!active ? (
           <div className="h-full grid place-items-center text-center px-8">
             <div className="max-w-sm">
@@ -1383,6 +1420,15 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
             key={active.key}
             title={active.title}
             markdown={active.markdown}
+            getContentRef={docContentRef}
+            onChange={(p) => onDocChange?.(active.key, p)}
+          />
+        ) : active?.type === 'slides' ? (
+          <SlideDeck
+            key={active.key}
+            title={active.title}
+            subtitle={active.subtitle}
+            slides={active.slides}
             getContentRef={docContentRef}
             onChange={(p) => onDocChange?.(active.key, p)}
           />
@@ -1452,6 +1498,8 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
           <>Tu espacio de trabajo · lo que el agente genere (correos, imágenes, documentos, agenda) se abre aquí en pestañas.</>
         ) : active?.type === 'document' ? (
           <>Documento editable · usa <span className="text-nina-chrome">/</span> para bloques · MD/PDF arriba · "Guardar" lo manda a la biblioteca.</>
+        ) : active?.type === 'slides' ? (
+          <>Presentación editable · <span className="text-nina-chrome">← →</span> para navegar · clic en el texto para editar · PDF arriba · "Guardar" la manda a la biblioteca.</>
         ) : active?.type === 'calendar' ? (
           <>Agenda del calendario de marca · pídele al agente que agende o liste más eventos.</>
         ) : active?.type === 'image' ? (

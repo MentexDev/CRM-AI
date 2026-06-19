@@ -231,6 +231,72 @@ export const TOOL_SPECS: ToolSpecData[] = [
     "isActive": true
   },
   {
+    "name": "draft_slides",
+    "description": "Crea una PRESENTACIÓN (mazo de diapositivas) que se abre EDITABLE en el canvas: pitch de colección, propuesta comercial, reporte visual, plan de campaña. Devuelve diapositivas estructuradas (portada, viñetas, frase de impacto, secciones, cita). El usuario las edita, navega y exporta a PDF. NO publica nada — solo crea la presentación. Para texto largo corrido usa draft_document; para una campaña de correo HTML usa compose_email.",
+    "category": "document",
+    "parameters": {
+      "type": "object",
+      "required": [
+        "title",
+        "slides"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Título de la presentación (aparece en la portada)."
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Subtítulo o bajada de la portada (opcional)."
+        },
+        "slides": {
+          "type": "array",
+          "description": "Diapositivas en orden. 6–12 suele ser lo ideal. La primera conviene que sea layout 'cover'.",
+          "items": {
+            "type": "object",
+            "required": [
+              "heading"
+            ],
+            "properties": {
+              "layout": {
+                "type": "string",
+                "enum": [
+                  "cover",
+                  "bullets",
+                  "statement",
+                  "section",
+                  "quote"
+                ],
+                "description": "cover=portada; bullets=título + viñetas; statement=frase grande de impacto; section=separador de sección; quote=cita. Por defecto 'bullets'."
+              },
+              "heading": {
+                "type": "string",
+                "description": "Título de la diapositiva (o la frase principal, en statement/quote)."
+              },
+              "bullets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Viñetas (para layout 'bullets'). 3–6 frases cortas es lo ideal."
+              },
+              "body": {
+                "type": "string",
+                "description": "Texto de apoyo: la frase grande (statement/section) o el autor de la cita (quote)."
+              },
+              "note": {
+                "type": "string",
+                "description": "Nota del presentador (opcional, no se muestra en la diapositiva)."
+              }
+            }
+          }
+        }
+      }
+    },
+    "requiresApproval": false,
+    "isActive": true
+  },
+  {
     "name": "ingest_document",
     "description": "Ingesta un documento de texto en el brain de la marca: lo divide en fragmentos semánticos, genera embeddings, extrae entidades nombradas y relaciones entre ellas.",
     "category": "knowledge",

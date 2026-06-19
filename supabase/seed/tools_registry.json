@@ -18,6 +18,39 @@
     "is_active": true
   },
   {
+    "name": "draft_slides",
+    "description": "Crea una PRESENTACIÓN (mazo de diapositivas) EDITABLE en el canvas: pitch de colección, propuesta comercial, reporte visual, plan de campaña. Devuelve diapositivas estructuradas (portada, viñetas, frase de impacto, secciones, cita); el usuario las edita, navega y exporta a PDF. NO publica — solo crea. Para texto largo usa draft_document; para correo HTML usa compose_email.",
+    "category": "document",
+    "args_schema": {
+      "type": "object",
+      "required": [
+        "title",
+        "slides"
+      ],
+      "properties": {
+        "title": { "type": "string", "description": "Título de la presentación (portada)." },
+        "subtitle": { "type": "string", "description": "Subtítulo o bajada de la portada (opcional)." },
+        "slides": {
+          "type": "array",
+          "description": "Diapositivas en orden. 6–12 es lo ideal. La primera conviene que sea layout 'cover'.",
+          "items": {
+            "type": "object",
+            "required": ["heading"],
+            "properties": {
+              "layout": { "type": "string", "enum": ["cover", "bullets", "statement", "section", "quote"], "description": "cover=portada; bullets=título + viñetas; statement=frase grande; section=separador; quote=cita. Por defecto 'bullets'." },
+              "heading": { "type": "string", "description": "Título de la diapositiva (o la frase, en statement/quote)." },
+              "bullets": { "type": "array", "items": { "type": "string" }, "description": "Viñetas (layout 'bullets'). 3–6 frases cortas." },
+              "body": { "type": "string", "description": "Texto de apoyo: la frase grande (statement/section) o el autor (quote)." },
+              "note": { "type": "string", "description": "Nota del presentador (opcional, no se muestra)." }
+            }
+          }
+        }
+      }
+    },
+    "requires_approval": false,
+    "is_active": true
+  },
+  {
     "name": "ask_questions",
     "description": "Cuando el usuario pide algo ABIERTO o AMBIGUO (sobre todo en el primer mensaje de una conversación nueva), NO adivines: usa esta tool para hacerle 2-5 preguntas clave y precisar el requerimiento ANTES de producir el entregable. Mezcla tipos: 'text' (respuesta libre), 'single' (una opción de una lista) y 'multi' (varias opciones). El usuario responde en un formulario por pasos; sus respuestas te llegan como su siguiente mensaje y entonces continúas. Si ya tienes contexto suficiente, NO preguntes.",
     "category": "core",

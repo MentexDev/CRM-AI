@@ -1386,6 +1386,32 @@ async function draftDocument(_ctx: ToolContext, args: Record<string, unknown>): 
   return { ok: true, data: { kind: 'document', title, markdown: content } }
 }
 
+// draft_slides: crea una PRESENTACIÓN editable (artefacto kind:'slides' que el canvas abre
+// en el visor de diapositivas). Sin side-effects — solo normaliza y devuelve las diapositivas.
+const SLIDE_LAYOUTS = new Set(['cover', 'bullets', 'statement', 'section', 'quote'])
+async function draftSlides(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const title = (args.title as string)?.trim() || 'Presentación'
+  const subtitle = typeof args.subtitle === 'string' ? args.subtitle.trim().slice(0, 240) : ''
+  const rawSlides = Array.isArray(args.slides) ? args.slides : []
+  if (!rawSlides.length) return { ok: false, error: 'Faltan las diapositivas (slides)' }
+  const slides = rawSlides
+    .slice(0, 40) // tope defensivo: un mazo no debería exceder 40 diapositivas
+    .map((s) => {
+      const o = (s ?? {}) as Record<string, unknown>
+      const layout = typeof o.layout === 'string' && SLIDE_LAYOUTS.has(o.layout) ? o.layout : 'bullets'
+      const heading = typeof o.heading === 'string' ? o.heading.slice(0, 200) : ''
+      const body = typeof o.body === 'string' ? o.body.slice(0, 1200) : ''
+      const note = typeof o.note === 'string' ? o.note.slice(0, 600) : ''
+      const bullets = Array.isArray(o.bullets)
+        ? o.bullets.filter((b) => typeof b === 'string').slice(0, 12).map((b) => (b as string).slice(0, 300))
+        : []
+      return { layout, heading, body, note, bullets }
+    })
+    .filter((s) => s.heading || s.body || s.bullets.length) // descarta diapositivas vacías
+  if (!slides.length) return { ok: false, error: 'Las diapositivas vienen sin contenido' }
+  return { ok: true, data: { kind: 'slides', title, subtitle, slides } }
+}
+
 const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>) => Promise<ToolResult>> = {
   delegate_task: delegateTask,
   request_approval: requestApproval,
@@ -1412,6 +1438,7 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown>)
   calendar_list_events: calendarListEventsTool,
   suitecrm_sales: suitecrmSales,
   draft_document: draftDocument,
+  draft_slides: draftSlides,
 }
 
 // =====================================================================
