@@ -14,9 +14,10 @@ import { marked } from 'marked'
 import TurndownService from 'turndown'
 import toast from 'react-hot-toast'
 import {
-  AlignCenter, AlignJustify, CheckSquare, Code, FileText, Heading1, Heading2,
-  Heading3, List, ListOrdered, Minus, Printer, Quote, Type,
+  AlignCenter, AlignJustify, CheckSquare, Code, Copy, FileText, GripVertical, Heading1,
+  Heading2, Heading3, List, ListOrdered, Minus, Plus, Printer, Quote, Trash2, Type,
 } from 'lucide-react'
+import { DragHandle } from '@tiptap/extension-drag-handle-react'
 
 // markdown ⇄ html. Init: md→html (TipTap parsea HTML). Export: html→md (turndown).
 const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' })
@@ -29,6 +30,24 @@ const mdToHtml = (md) => {
 }
 const htmlToMd = (html) => {
   try { return turndown.turndown(html || '') } catch { return '' }
+}
+
+// El agente a veces repite el título como '# …' al inicio del cuerpo (además del campo
+// título) → se ve doble. Si la primera línea es un H1/H2 IGUAL al título, la quitamos.
+function stripLeadingTitle(md, title) {
+  if (!md) return ''
+  const lines = md.split('\n')
+  let i = 0
+  while (i < lines.length && lines[i].trim() === '') i++
+  if (i < lines.length && /^#{1,2}\s+/.test(lines[i])) {
+    const h = lines[i].replace(/^#{1,2}\s+/, '').trim().toLowerCase()
+    if (title && h === String(title).trim().toLowerCase()) {
+      lines.splice(0, i + 1)
+      while (lines.length && lines[0].trim() === '') lines.shift()
+      return lines.join('\n')
+    }
+  }
+  return md
 }
 
 // Bloques del menú "/". `run` recibe un chain de TipTap ya enfocado.
@@ -76,6 +95,8 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
   const [layoutFull, setLayoutFull] = useState(false)
   const [wordCount, setWordCount] = useState(0)
   const [slash, setSlash] = useState({ open: false, query: '', idx: 0, top: 0, left: 0 })
+  const [blockNodePos, setBlockNodePos] = useState(null) // pos del bloque bajo el handle (⠿)
+  const [blockMenuOpen, setBlockMenuOpen] = useState(false)
 
   const slashStartRef = useRef(null)
   const openRef = useRef(false)
@@ -115,7 +136,7 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
       Link.configure({ openOnClick: false, autolink: true }),
       Highlight,
     ],
-    content: mdToHtml(markdown),
+    content: mdToHtml(stripLeadingTitle(markdown, initialTitle)),
     editorProps: {
       attributes: { class: 'doc-prose' },
       handleKeyDown(_view, event) {
@@ -212,6 +233,42 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
     setTimeout(() => w.print(), 300)
   }
 
+  // Acciones del bloque bajo el handle (⠿). blockNodePos = posición del nodo (justo antes de él).
+  const blockNode = () => (blockNodePos != null ? editor.state.doc.nodeAt(blockNodePos) : null)
+  const addBlockBelow = () => {
+    const n = blockNode()
+    if (!n) return
+    const at = blockNodePos + n.nodeSize
+    editor.chain().focus().insertContentAt(at, { type: 'paragraph' }).setTextSelection(at + 1).run()
+    setBlockMenuOpen(false)
+  }
+  const duplicateBlock = () => {
+    const n = blockNode()
+    if (!n) return
+    editor.chain().focus().insertContentAt(blockNodePos + n.nodeSize, n.toJSON()).run()
+    setBlockMenuOpen(false)
+  }
+  const deleteBlock = () => {
+    const n = blockNode()
+    if (!n) return
+    editor.chain().focus().deleteRange({ from: blockNodePos, to: blockNodePos + n.nodeSize }).run()
+    setBlockMenuOpen(false)
+  }
+  const convertBlock = (apply) => {
+    if (!blockNode()) return
+    apply(editor.chain().focus().setTextSelection(blockNodePos + 1))
+    setBlockMenuOpen(false)
+  }
+  const CONVERT = [
+    { label: 'Texto', icon: Type, apply: (c) => c.setParagraph().run() },
+    { label: 'Título 1', icon: Heading1, apply: (c) => c.toggleHeading({ level: 1 }).run() },
+    { label: 'Título 2', icon: Heading2, apply: (c) => c.toggleHeading({ level: 2 }).run() },
+    { label: 'Título 3', icon: Heading3, apply: (c) => c.toggleHeading({ level: 3 }).run() },
+    { label: 'Lista', icon: List, apply: (c) => c.toggleBulletList().run() },
+    { label: 'Tareas', icon: CheckSquare, apply: (c) => c.toggleTaskList().run() },
+    { label: 'Cita', icon: Quote, apply: (c) => c.toggleBlockquote().run() },
+  ]
+
   const tbBtn = 'flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition-colors'
 
   return (
@@ -228,7 +285,7 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="mx-auto px-6 py-7 transition-[max-width] duration-200" style={{ maxWidth: layoutFull ? '100%' : 780 }}>
+        <div className="mx-auto px-10 py-7 transition-[max-width] duration-200" style={{ maxWidth: layoutFull ? '100%' : 780 }}>
           <input
             value={title}
             onChange={(e) => { setTitle(e.target.value); scheduleFire() }}
@@ -236,6 +293,60 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
             className="w-full bg-transparent text-nina-chrome text-[28px] font-bold outline-none placeholder:text-nina-mute/40 mb-2"
           />
           <EditorContent editor={editor} />
+          {/* Handle estilo Notion: aparece a la izquierda del bloque bajo el cursor. "+" añade
+              un bloque debajo; ⠿ arrastra para reordenar y abre el menú (convertir/duplicar/eliminar). */}
+          <DragHandle
+            editor={editor}
+            onNodeChange={(d) => { setBlockNodePos(typeof d?.pos === 'number' ? d.pos : null); setBlockMenuOpen(false) }}
+          >
+            <div className="relative flex items-center gap-0.5 text-nina-mute">
+              <button
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={addBlockBelow}
+                title="Añadir bloque debajo"
+                className="w-5 h-6 grid place-items-center rounded hover:bg-nina-line/50 hover:text-nina-chrome"
+              >
+                <Plus size={15} />
+              </button>
+              <button
+                onClick={() => setBlockMenuOpen((o) => !o)}
+                title="Mover / opciones del bloque"
+                className="w-5 h-6 grid place-items-center rounded hover:bg-nina-line/50 hover:text-nina-chrome cursor-grab active:cursor-grabbing"
+              >
+                <GripVertical size={15} />
+              </button>
+              {blockMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onMouseDown={() => setBlockMenuOpen(false)} />
+                  <div
+                    className="absolute left-0 top-7 z-50 w-52 rounded-xl border border-nina-line bg-nina-panel shadow-2xl py-1.5 text-[13px]"
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-nina-mute">Convertir en</div>
+                    {CONVERT.map((it) => {
+                      const I = it.icon
+                      return (
+                        <button
+                          key={it.label}
+                          onClick={() => convertBlock(it.apply)}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-nina-mute hover:bg-nina-line/40 hover:text-nina-chrome"
+                        >
+                          <I size={14} /> {it.label}
+                        </button>
+                      )
+                    })}
+                    <div className="my-1 border-t border-nina-line/50" />
+                    <button onClick={duplicateBlock} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-nina-mute hover:bg-nina-line/40 hover:text-nina-chrome">
+                      <Copy size={14} /> Duplicar
+                    </button>
+                    <button onClick={deleteBlock} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-red-300/90 hover:bg-red-500/10">
+                      <Trash2 size={14} /> Eliminar bloque
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </DragHandle>
         </div>
       </div>
       {slash.open && filtered.length > 0 && (
