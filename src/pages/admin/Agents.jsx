@@ -531,6 +531,50 @@ function saveLocalTabs(slug, tabs) {
   }
 }
 
+// Barra de pestañas del workspace (estilo NeuralOS), arriba del área del agente. Las pestañas
+// (documentos + avances) viven aquí; clic abre el panel en esa pestaña, "+" abre el palette.
+function WorkspaceTabBar({ tabs, activeKey, canvasOpen, onSelect, onCloseTab, onAdd }) {
+  const tabLabel = (a) =>
+    a.type === 'document' ? a.title || 'Documento' : a.type === 'calendar' ? 'Calendario' : a.type === 'image' ? a.title || 'Imagen' : a.subject || 'Correo'
+  const iconFor = (a) =>
+    a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : MessageSquare
+  return (
+    <div className="hidden md:flex items-center gap-1 px-2 h-10 border-b border-nina-line/60 bg-nina-panel/30 shrink-0 overflow-x-auto">
+      {tabs.map((a) => {
+        const Icon = iconFor(a)
+        const active = canvasOpen && a.key === activeKey
+        return (
+          <div
+            key={a.key}
+            onClick={() => onSelect(a.key)}
+            title={tabLabel(a)}
+            className={`group flex items-center gap-1.5 h-7 pl-2.5 pr-1.5 rounded-lg text-[12px] cursor-pointer transition shrink-0 max-w-[200px] ${
+              active ? 'bg-nina-line/50 text-nina-chrome' : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/25'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5 shrink-0 opacity-80" />
+            <span className="truncate">{tabLabel(a)}</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); onCloseTab(a) }}
+              className="w-4 h-4 grid place-items-center rounded opacity-0 group-hover:opacity-100 hover:bg-nina-line/60 hover:text-nina-chrome shrink-0"
+              title="Cerrar pestaña"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )
+      })}
+      <button
+        onClick={onAdd}
+        className="w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30 transition shrink-0"
+        title="Nueva pestaña / función"
+      >
+        <Plus className="w-4 h-4" />
+      </button>
+    </div>
+  )
+}
+
 function MessagesTab({ agent, conversationId, conversation, onConversationCreated, onGoHome, seedMessage, onSeedConsumed }) {
   const { messages, loading } = useAgentMessages(agent.id, conversationId, 200)
   const [optimistic, setOptimistic] = useState([])
@@ -962,7 +1006,19 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   }, [allMessages.length, thinking])
 
   return (
-    <div className="h-full flex flex-row">
+    <div className="h-full flex flex-col">
+      {/* Barra de pestañas del workspace (estilo NeuralOS), arriba del área del agente. */}
+      {(canvasOpen || allTabs.length > 0) && (
+        <WorkspaceTabBar
+          tabs={allTabs}
+          activeKey={activeArtifact?.key ?? null}
+          canvasOpen={canvasOpen}
+          onSelect={(k) => { setActiveKey(k); setCanvasOpen(true) }}
+          onCloseTab={(t) => deleteArtifact(t)}
+          onAdd={() => { setCanvasOpen(true); setPaletteOpen(true) }}
+        />
+      )}
+      <div className="flex-1 flex flex-row min-h-0 relative">
       {/* Capa transparente durante el arrastre: cubre el iframe del canvas para
           que NO se trague los eventos del puntero (si no, al mover rápido el cursor
           entra al iframe y el resize pierde el rastro). */}
@@ -1079,6 +1135,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
             </div>
             <ArtifactCanvas
               artifacts={allTabs}
+              hideTabs
               onOpenPalette={() => setPaletteOpen(true)}
               active={activeArtifact}
               onSelect={setActiveKey}
@@ -1093,6 +1150,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
           </motion.aside>
         )}
       </AnimatePresence>
+      </div>
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
@@ -1170,7 +1228,7 @@ const SELECTOR_SCRIPT = `<script>(function(){
   document.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var el=e.target;if(last&&last.classList)last.classList.remove('__ninaHov');var c=el.cloneNode(true);if(c.classList)c.classList.remove('__ninaHov');parent.postMessage({type:'nina-select',selector:path(el),tag:(el.tagName||'').toLowerCase(),text:(el.textContent||'').replace(/\\s+/g,' ').trim().slice(0,90),outerHTML:(c.outerHTML||'').slice(0,4000)},'*');},true);
 })();</script>`
 
-function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, saved, docContentRef, onElementEdit, onOpenPalette, onDocChange }) {
+function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete, saved, docContentRef, onElementEdit, onOpenPalette, onDocChange, hideTabs }) {
   const label = (a) =>
     a.type === 'document' ? a.title || 'Documento' : a.type === 'calendar' ? 'Calendario' : a.type === 'image' ? a.title : a.subject
   const [selecting, setSelecting] = useState(false)
@@ -1219,6 +1277,7 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
       {/* Barra de pestañas estilo Chrome: la activa muestra el título; las demás colapsan
           a solo el ícono (clic para traerlas al frente). Maneja correos e imágenes. */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-nina-line/60 shrink-0">
+        {!hideTabs && (
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
           {artifacts.map((a) => {
             const isActive = active && a.key === active.key
@@ -1249,6 +1308,7 @@ function ArtifactCanvas({ artifacts, active, onSelect, onClose, onSave, onDelete
             <Plus className="w-4 h-4" />
           </button>
         </div>
+        )}
         <div className="flex-1" />
         {canSelect && (
           <button
