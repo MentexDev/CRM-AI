@@ -209,6 +209,12 @@ export async function runAgentChatTurn(
       messages.push({ role: 'user', content: editContext })
     }
 
+    // Baseline de cancelación: si conversations.canceled_at CAMBIA durante este turno (el
+    // usuario pulsó "Stop"), cortamos. Comparamos contra el valor inicial para no confundir
+    // cancelaciones de turnos anteriores ni depender de relojes sincronizados.
+    const { data: convAtStart } = await db.from('conversations').select('canceled_at').eq('id', convId).maybeSingle()
+    const cancelBaseline = (convAtStart as { canceled_at?: string } | null)?.canceled_at ?? null
+
     let iterations = 0
     let finished = false
     let stopReason: string | undefined
@@ -216,6 +222,14 @@ export async function runAgentChatTurn(
 
     while (iterations < MAX_TOOL_ITERATIONS) {
       iterations++
+      // Stop del usuario: si canceled_at cambió desde el inicio del turno, cortamos ANTES de
+      // generar más (no dejamos turnos colgados ni hacemos trabajo extra).
+      const { data: convNow } = await db.from('conversations').select('canceled_at').eq('id', convId).maybeSingle()
+      if (((convNow as { canceled_at?: string } | null)?.canceled_at ?? null) !== cancelBaseline) {
+        stopReason = 'canceled'
+        finished = true
+        break
+      }
       // 1) Insertar el mensaje del asistente VACÍO → habilita el "tipeo" en vivo
       const { data: ins } = await db
         .from('messages')

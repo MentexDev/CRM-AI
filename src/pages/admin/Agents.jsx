@@ -28,6 +28,7 @@ import {
   MicOff,
   MousePointerClick,
   Package,
+  PanelRight,
   Paperclip,
   Pencil,
   Play,
@@ -38,6 +39,7 @@ import {
   ShoppingBag,
   SlidersHorizontal,
   Sparkles,
+  Square,
   Thermometer,
   Trash2,
   TrendingUp,
@@ -996,10 +998,10 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
             className={`btn-ghost !py-1 !px-2 text-[11px] flex items-center gap-1 ${
               canvasOpen ? 'text-nina-chrome bg-nina-line/40' : ''
             }`}
-            title={canvasOpen ? 'Cerrar el browser' : 'Abrir el browser'}
+            title={canvasOpen ? 'Cerrar las pestañas' : 'Abrir las pestañas'}
           >
-            <Globe className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">abrir browser</span>
+            <PanelRight className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{canvasOpen ? 'cerrar pestañas' : 'abrir pestañas'}</span>
           </button>
           <button
             onClick={onGoHome}
@@ -1369,8 +1371,8 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         {!active ? (
           <div className="h-full grid place-items-center text-center px-8">
             <div className="max-w-sm">
-              <Globe className="w-8 h-8 mx-auto text-nina-mute/40 mb-3" />
-              <p className="text-nina-chrome text-sm font-medium">El browser está vacío</p>
+              <PanelRight className="w-8 h-8 mx-auto text-nina-mute/40 mb-3" />
+              <p className="text-nina-chrome text-sm font-medium">Aún no hay pestañas abiertas</p>
               <p className="text-nina-mute text-[12.5px] mt-1.5 leading-relaxed">
                 Pídele al agente que genere un correo, una imagen, un documento o que agende algo — aparecerá aquí como una pestaña.
               </p>
@@ -1541,6 +1543,7 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
   const { isJunta } = useAuth()
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const sendingConvIdRef = useRef(null) // convId del turno en curso (para el botón Stop)
   const [voiceGhost, setVoiceGhost] = useState('')
   const [focused, setFocused] = useState(false)
   const taRef = useRef(null)
@@ -1624,6 +1627,7 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
     // en vez de esperar en el perfil a que el agente termine todo el turno.
     const isNewConvo = !conversationId
     const targetConvId = conversationId ?? crypto.randomUUID()
+    sendingConvIdRef.current = targetConvId
     if (isNewConvo) onConversationCreated?.(targetConvId)
     onUserSend?.(content)
     try {
@@ -1643,6 +1647,20 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
     } finally {
       setSending(false)
       onSettled?.()
+    }
+  }
+
+  // Stop: marca la cancelación del turno en curso (el loop del agente corta en la próxima
+  // iteración) y libera la UI de inmediato. El invoke en vuelo resolverá solo después.
+  const stop = async () => {
+    const cid = sendingConvIdRef.current || conversationId
+    setSending(false)
+    onSettled?.()
+    if (!cid) return
+    try {
+      await supabase.from('conversations').update({ canceled_at: new Date().toISOString() }).eq('id', cid)
+    } catch {
+      /* best-effort: si no se pudo marcar, al menos la UI ya quedó libre */
     }
   }
 
@@ -1886,14 +1904,16 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
           </button>
           <button
             type="button"
-            onClick={send}
-            disabled={!text.trim() || sending}
-            className="btn-primary !p-2 h-9 w-9 grid place-items-center"
-            title="Enviar (Enter)"
-            aria-label="Enviar"
+            onClick={sending ? stop : send}
+            disabled={sending ? false : !text.trim()}
+            className={`!p-2 h-9 w-9 grid place-items-center rounded-xl transition ${
+              sending ? 'bg-nina-line/60 text-nina-chrome hover:bg-red-500/20 hover:text-red-200' : 'btn-primary'
+            }`}
+            title={sending ? 'Detener' : 'Enviar (Enter)'}
+            aria-label={sending ? 'Detener' : 'Enviar'}
           >
             {sending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Square className="w-3 h-3 fill-current" />
             ) : (
               <ArrowUp className="w-4 h-4" />
             )}
