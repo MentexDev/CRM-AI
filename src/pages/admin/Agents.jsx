@@ -428,6 +428,7 @@ function AgentWorkspace({
         {view === 'main' &&
           (conversationId ? (
             <MessagesTab
+              key={agent.id}
               agent={agent}
               conversationId={conversationId}
               conversation={activeConv}
@@ -730,10 +731,14 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     // el MISMO título, EDITA esa pestaña (la última versión gana) en vez de crear otra. La versión
     // editada queda como la más reciente (al final). Imágenes/calendario/correo no se deduplican.
     const EDITABLE = new Set(['document', 'slides', 'sheet', 'board'])
+    // Los TÍTULOS POR DEFECTO (cuando el agente no puso título) NO se deduplican: dos artefactos
+    // distintos "Documento"/"Pizarra"/… son cosas diferentes, no una edición del mismo.
+    const DEFAULT_TITLES = new Set(['documento', 'presentación', 'presentacion', 'hoja de cálculo', 'hoja de calculo', 'pizarra'])
     const idxByKey = new Map()
     const deduped = []
     for (const a of out) {
-      const k = EDITABLE.has(a.type) && a.title ? `${a.type}::${a.title.trim().toLowerCase()}` : null
+      const t = a.title ? a.title.trim().toLowerCase() : ''
+      const k = EDITABLE.has(a.type) && t && !DEFAULT_TITLES.has(t) ? `${a.type}::${t}` : null
       if (k && idxByKey.has(k)) deduped[idxByKey.get(k)] = null // descarta la versión anterior
       if (k) idxByKey.set(k, deduped.length)
       deduped.push(a)
@@ -1760,12 +1765,11 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
   const [agentMenuOpen, setAgentMenuOpen] = useState(false)
   const switchAgent = async (b) => {
     setAgentMenuOpen(false)
-    if (!b || b.slug === agent.slug) return
+    if (!b || b.slug === agent.slug || sending) return
     if (conversationId) {
-      const { error } = await supabase
-        .from('conversations')
-        .update({ agent_id: b.id, brand_id: b.brand_id ?? null })
-        .eq('id', conversationId)
+      // SOLO movemos agent_id; NO tocamos brand_id → la conversación se queda en su marca (no cambia
+      // quién la ve). El runtime continúa el hilo porque conv.agent_id pasa a coincidir con el nuevo.
+      const { error } = await supabase.from('conversations').update({ agent_id: b.id }).eq('id', conversationId)
       if (error) { toast.error('No se pudo cambiar de agente: ' + error.message); return }
       navigate(`/admin/agentes/${b.slug}?c=${conversationId}`)
       toast.success(`Ahora hablas con ${b.name}`)
@@ -1773,6 +1777,11 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
       navigate(`/admin/agentes/${b.slug}`)
     }
   }
+  // Agentes a los que se puede cambiar: misma marca (o globales) y NO deshabilitados → evita mover el
+  // hilo a otra marca (aislamiento) o a un agente con el que no se puede conversar.
+  const switchableAgents = (allAgents ?? []).filter(
+    (a) => a.status !== 'disabled' && (a.brand_id == null || agent.brand_id == null || a.brand_id === agent.brand_id),
+  )
 
   // Selector de modelo (provider + model coherentes). El backend lee de la BD,
   // así que persistimos el cambio en el agente y el siguiente turno lo usa.
@@ -2185,8 +2194,9 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
             <button
               type="button"
               onClick={() => setAgentMenuOpen((o) => !o)}
-              className="flex items-center gap-1.5 pl-2 pr-2.5 h-8 rounded-full bg-nina-line/40 hover:bg-nina-line/60 transition text-[11px] font-medium text-nina-chrome"
-              title={conversationId ? 'Cambiar de agente en este chat' : 'Cambiar de agente'}
+              disabled={sending}
+              className="flex items-center gap-1.5 pl-2 pr-2.5 h-8 rounded-full bg-nina-line/40 hover:bg-nina-line/60 transition text-[11px] font-medium text-nina-chrome disabled:opacity-50 disabled:cursor-not-allowed"
+              title={sending ? 'Espera a que termine el turno' : conversationId ? 'Cambiar de agente en este chat' : 'Cambiar de agente'}
             >
               <span className="w-4 h-4 rounded-full grid place-items-center bg-silver-gradient text-nina-black shrink-0">
                 <Sparkles className="w-2.5 h-2.5" />
@@ -2208,7 +2218,7 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
                     <div className="px-2.5 py-1.5 text-[10px] uppercase tracking-[0.18em] text-nina-mute">
                       {conversationId ? 'Cambiar de agente en este chat' : 'Ir a otro agente'}
                     </div>
-                    {(allAgents ?? []).map((a) => {
+                    {switchableAgents.map((a) => {
                       const active = a.slug === agent.slug
                       return (
                         <button

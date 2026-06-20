@@ -93,6 +93,19 @@ Deno.serve(async (req) => {
     .maybeSingle()
   if (!allowedAgent) return json({ error: 'No tienes acceso a este agente' }, 403)
 
+  // Si se CONTINÚA una conversación existente, el caller debe poder LEERLA con su sesión (RLS).
+  // Distinguimos "existe pero ajena" (→ 403) de "id nuevo pre-creado por el cliente" (aún no en BD →
+  // se permite, el runtime la crea). Sin esto, un caller con acceso a un agente podría inyectar un
+  // mensaje y disparar un turno en el hilo de OTRO usuario cuyo agent_id coincida (p.ej. agente global).
+  const convIdIn = body.conversation_id ?? null
+  if (convIdIn) {
+    const { data: convExists } = await adminDb().from('conversations').select('id').eq('id', convIdIn).maybeSingle()
+    if (convExists) {
+      const { data: convVisible } = await callerClient.from('conversations').select('id').eq('id', convIdIn).maybeSingle()
+      if (!convVisible) return json({ error: 'No tienes acceso a esta conversación' }, 403)
+    }
+  }
+
   // Contexto de edición opcional (selector visual de HTML): el frontend manda el HTML
   // completo + el elemento señalado. Se inyecta SOLO en este turno (no se persiste); cap
   // defensivo de tamaño para no inflar el request al modelo.

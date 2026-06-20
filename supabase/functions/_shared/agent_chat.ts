@@ -10,6 +10,17 @@ import { loadAgentSkillsPrompt } from './skills.ts'
 
 const MAX_TOOL_ITERATIONS = 4
 const HISTORY_WINDOW = 40
+// Los artefactos del canvas (draft_document/slides/sheet/board) se ven casi COMPLETOS en el contexto
+// (no el cap genérico de 5000) para que el agente pueda EDITARLOS sin perder el contenido que no vio.
+const ARTIFACT_CTX_MAX = 30000
+function isArtifactToolResult(content: string): boolean {
+  try {
+    const k = (JSON.parse(content) as { data?: { kind?: string } })?.data?.kind
+    return k === 'document' || k === 'slides' || k === 'sheet' || k === 'board'
+  } catch {
+    return false
+  }
+}
 
 export interface ChatTurnResult {
   agent_id: string
@@ -194,7 +205,7 @@ export async function runAgentChatTurn(
         // UI). Al recargarlos al contexto del LLM los volvemos a acotar para no
         // re-inflar el request (mismo motivo que el cap de los frescos).
         content: m.role === 'tool' && typeof m.content === 'string'
-          ? capToolContentString(m.content)
+          ? capToolContentString(m.content, isArtifactToolResult(m.content) ? ARTIFACT_CTX_MAX : undefined)
           : m.content,
         tool_call_id: m.tool_call_id ?? undefined,
         tool_calls: m.tool_calls ?? undefined,
