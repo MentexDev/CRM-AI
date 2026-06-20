@@ -127,7 +127,18 @@ export async function runAgentStep(agentId: string): Promise<RunStepResult> {
       })
     }
 
-    const provider = makeProvider(agent.provider ?? 'groq')
+    // Provider sin API key configurada → marcamos la tarea para revisión en vez de propagar un error
+    // que reventaría el cron en cada tick (fail-closed amable, igual que el tope de tokens).
+    let provider: ReturnType<typeof makeProvider>
+    try {
+      provider = makeProvider(agent.provider ?? 'groq')
+    } catch (_e) {
+      await db
+        .from('tasks')
+        .update({ status: 'needs_review', result: { ...((activeTask.result ?? {}) as Record<string, unknown>), governance: `proveedor de IA no configurado (${agent.provider ?? 'groq'}): falta su API key` } })
+        .eq('id', activeTask.id)
+      return { agent_id: agentId, iterations: 0, finished: false, reason: 'provider_unavailable' }
+    }
     const cfg = (agent.config ?? {}) as { temperature?: number; max_tokens?: number }
 
     let iterations = 0

@@ -212,7 +212,20 @@ export async function runAgentChatTurn(
       })
     }
 
-    const provider = makeProvider(agent.provider ?? 'groq')
+    // Si el agente quedó con un provider cuya API key no está configurada, makeProvider lanza.
+    // Degradamos AMABLE (mensaje + return) en vez de propagar un 500 perpetuo, igual que el tope de tokens.
+    let provider: ReturnType<typeof makeProvider>
+    try {
+      provider = makeProvider(agent.provider ?? 'groq')
+    } catch (_e) {
+      const warn = '⚠️ No puedo responder ahora: el proveedor de IA de este agente no está configurado (falta su API key). Avísale a la Junta para revisarlo.'
+      const { data: ins } = await db
+        .from('messages')
+        .insert({ agent_id: agentId, task_id: null, conversation_id: convId, role: 'assistant', content: warn, metadata: { source: 'chat', error: 'provider_unavailable' } })
+        .select('id')
+        .single()
+      return { agent_id: agentId, conversation_id: convId, user_message_id: userMsg.id, assistant_message_id: ins?.id ?? null, iterations: 0, finished: true, reason: 'provider_unavailable' }
+    }
     const rawCfg = (agent.config ?? {}) as { temperature?: number; max_tokens?: number }
     // Clamp DEFENSIVO en el servidor (no confiar en el saneamiento del composer): un config con
     // temperature/max_tokens fuera de rango (o escrito por otra vía) no debe romper o encarecer el turno.

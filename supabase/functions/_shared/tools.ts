@@ -114,6 +114,18 @@ export function dailyBudgetExceeded(
 
 // Versión acotada de un ToolResult (objeto) para el contexto del LLM. JSON válido.
 export function capToolResultForContext(result: unknown, maxChars = TOOL_RESULT_MAX_CHARS): string {
+  // Caso especial: un correo compuesto (kind:'email') trae HTML enorme. NO lo recortamos a un
+  // _preview genérico (que perdería kind:'email' y haría que el agente "olvide" que ya compuso el
+  // correo y lo degrade al iterar). Lo compactamos conservando kind + asunto; el HTML completo vive
+  // en el canvas (messages.content guarda el resultado íntegro), así que el usuario lo ve y send_email
+  // lo reutiliza. Esto solo afecta el CONTEXTO del LLM, no lo persistido.
+  const data = (result as { ok?: boolean; data?: { kind?: string; subject?: string } })?.data
+  if (data?.kind === 'email') {
+    return safeStringify({
+      ok: (result as { ok?: boolean })?.ok ?? true,
+      data: { kind: 'email', subject: data.subject ?? '', _note: 'Correo compuesto y visible en el canvas; el HTML completo no se repite aquí. Para enviarlo, usa send_email con solo "to" y reutilizo el HTML automáticamente.' },
+    })
+  }
   const full = safeStringify(result)
   if (full.length <= maxChars) return full
   return safeStringify(shrinkResultToFit(result, maxChars))
