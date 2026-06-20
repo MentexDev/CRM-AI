@@ -208,7 +208,7 @@ export const TOOL_SPECS: ToolSpecData[] = [
   },
   {
     "name": "draft_document",
-    "description": "Redactar un DOCUMENTO de trabajo (estilo Notion) que se abre EDITABLE en el canvas: brief, guion, plan de contenido, propuesta, notas, artículo. Devuelve el documento en Markdown; el usuario puede editarlo, exportarlo (MD/PDF) y guardarlo en la biblioteca. NO envía ni publica nada — solo crea el documento de trabajo. Para campañas de correo HTML usa compose_email; esto es para texto/documentos de trabajo.",
+    "description": "Crea O EDITA un DOCUMENTO de trabajo (estilo Notion) en el canvas: brief, guion, plan de contenido, propuesta, notas, artículo. Devuelve Markdown; el usuario lo edita, exporta (MD/PDF) y guarda. SÍ puedes editar uno que ya creaste: vuelve a llamar esta tool con el MISMO título y el contenido COMPLETO ya actualizado → reemplaza esa pestaña (la edita) en vez de crear otra; con un título distinto, crea uno nuevo. NO envía ni publica. Para campañas de correo HTML usa compose_email.",
     "category": "document",
     "parameters": {
       "type": "object",
@@ -232,7 +232,7 @@ export const TOOL_SPECS: ToolSpecData[] = [
   },
   {
     "name": "draft_slides",
-    "description": "Crea una PRESENTACIÓN (mazo de diapositivas) que se abre EDITABLE en el canvas: pitch de colección, propuesta comercial, reporte visual, plan de campaña. Devuelve diapositivas estructuradas (portada, viñetas, frase de impacto, secciones, cita). El usuario las edita, navega y exporta a PDF. NO publica nada — solo crea la presentación. Para texto largo corrido usa draft_document; para una campaña de correo HTML usa compose_email.",
+    "description": "Crea O EDITA una PRESENTACIÓN (mazo de diapositivas) en el canvas: pitch de colección, propuesta comercial, reporte visual, plan de campaña. Devuelve diapositivas estructuradas (portada, viñetas, frase de impacto, secciones, cita). SÍ puedes editar una que ya creaste: vuelve a llamar esta tool con el MISMO título y TODAS las diapositivas ya actualizadas → reemplaza esa pestaña (la edita) en vez de crear otra. NO publica nada. Para texto largo usa draft_document; para correo HTML usa compose_email.",
     "category": "document",
     "parameters": {
       "type": "object",
@@ -298,7 +298,7 @@ export const TOOL_SPECS: ToolSpecData[] = [
   },
   {
     "name": "draft_sheet",
-    "description": "Crea una HOJA DE CÁLCULO editable en el canvas: tabla de datos, comparativo, catálogo, presupuesto, reporte de ventas. Devuelve columnas y filas; el usuario edita celdas, agrega/quita filas y columnas, ve totales de columnas numéricas y exporta a CSV. NO publica ni envía nada — solo crea la tabla. Para texto largo usa draft_document; para diapositivas usa draft_slides.",
+    "description": "Crea O EDITA una HOJA DE CÁLCULO en el canvas: tabla de datos, comparativo, catálogo, presupuesto, reporte de ventas. Devuelve columnas y filas; el usuario edita celdas, agrega/quita filas y columnas, ve totales y exporta a CSV. SÍ puedes editar una que ya creaste: vuelve a llamar esta tool con el MISMO título y TODAS las columnas/filas ya actualizadas → reemplaza esa pestaña (la edita) en vez de crear otra. NO publica ni envía nada. Para texto largo usa draft_document; para diapositivas usa draft_slides.",
     "category": "document",
     "parameters": {
       "type": "object",
@@ -336,7 +336,7 @@ export const TOOL_SPECS: ToolSpecData[] = [
   },
   {
     "name": "draft_board",
-    "description": "Crea una PIZARRA (lienzo visual) editable en el canvas: mapa de campaña, lluvia de ideas, flujo de proceso, organigrama, mapa mental. Devuelve NOTAS (nodos) y CONEXIONES entre ellas; el usuario arrastra las notas, edita su texto, cambia colores, conecta/desconecta y la guarda. NO publica nada — solo crea la pizarra. Para texto largo usa draft_document; para diapositivas draft_slides; para tablas draft_sheet.",
+    "description": "Crea O EDITA una PIZARRA (lienzo visual) en el canvas: mapa de campaña, lluvia de ideas, flujo de proceso, organigrama, mapa mental. Devuelve NOTAS (nodos) y CONEXIONES entre ellas; el usuario arrastra, edita texto, cambia colores y conecta. SÍ puedes editar una que ya creaste: vuelve a llamar esta tool con el MISMO título y TODAS las notas/conexiones ya actualizadas → reemplaza esa pestaña (la edita) en vez de crear otra. NO publica nada. Para texto largo usa draft_document; para diapositivas draft_slides; para tablas draft_sheet.",
     "category": "document",
     "parameters": {
       "type": "object",

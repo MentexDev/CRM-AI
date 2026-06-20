@@ -726,7 +726,19 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         /* no es JSON / no es artefacto */
       }
     }
-    return out
+    // Dedup por (tipo, título) para document/slides/sheet/board → si el agente vuelve a emitir con
+    // el MISMO título, EDITA esa pestaña (la última versión gana) en vez de crear otra. La versión
+    // editada queda como la más reciente (al final). Imágenes/calendario/correo no se deduplican.
+    const EDITABLE = new Set(['document', 'slides', 'sheet', 'board'])
+    const idxByKey = new Map()
+    const deduped = []
+    for (const a of out) {
+      const k = EDITABLE.has(a.type) && a.title ? `${a.type}::${a.title.trim().toLowerCase()}` : null
+      if (k && idxByKey.has(k)) deduped[idxByKey.get(k)] = null // descarta la versión anterior
+      if (k) idxByKey.set(k, deduped.length)
+      deduped.push(a)
+    }
+    return deduped.filter(Boolean)
   }, [messages, hiddenKeys])
   const latestArtifact = canvasArtifacts.length ? canvasArtifacts[canvasArtifacts.length - 1] : null
 
