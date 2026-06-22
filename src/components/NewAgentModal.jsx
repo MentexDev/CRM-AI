@@ -5,6 +5,7 @@ import {
   Calculator,
   ChevronLeft,
   Loader2,
+  MessageCircle,
   Package,
   Plus,
   Sparkles,
@@ -23,6 +24,7 @@ const ICON_MAP = {
   Sparkles,
   Calculator,
   Package,
+  MessageCircle,
   Plus,
 }
 
@@ -165,6 +167,21 @@ export default function NewAgentModal({ open, onClose, agentId = null }) {
 // Step 1 · elegir plantilla (solo modo crear)
 // =====================================================================
 function TemplateStep({ onPick, onCancel }) {
+  const { agents } = useAgents()
+  // Ocultamos las plantillas cuyo agente YA existe en el sidebar (mismo nombre o slug normalizado),
+  // para no ofrecer crear duplicados. "En blanco" siempre disponible.
+  const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+  const taken = useMemo(() => {
+    const set = new Set()
+    for (const a of agents || []) {
+      if (a?.slug) set.add(norm(a.slug))
+      if (a?.name) set.add(norm(a.name))
+    }
+    return set
+  }, [agents])
+  const visible = TEMPLATE_LIST.filter(
+    (tpl) => tpl.id === 'blank' || !(taken.has(norm(tpl.suggestedSlug)) || taken.has(norm(tpl.suggestedName))),
+  )
   return (
     <div className="space-y-5">
       <p className="text-sm text-nina-mute">
@@ -172,7 +189,7 @@ function TemplateStep({ onPick, onCancel }) {
         antes de crear el agente.
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {TEMPLATE_LIST.map((tpl) => {
+        {visible.map((tpl) => {
           const Icon = ICON_MAP[tpl.icon] ?? Bot
           return (
             <motion.button
