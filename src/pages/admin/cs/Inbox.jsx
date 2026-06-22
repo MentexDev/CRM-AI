@@ -3,11 +3,14 @@
 // mensajes (outbound del operador). Fase 1: sin WhatsApp todavía — el envío real a WhatsApp llega en
 // Fase 2 (Evolution). Mientras, el inbox funciona para conversaciones internas/manuales. Diseño NINA.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2, MessageSquare, Plus, Search, Send } from 'lucide-react'
+import { Check, Loader2, MessageSquare, Mic, Plus, Search, Send, Smile } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../../../lib/supabase'
 import Modal from '../../../components/Modal'
+import { useVoiceTranscription } from '../../../hooks/useVoiceTranscription'
 import { normPhone, useCsBrand } from './CsShell'
+
+const EMOJIS = ['😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😎', '🤩', '🥳', '😇', '🙂', '😉', '😋', '🤗', '🤔', '😅', '😴', '🙄', '😬', '😮', '😢', '😭', '😱', '👍', '👎', '🙏', '👏', '🙌', '💪', '🤝', '👋', '✌️', '🔥', '✨', '🎉', '❤️', '🧡', '💛', '💚', '💙', '💜', '💯', '✅', '❌', '⚠️', '📌', '🛒', '💰', '🎁', '📦', '🚀', '⏰', '📅', '📍', '📞']
 
 export default function CsInbox() {
   const { brands, brandId, setBrandId } = useCsBrand()
@@ -137,8 +140,17 @@ function Thread({ conv, me, brandId, onRead }) {
   const [messages, setMessages] = useState([])
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [emojiOpen, setEmojiOpen] = useState(false)
   const endRef = useRef(null)
+  const taRef = useRef(null)
   const ct = conv.cs_contacts || {}
+  // Micrófono de notas de voz: el MISMO hook del chat de los agentes (dicta y rellena el mensaje).
+  const voice = useVoiceTranscription({
+    lang: 'es-CO',
+    onFinalResult: (t) => setText((prev) => (prev ? prev.replace(/\s+$/, '') + ' ' : '') + t),
+    onError: (m) => toast.error(m),
+  })
+  const addEmoji = (e) => { setText((prev) => prev + e); setEmojiOpen(false); taRef.current?.focus() }
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('cs_messages').select('id, direction, sender_type, type, content, created_at').eq('conversation_id', conv.id).order('created_at', { ascending: true })
@@ -194,31 +206,59 @@ function Thread({ conv, me, brandId, onRead }) {
           <div className="text-[11.5px] text-nina-mute truncate">{ct.phone}</div>
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-2">
-        {messages.length === 0 && <div className="text-center text-[12.5px] text-nina-mute py-10">Sin mensajes. Escribe el primero abajo.</div>}
-        {messages.map((m) => {
-          const out = m.direction === 'outbound'
-          return (
-            <div key={m.id} className={`flex ${out ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[72%] rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${out ? 'bg-silver-gradient text-nina-black rounded-br-sm' : 'bg-nina-panel text-nina-chrome border border-nina-line rounded-bl-sm'}`}>
-                {m.type !== 'text' ? <span className="italic opacity-80">[{m.type}]</span> : m.content}
-                <span className={`block text-[9.5px] mt-0.5 ${out ? 'text-nina-black/50' : 'text-nina-mute'}`}>{new Date(m.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</span>
+      {/* Hilo con fondo estilo WhatsApp (fondo-chat.png) + tinte oscuro para legibilidad sobre el tema NINA */}
+      <div
+        className="relative flex-1 min-h-0 overflow-y-auto"
+        style={{ backgroundImage: 'linear-gradient(rgba(10,10,10,0.84), rgba(10,10,10,0.84)), url(/fondo-chat.png)', backgroundSize: 'cover', backgroundPosition: 'center' }}
+      >
+        <div className="px-5 py-4 space-y-1.5">
+          {messages.length === 0 && <div className="text-center text-[12.5px] text-nina-mute py-10">Sin mensajes. Escribe el primero abajo.</div>}
+          {messages.map((m) => {
+            const out = m.direction === 'outbound'
+            return (
+              <div key={m.id} className={`flex ${out ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[72%] rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed shadow-md ${out ? 'bg-silver-gradient text-nina-black rounded-br-md' : 'bg-nina-panel/95 text-nina-chrome border border-nina-line rounded-bl-md'}`}>
+                  {m.type !== 'text' ? <span className="italic opacity-80">[{m.type}]</span> : m.content}
+                  <span className={`flex items-center justify-end gap-1 text-[9.5px] mt-0.5 ${out ? 'text-nina-black/55' : 'text-nina-mute'}`}>
+                    {new Date(m.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+                    {out && <Check className="w-3 h-3" />}
+                  </span>
+                </div>
               </div>
-            </div>
-          )
-        })}
-        <div ref={endRef} />
+            )
+          })}
+          <div ref={endRef} />
+        </div>
       </div>
-      <div className="px-4 py-3 border-t border-nina-line/60 shrink-0">
-        <div className="flex items-end gap-2">
+      <div className="px-3 py-3 border-t border-nina-line/60 shrink-0 relative">
+        {/* Selector de emojis */}
+        {emojiOpen && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setEmojiOpen(false)} />
+            <div className="absolute bottom-full left-3 mb-2 z-40 w-[19rem] max-h-56 overflow-y-auto rounded-2xl border border-nina-line bg-nina-panel shadow-2xl p-2 grid grid-cols-8 gap-0.5">
+              {EMOJIS.map((e, i) => <button key={i} type="button" onClick={() => addEmoji(e)} className="w-8 h-8 grid place-items-center rounded-lg hover:bg-nina-line/50 text-[18px]">{e}</button>)}
+            </div>
+          </>
+        )}
+        {voice.status === 'listening' && voice.interimText && (
+          <div className="text-[11px] text-nina-silver mb-1.5 px-12 truncate">{voice.interimText}…</div>
+        )}
+        <div className="flex items-end gap-1.5">
+          <button type="button" onClick={() => setEmojiOpen((o) => !o)} className={`w-10 h-10 grid place-items-center rounded-xl shrink-0 transition ${emojiOpen ? 'text-nina-chrome bg-nina-line/40' : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40'}`} title="Emojis"><Smile className="w-5 h-5" /></button>
           <textarea
+            ref={taRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
             rows={1}
-            placeholder="Escribe un mensaje…"
+            placeholder={voice.status === 'listening' ? 'Escuchando… habla' : 'Escribe un mensaje…'}
             className="flex-1 resize-none bg-nina-ink border border-nina-line rounded-xl px-3.5 py-2.5 text-[13px] text-nina-chrome placeholder:text-nina-mute/60 outline-none focus:border-nina-silver/40 max-h-32"
           />
+          {voice.isSupported && (
+            <button type="button" onClick={voice.toggle} title={voice.status === 'listening' ? 'Detener' : 'Dictar por voz'} className={`w-10 h-10 grid place-items-center rounded-xl shrink-0 transition ${voice.status === 'listening' ? 'bg-red-500/90 text-white animate-pulse' : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40'}`}>
+              <Mic className="w-5 h-5" />
+            </button>
+          )}
           <button onClick={send} disabled={!text.trim() || sending} className="w-10 h-10 grid place-items-center rounded-xl bg-silver-gradient text-nina-black disabled:opacity-40 shrink-0">
             {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </button>
