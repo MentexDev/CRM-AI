@@ -11,13 +11,17 @@ import {
   CheckCircle2,
   Clapperboard,
   Crown,
+  Headset,
+  KanbanSquare,
   Library,
   ListFilter,
   ListTodo,
   LogOut,
+  MessagesSquare,
   Package,
   PanelLeft,
   Settings,
+  Smartphone,
   Sparkles,
   Star,
   TrendingUp,
@@ -267,6 +271,7 @@ function ConversationHistory({ onNavigate }) {
 // Cada workspace tiene su propio sub-menú abajo.
 const WORKSPACES = [
   { id: 'agentes', to: '/admin/agentes', icon: Bot, label: 'Agentes' },
+  { id: 'atencion', to: '/admin/atencion', icon: Headset, label: 'Atención' },
   { id: 'produccion', to: '/admin/produccion', icon: Clapperboard, label: 'Producción' },
   { id: 'equipo', to: '/admin/equipo', icon: Users, label: 'Equipo' },
 ]
@@ -274,6 +279,7 @@ const WORKSPACES = [
 // Rutas que pertenecen a cada workspace (para saber cuál está activo).
 const WORKSPACE_ROUTES = {
   agentes: ['/admin/agentes', '/admin/tareas', '/admin/aprobaciones', '/admin/biblioteca', '/admin/cerebro', '/admin/marcas'],
+  atencion: ['/admin/atencion'],
   produccion: ['/admin/produccion'],
   equipo: ['/admin/equipo'],
 }
@@ -294,6 +300,13 @@ const WORKSPACE_NAV = {
     { to: '/admin/cerebro', icon: Brain, label: 'Cerebro' },
     { to: '/admin/marcas', icon: Sparkles, label: 'Marcas' },
     { to: '/admin/salud', icon: Activity, label: 'Salud' },
+  ],
+  atencion: [
+    { to: '/admin/atencion', icon: KanbanSquare, label: 'Pipeline', end: true },
+    { to: '/admin/atencion/conversaciones', icon: MessagesSquare, label: 'Conversaciones' },
+    { to: '/admin/atencion/contactos', icon: Users, label: 'Contactos' },
+    { to: '/admin/atencion/canales', icon: Smartphone, label: 'Canales' },
+    { to: '/admin/atencion/config', icon: Settings, label: 'Configuración' },
   ],
   produccion: [], // se llenará cuando definamos Producción
   equipo: [],
@@ -404,6 +417,7 @@ function NavItems({ items, collapsed, onSelect }) {
         const link = (
           <NavLink
             to={t.to}
+            end={t.end}
             onClick={onSelect}
             aria-label={t.label}
             className={({ isActive }) =>

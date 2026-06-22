@@ -12,6 +12,11 @@ import Brands from './pages/admin/Brands'
 import Produccion from './pages/admin/Produccion'
 import Team from './pages/admin/Team'
 import Salud from './pages/admin/Salud'
+import CsPipeline from './pages/admin/cs/Pipeline'
+import CsInbox from './pages/admin/cs/Inbox'
+import CsContacts from './pages/admin/cs/Contacts'
+import CsChannels from './pages/admin/cs/Channels'
+import CsSettings from './pages/admin/cs/Settings'
 
 function Protected({ children }) {
   const { user, loading } = useAuth()
@@ -83,6 +88,11 @@ export default function App() {
         <Route path="marcas" element={<Brands />} />
         <Route path="salud" element={<Salud />} />
         <Route path="equipo" element={<Team />} />
+        <Route path="atencion" element={<CsPipeline />} />
+        <Route path="atencion/conversaciones" element={<CsInbox />} />
+        <Route path="atencion/contactos" element={<CsContacts />} />
+        <Route path="atencion/canales" element={<CsChannels />} />
+        <Route path="atencion/config" element={<CsSettings />} />
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

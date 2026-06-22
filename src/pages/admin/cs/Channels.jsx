@@ -1,0 +1,181 @@
+// Módulo Canales — los números/canales de WhatsApp de la marca (estilo "Meus Canais" de la referencia,
+// con diseño NINA). Fase 1: CRUD de la ficha del canal (crear/renombrar/editar/eliminar) + estado.
+// La CONEXIÓN real por QR llega en Fase 2 (Evolution API) — aquí el botón "Conectar" queda preparado.
+import { useCallback, useEffect, useState } from 'react'
+import { Loader2, MessageCircle, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { supabase } from '../../../lib/supabase'
+import Modal from '../../../components/Modal'
+import { CsShell, CsEmpty, useCsBrand } from './CsShell'
+
+const STATUS = {
+  connected: { label: 'Activo', cls: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30', dot: 'bg-emerald-400' },
+  connecting: { label: 'Conectando', cls: 'text-amber-300 bg-amber-500/10 border-amber-500/30', dot: 'bg-amber-400' },
+  disconnected: { label: 'Desconectado', cls: 'text-nina-mute bg-nina-line/40 border-nina-line', dot: 'bg-nina-mute' },
+}
+
+export default function CsChannels() {
+  const { brands, brandId, setBrandId } = useCsBrand()
+  const [channels, setChannels] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [q, setQ] = useState('')
+  const [editing, setEditing] = useState(null) // null | {} (nuevo) | channel (editar)
+  const [confirmDel, setConfirmDel] = useState(null)
+
+  const load = useCallback(async () => {
+    if (!brandId) { setChannels([]); setLoading(false); return }
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('cs_channels')
+      .select('id, name, description, status, phone, created_at')
+      .eq('brand_id', brandId)
+      .order('created_at', { ascending: false })
+    if (error) toast.error('No pude cargar los canales: ' + error.message)
+    setChannels(data ?? [])
+    setLoading(false)
+  }, [brandId])
+
+  useEffect(() => { load() }, [load])
+
+  // Tiempo real: refresca cuando cambian los canales de la marca.
+  useEffect(() => {
+    if (!brandId) return
+    const ch = supabase
+      .channel(`cs_channels-${brandId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cs_channels', filter: `brand_id=eq.${brandId}` }, load)
+      .subscribe()
+    return () => { try { supabase.removeChannel(ch) } catch { /* */ } }
+  }, [brandId, load])
+
+  const filtered = channels.filter((c) => {
+    const n = q.trim().toLowerCase()
+    return !n || (c.name || '').toLowerCase().includes(n) || (c.phone || '').includes(n)
+  })
+
+  const save = async (form) => {
+    const name = (form.name || '').trim()
+    if (!name) { toast.error('Pon un nombre al canal'); return }
+    const payload = { name, description: (form.description || '').trim() }
+    if (editing?.id) {
+      const { error } = await supabase.from('cs_channels').update(payload).eq('id', editing.id)
+      if (error) { toast.error(error.message); return }
+      toast.success('Canal actualizado')
+    } else {
+      const { data: u } = await supabase.auth.getUser()
+      const { error } = await supabase.from('cs_channels').insert({ ...payload, brand_id: brandId, status: 'disconnected', created_by: u?.user?.id ?? null })
+      if (error) { toast.error(error.message); return }
+      toast.success('Canal creado')
+    }
+    setEditing(null)
+    load()
+  }
+
+  const del = async () => {
+    if (!confirmDel) return
+    const { error } = await supabase.from('cs_channels').delete().eq('id', confirmDel.id)
+    if (error) toast.error(error.message); else toast.success('Canal eliminado')
+    setConfirmDel(null)
+    load()
+  }
+
+  return (
+    <CsShell
+      title="Canales"
+      subtitle="Gestiona los puntos de atención (números de WhatsApp) de este workspace."
+      brands={brands}
+      brandId={brandId}
+      onBrand={setBrandId}
+      actions={
+        <button onClick={() => setEditing({})} disabled={!brandId} className="btn-primary !py-2 !px-3 text-[13px] disabled:opacity-40">
+          <Plus className="w-4 h-4" /> Agregar canal
+        </button>
+      }
+    >
+      <div className="relative mb-5">
+        <Search className="w-4 h-4 text-nina-mute absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar por nombre o número…"
+          className="w-full bg-nina-ink border border-nina-line rounded-xl pl-10 pr-4 py-3 text-[13px] text-nina-chrome placeholder:text-nina-mute/60 outline-none focus:border-nina-silver/40"
+        />
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-20 text-nina-mute"><Loader2 className="w-5 h-5 animate-spin" /></div>
+      ) : filtered.length === 0 ? (
+        <CsEmpty icon={MessageCircle} title={channels.length ? 'Sin resultados' : 'Aún no hay canales'} hint={channels.length ? 'Prueba con otra búsqueda.' : 'Agrega tu primer canal de WhatsApp. La conexión por QR se habilita en la siguiente fase.'} />
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((c) => {
+            const st = STATUS[c.status] || STATUS.disconnected
+            return (
+              <div key={c.id} className="group flex items-center gap-4 rounded-2xl border border-nina-line bg-nina-panel/60 px-4 py-3.5 hover:border-nina-silver/30 transition">
+                <span className="w-12 h-12 grid place-items-center rounded-xl bg-emerald-500/15 text-emerald-300 shrink-0"><MessageCircle className="w-6 h-6" /></span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[15px] font-semibold text-nina-chrome truncate">{c.name}</span>
+                    <span className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${st.cls}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} /> {st.label}
+                    </span>
+                  </div>
+                  <div className="text-[12.5px] text-nina-mute truncate">{c.phone || c.description || 'Sin descripción'}</div>
+                </div>
+                <div className="text-right shrink-0 hidden sm:block">
+                  <div className="text-[11px] text-nina-mute">ID: #{c.id.slice(0, 6)}</div>
+                  <div className="text-[11px] text-nina-mute/70">{new Date(c.created_at).toLocaleDateString('es-CO')}</div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition">
+                  <button onClick={() => setEditing(c)} title="Editar" className="w-8 h-8 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40"><Pencil className="w-4 h-4" /></button>
+                  <button onClick={() => setConfirmDel(c)} title="Eliminar" className="w-8 h-8 grid place-items-center rounded-lg text-nina-mute hover:text-red-300 hover:bg-nina-line/40"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Crear / editar canal */}
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Editar canal' : 'Nuevo canal'} maxWidth="max-w-md">
+        {editing && <ChannelForm initial={editing} onSave={save} onCancel={() => setEditing(null)} />}
+      </Modal>
+
+      {/* Confirmar eliminación */}
+      <Modal open={!!confirmDel} onClose={() => setConfirmDel(null)} title="Eliminar canal" maxWidth="max-w-sm">
+        <p className="text-[13px] text-nina-mute mb-5">¿Seguro que quieres eliminar <span className="text-nina-chrome">{confirmDel?.name}</span>? Se borrarán también sus conversaciones y contactos asociados.</p>
+        <div className="flex justify-end gap-2">
+          <button onClick={() => setConfirmDel(null)} className="btn-ghost text-sm">Cancelar</button>
+          <button onClick={del} className="btn !bg-red-500/90 hover:!bg-red-500 text-white text-sm">Eliminar</button>
+        </div>
+      </Modal>
+    </CsShell>
+  )
+}
+
+function ChannelForm({ initial, onSave, onCancel }) {
+  const [name, setName] = useState(initial.name || '')
+  const [description, setDescription] = useState(initial.description || '')
+  const [busy, setBusy] = useState(false)
+  const submit = async (e) => {
+    e.preventDefault()
+    setBusy(true)
+    await onSave({ name, description })
+    setBusy(false)
+  }
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <div>
+        <label className="label">Nombre del canal *</label>
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: WhatsApp Ventas" autoFocus />
+      </div>
+      <div>
+        <label className="label">Descripción</label>
+        <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Opcional" />
+      </div>
+      <div className="flex justify-end gap-2 pt-2 border-t border-nina-line">
+        <button type="button" onClick={onCancel} className="btn-ghost text-sm" disabled={busy}>Cancelar</button>
+        <button type="submit" className="btn-primary text-sm" disabled={busy}>{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : (initial.id ? 'Guardar' : 'Crear canal')}</button>
+      </div>
+    </form>
+  )
+}
