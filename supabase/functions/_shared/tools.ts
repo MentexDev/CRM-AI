@@ -1199,7 +1199,12 @@ async function sendEmail(ctx: ToolContext, args: Record<string, unknown>): Promi
         task_id: ctx.taskId,
         brand_id: ctx.brandId ?? null,
         conversation_id: ctx.conversationId ?? null,
-        trigger: 'send_email',
+        // 'external_comm' (comunicación externa) es la CATEGORÍA del check approvals_trigger_check.
+        // Antes decía 'send_email' (nombre de herramienta, NO una categoría válida) → el insert
+        // fallaba y la aprobación NUNCA se creaba: el correo autónomo quedaba imposible de aprobar.
+        // execute-approval ejecuta por payload.tool_name (abajo), no por trigger, así que el envío
+        // al aprobar sigue intacto.
+        trigger: 'external_comm',
         summary: `Enviar correo "${subject}" a ${recipients.length} destinatario(s) — requiere aprobación de la Junta.`,
         payload: { tool_name: 'send_email', args: { to: recipients.join(','), subject, body } },
         status: 'pending',

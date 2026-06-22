@@ -268,6 +268,10 @@ export async function runAgentStep(agentId: string): Promise<RunStepResult> {
         // F4: delegar cierra el turno — el agente queda esperando a los subordinados
         // (delegate_task ya dejó esta tarea en 'blocked'); finish_task del último hijo la reactiva.
         if (tc.function.name === 'delegate_task' && toolRes.ok) didBlock = true
+        // GENERAL: cualquier tool que cree una aprobación (p.ej. send_email autónomo) bloquea el step.
+        // El trabajo queda pausado hasta que la Junta decida; sin esto el agente seguía y llamaba
+        // finish_task, dejando la tarea 'done' cuando en realidad está PENDIENTE de aprobación.
+        if (toolRes.side_effect?.kind === 'approval_created') didBlock = true
       }
 
       if (didFinishTask || didBlock) {
