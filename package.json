@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "vite build && wrangler deploy",
-    "evals": "node evals/run.mjs"
+    "evals": "node evals/run.mjs",
+    "deploy:runtime": "supabase functions deploy chat-with-agent --project-ref ccaufudzkgvrdxwmazwk && supabase functions deploy run-agent-step --project-ref ccaufudzkgvrdxwmazwk && npm run evals"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.3",

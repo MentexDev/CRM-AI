@@ -29,3 +29,8 @@ service-account*.json
 # sesiones paralelas. Solo se versiona la config: .graphifyignore, CLAUDE.md,
 # .claude/settings.json (y los hooks viven en .git/, fuera del control de versiones).
 graphify-out/
+
+# Artefactos de tooling (regenerables): lockfile de Deno que genera `supabase functions
+# deploy` y el directorio temporal del CLI de Supabase.
+deno.lock
+supabase/.temp/

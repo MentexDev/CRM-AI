@@ -1,23 +1,26 @@
 #!/usr/bin/env node
 // Harness de Evals del CRM — corre una batería de casos contra el runtime DESPLEGADO
-// (la Edge Function chat-with-agent) y verifica el comportamiento de cada agente:
-// que responda, que elija la herramienta correcta, que produzca el artefacto esperado
-// y los guardrails. Reemplaza el "probar a mano" de cada C-A-R por algo repetible.
+// y verifica el comportamiento de cada agente. Dos tipos de caso:
+//   - kind:'chat' (default): llama chat-with-agent (usuario presente) y revisa
+//     herramientas usadas / artefactos / respuesta.
+//   - kind:'autonomous': crea una tarea, invoca run-agent-step (modo cron) y revisa
+//     el efecto (p.ej. que send_email cree una aprobación y NO envíe).
+// Reemplaza el "probar a mano" de cada C-A-R por algo repetible.
 //
 // Por qué e2e contra el entorno real: no hay stack Deno local (Deno no está instalado),
-// así que estos evals validan el runtime tal cual corre. Crean conversaciones EFÍMERAS
-// y las BORRAN al final (usa --no-cleanup para conservarlas y depurar un fallo).
+// así que estos evals validan el runtime tal cual corre. Crean conversaciones/tareas
+// EFÍMERAS y las BORRAN al final (usa --no-cleanup para conservarlas y depurar un fallo).
 //
 // Uso:
 //   node evals/run.mjs                 # corre todos los casos
 //   node evals/run.mjs creador         # solo casos cuyo nombre/agente contenga "creador"
-//   node evals/run.mjs --no-cleanup    # no borra las conversaciones creadas
+//   node evals/run.mjs --no-cleanup    # no borra lo que creó
 //
 // Credenciales (en este orden):
 //   1) env SUPABASE_ANON_KEY + SUPABASE_SERVICE_ROLE_KEY (ideal para CI), o
 //   2) se obtienen vía Management API con SUPABASE_ACCESS_TOKEN o ~/.supabase/access-token.
-// Usuario de prueba: env EVAL_USER_EMAIL (default: el usuario de pruebas conocido).
-// Proyecto: env SUPABASE_PROJECT_REF (default: el de producción).
+// Usuario de prueba: env EVAL_USER_EMAIL (default: el de pruebas, que es 'junta' → puede
+// invocar run-agent-step). Proyecto: env SUPABASE_PROJECT_REF.
 
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -66,11 +69,16 @@ async function getJwt(anon, service) {
     body: JSON.stringify({ type: 'magiclink', token_hash: hashed }),
   })).json()
   if (!v.access_token) throw new Error('No pude verificar el magiclink (sin access_token).')
-  return v.access_token
+  return { jwt: v.access_token, userId: v.user?.id ?? null }
 }
 
-// Corre un turno y arma el "transcript": qué herramientas llamó, qué artefactos produjo, qué respondió.
-async function runTurn(c, ctx) {
+async function resolveAgent(slug, ctx) {
+  const a = await (await fetch(`${BASE}/rest/v1/agents?slug=eq.${slug}&select=id,brand_id`, { headers: ctx.svc })).json()
+  return Array.isArray(a) ? a[0] : null
+}
+
+// --- CHAT: un turno usuario↔agente, arma el transcript de lo que el agente hizo. ---
+async function runChat(c, ctx) {
   const body = { agent_slug: c.agent, content: c.message }
   if (c.force_tool) body.force_tool = c.force_tool
   let status = 0
@@ -92,7 +100,6 @@ async function runTurn(c, ctx) {
   }
   const calledTools = []
   const artifacts = []
-  const toolResults = []
   for (const m of messages) {
     if (Array.isArray(m.tool_calls)) {
       for (const tc of m.tool_calls) {
@@ -101,42 +108,81 @@ async function runTurn(c, ctx) {
       }
     }
     if (m.role === 'tool' && typeof m.content === 'string') {
-      try {
-        const parsed = JSON.parse(m.content)
-        toolResults.push(parsed)
-        if (parsed?.data?.kind) artifacts.push(parsed.data.kind)
-      } catch { /* resultado de tool no-JSON */ }
+      try { const k = JSON.parse(m.content)?.data?.kind; if (k) artifacts.push(k) } catch { /* no-json */ }
     }
   }
   const reply = [...messages].reverse().find((m) => m.role === 'assistant' && typeof m.content === 'string' && m.content.trim())?.content || ''
-  return { status, error, reply, calledTools, artifacts, toolResults, conv }
+  if (conv) ctx.cleanups.push(async () => {
+    await fetch(`${BASE}/rest/v1/messages?conversation_id=eq.${conv}`, { method: 'DELETE', headers: ctx.svc })
+    await fetch(`${BASE}/rest/v1/conversations?id=eq.${conv}`, { method: 'DELETE', headers: ctx.svc })
+  })
+  return { status, error, reply, calledTools, artifacts }
+}
+
+// --- AUTÓNOMO: crea una tarea, invoca run-agent-step y revisa el efecto (approvals/task). ---
+async function runAutonomous(c, ctx) {
+  const agent = await resolveAgent(c.agent, ctx)
+  if (!agent) return { status: 0, error: `agente no encontrado: ${c.agent}`, approvals: [], taskStatus: null }
+  // 1) crear la tarea (to_do → runAgentStep la toma)
+  const created = await (await fetch(`${BASE}/rest/v1/tasks`, {
+    method: 'POST',
+    headers: { ...ctx.svc, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+    body: JSON.stringify({ agent_id: agent.id, brand_id: agent.brand_id ?? null, title: c.taskTitle || `Eval: ${c.name}`, description: c.message, status: 'to_do', priority: 1, created_by: ctx.userId }),
+  })).json()
+  const task = Array.isArray(created) ? created[0] : null
+  if (!task?.id) return { status: 0, error: `no pude crear la tarea: ${JSON.stringify(created).slice(0, 120)}`, approvals: [], taskStatus: null }
+  ctx.cleanups.push(async () => {
+    await fetch(`${BASE}/rest/v1/messages?task_id=eq.${task.id}`, { method: 'DELETE', headers: ctx.svc })
+    await fetch(`${BASE}/rest/v1/approvals?task_id=eq.${task.id}`, { method: 'DELETE', headers: ctx.svc })
+    await fetch(`${BASE}/rest/v1/tasks?id=eq.${task.id}`, { method: 'DELETE', headers: ctx.svc })
+  })
+  // 2) invocar run-agent-step (JWT del usuario junta)
+  let status = 0
+  let error = null
+  let reason = null
+  try {
+    const r = await fetch(`${BASE}/functions/v1/run-agent-step`, { method: 'POST', headers: ctx.uhdr, body: JSON.stringify({ agent_id: agent.id }) })
+    status = r.status
+    const j = await r.json()
+    if (j?.error) error = j.error
+    reason = j?.reason ?? null
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e)
+  }
+  // 3) leer el efecto: approvals de esta tarea + estado final de la tarea
+  const ap = await (await fetch(`${BASE}/rest/v1/approvals?task_id=eq.${task.id}&select=trigger,status`, { headers: ctx.svc })).json()
+  const tr = await (await fetch(`${BASE}/rest/v1/tasks?id=eq.${task.id}&select=status`, { headers: ctx.svc })).json()
+  return { status, error, reason, approvals: Array.isArray(ap) ? ap : [], taskStatus: Array.isArray(tr) ? tr[0]?.status : null }
 }
 
 function fmt(t) {
+  if (t.approvals !== undefined) {
+    return `status=${t.status} approvals=[${t.approvals.map((a) => `${a.trigger}:${a.status}`).join(',')}] task=${t.taskStatus} reason=${t.reason}`
+  }
   return `status=${t.status} tools=[${t.calledTools.join(',')}] artifacts=[${t.artifacts.join(',')}] reply="${t.reply.slice(0, 60).replace(/\n/g, ' ')}"`
 }
 
 async function main() {
   const { anon, service } = await getKeys()
   if (!anon || !service) throw new Error('Faltan las llaves anon/service.')
-  const jwt = await getJwt(anon, service)
+  const { jwt, userId } = await getJwt(anon, service)
   const ctx = {
+    userId,
     uhdr: { apikey: anon, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
     svc: { apikey: service, Authorization: `Bearer ${service}` },
+    cleanups: [],
   }
 
   const selected = CASES.filter((c) => !filter || c.name.includes(filter) || c.agent.includes(filter))
   console.log(`\n🧪 Evals CRM · ${selected.length} caso(s) · proyecto ${REF}\n`)
 
-  const createdConvs = []
   let passed = 0
   let failed = 0
   for (const c of selected) {
-    const t = await runTurn(c, ctx)
-    if (t.conv) createdConvs.push(t.conv)
+    const t = c.kind === 'autonomous' ? await runAutonomous(c, ctx) : await runChat(c, ctx)
     const results = c.expect.map((a) => ({ label: a.label, pass: !!a.check(t) }))
     const ok = results.every((r) => r.pass)
-    console.log(`${ok ? '✅' : '❌'} ${c.name}`)
+    console.log(`${ok ? '✅' : '❌'} ${c.name}${c.kind === 'autonomous' ? ' (autónomo)' : ''}`)
     if (!ok) {
       for (const r of results) console.log(`     ${r.pass ? '·' : '✗'} ${r.label}`)
       console.log(`     ⤷ ${fmt(t)}${t.error ? '  ERROR=' + t.error : ''}`)
@@ -144,15 +190,12 @@ async function main() {
     ok ? passed++ : failed++
   }
 
-  // Limpieza: borrar las conversaciones efímeras que creó la corrida (mensajes primero por la FK).
-  if (cleanup && createdConvs.length) {
-    for (const id of createdConvs) {
-      await fetch(`${BASE}/rest/v1/messages?conversation_id=eq.${id}`, { method: 'DELETE', headers: ctx.svc })
-      await fetch(`${BASE}/rest/v1/conversations?id=eq.${id}`, { method: 'DELETE', headers: ctx.svc })
-    }
-    console.log(`\n🧹 Limpieza: ${createdConvs.length} conversación(es) efímera(s) borrada(s).`)
-  } else if (createdConvs.length) {
-    console.log(`\n(--no-cleanup) ${createdConvs.length} conversación(es) conservada(s).`)
+  // Limpieza: deshacer todo lo efímero que se creó (conversaciones, tareas, approvals, mensajes).
+  if (cleanup && ctx.cleanups.length) {
+    for (const fn of ctx.cleanups) { try { await fn() } catch { /* best-effort */ } }
+    console.log(`\n🧹 Limpieza: ${ctx.cleanups.length} artefacto(s) efímero(s) borrado(s).`)
+  } else if (ctx.cleanups.length) {
+    console.log(`\n(--no-cleanup) ${ctx.cleanups.length} artefacto(s) conservado(s).`)
   }
 
   console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed}/${selected.length} pasaron${failed ? `, ${failed} fallaron` : ''}.\n`)
