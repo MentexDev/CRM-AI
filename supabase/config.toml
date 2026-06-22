@@ -30,3 +30,11 @@ verify_jwt = false
 
 [functions.brain-proxy]
 verify_jwt = false
+
+# Atención al Cliente · cs-evolution verifica el JWT del usuario + acceso al canal (RLS) en código.
+[functions.cs-evolution]
+verify_jwt = false
+
+# cs-webhook lo llama Evolution (sin JWT); verifica ?key=CS_WEBHOOK_SECRET en código.
+[functions.cs-webhook]
+verify_jwt = false
