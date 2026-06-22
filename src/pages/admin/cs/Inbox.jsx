@@ -25,7 +25,7 @@ export default function CsInbox() {
     setLoading(true)
     const { data } = await supabase
       .from('cs_conversations')
-      .select('id, last_message, last_message_at, unread, status, cs_contacts!inner(id, name, phone)')
+      .select('id, last_message, last_message_at, unread, status, channel_id, cs_contacts!inner(id, name, phone)')
       .eq('brand_id', brandId)
       .order('last_message_at', { ascending: false, nullsFirst: false })
     setConvs(data ?? [])
@@ -169,11 +169,18 @@ function Thread({ conv, me, brandId, onRead }) {
     if (!body || sending) return
     setSending(true)
     setText('')
-    const { error } = await supabase.from('cs_messages').insert({ brand_id: brandId, conversation_id: conv.id, direction: 'outbound', sender_type: 'operator', sender_id: me, type: 'text', content: body })
-    setSending(false)
-    if (error) { toast.error(error.message); setText(body); return }
-    // el trigger actualiza last_message; el insert lo trae Realtime (o lo cargamos)
-    load()
+    if (conv.channel_id) {
+      // Conversación con canal de WhatsApp → enviar DE VERDAD (cs-evolution envía + guarda el mensaje).
+      const { data, error } = await supabase.functions.invoke('cs-evolution', { body: { action: 'send', channel_id: conv.channel_id, conversation_id: conv.id, to: ct.phone, text: body } })
+      setSending(false)
+      if (error || data?.error) { toast.error('No pude enviar: ' + (data?.error || error.message)); setText(body); return }
+    } else {
+      // Conversación interna/manual (sin canal) → solo se guarda.
+      const { error } = await supabase.from('cs_messages').insert({ brand_id: brandId, conversation_id: conv.id, direction: 'outbound', sender_type: 'operator', sender_id: me, type: 'text', content: body })
+      setSending(false)
+      if (error) { toast.error(error.message); setText(body); return }
+    }
+    load() // el trigger actualiza last_message; el mensaje llega por Realtime o por load()
   }
 
   return (
@@ -214,7 +221,7 @@ function Thread({ conv, me, brandId, onRead }) {
             {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </button>
         </div>
-        <div className="text-[10.5px] text-nina-mute/70 mt-1.5 text-center">El envío real a WhatsApp se habilita en la Fase 2 (Evolution API).</div>
+        <div className="text-[10.5px] text-nina-mute/70 mt-1.5 text-center">{conv.channel_id ? 'Se envía por WhatsApp.' : 'Conversación interna (sin canal de WhatsApp).'}</div>
       </div>
     </>
   )

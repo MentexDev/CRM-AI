@@ -1,8 +1,8 @@
 // Módulo Canales — los números/canales de WhatsApp de la marca (estilo "Meus Canais" de la referencia,
 // con diseño NINA). Fase 1: CRUD de la ficha del canal (crear/renombrar/editar/eliminar) + estado.
 // La CONEXIÓN real por QR llega en Fase 2 (Evolution API) — aquí el botón "Conectar" queda preparado.
-import { useCallback, useEffect, useState } from 'react'
-import { Loader2, MessageCircle, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Check, Loader2, MessageCircle, Pencil, Plus, QrCode, Search, Trash2, Unplug } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../../../lib/supabase'
 import Modal from '../../../components/Modal'
@@ -21,6 +21,7 @@ export default function CsChannels() {
   const [q, setQ] = useState('')
   const [editing, setEditing] = useState(null) // null | {} (nuevo) | channel (editar)
   const [confirmDel, setConfirmDel] = useState(null)
+  const [connecting, setConnecting] = useState(null) // canal que se está conectando (modal QR)
 
   const load = useCallback(async () => {
     if (!brandId) { setChannels([]); setLoading(false); return }
@@ -78,6 +79,12 @@ export default function CsChannels() {
     load()
   }
 
+  const disconnect = async (c) => {
+    const { data, error } = await supabase.functions.invoke('cs-evolution', { body: { action: 'disconnect', channel_id: c.id } })
+    if (error || data?.error) toast.error('No pude desconectar: ' + (data?.error || error.message)); else toast.success('Canal desconectado')
+    load()
+  }
+
   return (
     <CsShell
       title="Canales"
@@ -125,6 +132,11 @@ export default function CsChannels() {
                   <div className="text-[11px] text-nina-mute">ID: #{c.id.slice(0, 6)}</div>
                   <div className="text-[11px] text-nina-mute/70">{new Date(c.created_at).toLocaleDateString('es-CO')}</div>
                 </div>
+                {c.status === 'connected' ? (
+                  <button onClick={() => disconnect(c)} className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] text-nina-mute border border-nina-line hover:text-red-300 hover:border-red-400/40 transition" title="Desconectar"><Unplug className="w-3.5 h-3.5" /> Desconectar</button>
+                ) : (
+                  <button onClick={() => setConnecting(c)} className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 transition" title="Conectar por QR"><QrCode className="w-3.5 h-3.5" /> Conectar</button>
+                )}
                 <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition">
                   <button onClick={() => setEditing(c)} title="Editar" className="w-8 h-8 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40"><Pencil className="w-4 h-4" /></button>
                   <button onClick={() => setConfirmDel(c)} title="Eliminar" className="w-8 h-8 grid place-items-center rounded-lg text-nina-mute hover:text-red-300 hover:bg-nina-line/40"><Trash2 className="w-4 h-4" /></button>
@@ -148,7 +160,61 @@ export default function CsChannels() {
           <button onClick={del} className="btn !bg-red-500/90 hover:!bg-red-500 text-white text-sm">Eliminar</button>
         </div>
       </Modal>
+
+      {/* Conectar por QR */}
+      <Modal open={!!connecting} onClose={() => setConnecting(null)} title={`Conectar ${connecting?.name || ''}`} maxWidth="max-w-sm">
+        {connecting && <ConnectModal channel={connecting} onClose={() => setConnecting(null)} onDone={load} />}
+      </Modal>
     </CsShell>
+  )
+}
+
+// Conexión por QR: pide el QR a Evolution (vía cs-evolution), lo muestra y hace polling del estado
+// hasta que WhatsApp queda vinculado.
+function ConnectModal({ channel, onClose, onDone }) {
+  const [qr, setQr] = useState(null)
+  const [status, setStatus] = useState('loading') // loading | qr | connected | error
+  const [err, setErr] = useState('')
+  const pollRef = useRef(null)
+
+  const start = useCallback(async () => {
+    setStatus('loading'); setErr(''); setQr(null)
+    const { data, error } = await supabase.functions.invoke('cs-evolution', { body: { action: 'connect', channel_id: channel.id } })
+    if (error || data?.error) { setErr(data?.error || error?.message || 'Error'); setStatus('error'); return }
+    if (data?.qr) { setQr(data.qr); setStatus('qr') } else { setErr('No recibí el QR. Reintenta.'); setStatus('error') }
+  }, [channel.id])
+
+  useEffect(() => { start() }, [start])
+
+  // Polling del estado mientras se muestra el QR.
+  useEffect(() => {
+    if (status !== 'qr') return
+    pollRef.current = setInterval(async () => {
+      const { data } = await supabase.functions.invoke('cs-evolution', { body: { action: 'state', channel_id: channel.id } })
+      if (data?.status === 'connected') { clearInterval(pollRef.current); setStatus('connected'); onDone?.(); setTimeout(onClose, 1300) }
+    }, 3000)
+    return () => clearInterval(pollRef.current)
+  }, [status, channel.id, onClose, onDone])
+
+  const qrSrc = qr ? (qr.startsWith('data:') ? qr : `data:image/png;base64,${qr}`) : null
+  return (
+    <div className="text-center">
+      {status === 'loading' && <div className="py-12 text-nina-mute flex items-center justify-center gap-2"><Loader2 className="w-5 h-5 animate-spin" /> Generando QR…</div>}
+      {status === 'error' && (
+        <div className="py-8">
+          <div className="text-red-300 text-[13px] mb-3">{err}</div>
+          <button onClick={start} className="btn-ghost text-sm">Reintentar</button>
+        </div>
+      )}
+      {status === 'qr' && qrSrc && (
+        <div className="py-1">
+          <img src={qrSrc} alt="QR de WhatsApp" className="w-56 h-56 mx-auto rounded-xl bg-white p-2" />
+          <p className="text-[12.5px] text-nina-mute mt-3 leading-relaxed">En tu teléfono: <b className="text-nina-chrome">WhatsApp → Ajustes → Dispositivos vinculados → Vincular dispositivo</b>, y escanea este código.</p>
+          <button onClick={start} className="btn-ghost text-sm mt-3">Refrescar QR</button>
+        </div>
+      )}
+      {status === 'connected' && <div className="py-12 text-emerald-300 flex flex-col items-center justify-center gap-2"><Check className="w-8 h-8" /><span className="text-[14px]">¡Conectado!</span></div>}
+    </div>
   )
 }
 
