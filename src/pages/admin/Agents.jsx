@@ -19,6 +19,7 @@ import {
   Eye,
   FileText,
   FileType,
+  FolderOpen,
   Github,
   Globe,
   GraduationCap,
@@ -68,6 +69,7 @@ import SlideDeck from '../../components/SlideDeck'
 import SheetView from '../../components/SheetView'
 import BoardView from '../../components/BoardView'
 import PdfView from '../../components/PdfView'
+import FilesModal from '../../components/FilesModal'
 import CommandPalette from '../../components/CommandPalette'
 import { readAttachmentFile, fileKind } from '../../lib/readFile'
 import { useVoiceTranscription } from '../../hooks/useVoiceTranscription'
@@ -828,6 +830,60 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     setActiveKey(key)
     setCanvasOpen(true)
   }
+  // Abre el TEXTO de un adjunto (o cualquier texto del hilo) como documento del canvas.
+  const openTextAsDocument = (title, text) => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      toast('El espacio de trabajo necesita una pantalla más ancha')
+      return
+    }
+    const key = `local-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    setLocalTabs((prev) => [...prev, { key, type: 'document', title: title || 'Adjunto', markdown: text || '' }])
+    setActiveKey(key)
+    setCanvasOpen(true)
+  }
+
+  // Modal "Archivos de la conversación" (botón Files del header) — agrega TODOS los archivos del hilo:
+  // artefactos del agente (allTabs), adjuntos del usuario (metadata.attachments) y enlaces (URLs).
+  const [filesOpen, setFilesOpen] = useState(false)
+  const conversationFiles = useMemo(() => {
+    const TYPE_LABEL = { document: 'Documento', slides: 'Presentación', sheet: 'Hoja de cálculo', board: 'Pizarra', pdf: 'PDF', image: 'Imagen', email: 'Correo', calendar: 'Agenda' }
+    const CODE_EXT = /\.(js|jsx|ts|tsx|py|rb|go|rs|java|kt|c|cpp|h|hpp|cs|php|swift|sh|bash|zsh|sql|css|html?|xml|json|jsonl|ya?ml|toml|ini)$/i
+    const out = []
+    for (const a of allTabs) {
+      out.push({
+        id: `art:${a.key}`,
+        name: a.title || a.subject || TYPE_LABEL[a.type] || 'Archivo',
+        category: a.type === 'image' ? 'multimedia' : 'documento',
+        sub: TYPE_LABEL[a.type] || a.type,
+        open: () => reopenFromHistory(a.key),
+      })
+    }
+    for (const m of messages || []) {
+      const atts = m?.metadata?.attachments
+      if (!Array.isArray(atts) || !atts.length) continue
+      const content = typeof m.content === 'string' ? m.content : ''
+      let pos = Math.max(0, Number(m?.metadata?.note_chars) || 0)
+      for (const att of atts) {
+        const nm = att?.name || 'documento.txt'
+        pos += `\n\n[Documento: ${nm}]\n`.length
+        const chars = Math.max(0, Number(att?.chars) || 0)
+        const text = content.slice(pos, pos + chars)
+        pos += chars
+        out.push({ id: `att:${m.id}:${nm}`, name: nm, category: CODE_EXT.test(nm) ? 'codigo' : 'documento', sub: 'Adjunto', open: () => openTextAsDocument(nm, text) })
+      }
+    }
+    const seenLinks = new Set()
+    for (const m of messages || []) {
+      const c = typeof m.content === 'string' ? m.content : ''
+      for (const url of c.match(/https?:\/\/[^\s)<>"'\]]+/g) || []) {
+        if (seenLinks.has(url)) continue
+        seenLinks.add(url)
+        out.push({ id: `link:${url}`, name: url.replace(/^https?:\/\//, ''), category: 'enlace', sub: 'Enlace', open: () => window.open(url, '_blank', 'noopener,noreferrer') })
+      }
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allTabs, messages])
   // El DocumentEditor reporta sus cambios → los guardamos en la pestaña LOCAL (para que el
   // cambio de pestaña / cierre del browser NO pierda lo escrito y la etiqueta refleje el
   // título) y limpiamos el "guardado" para reactivar el botón Guardar (dirty).
@@ -1176,6 +1232,14 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         </button>
         <div className="flex items-center gap-1 shrink-0">
           <button
+            onClick={() => setFilesOpen(true)}
+            className="btn-ghost !py-1 !px-2 text-[11px] flex items-center gap-1"
+            title="Archivos de la conversación"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Files</span>
+          </button>
+          <button
             onClick={() => setCanvasOpen((o) => !o)}
             className={`btn-ghost !py-1 !px-2 text-[11px] flex items-center gap-1 ${
               canvasOpen ? 'text-nina-chrome bg-nina-line/40' : ''
@@ -1300,6 +1364,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         onNewDocument={openBlankDocument}
         onAgentPrompt={sendAgentPrompt}
       />
+      {filesOpen && <FilesModal files={conversationFiles} onClose={() => setFilesOpen(false)} />}
     </div>
   )
 }
