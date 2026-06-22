@@ -167,21 +167,8 @@ export default function NewAgentModal({ open, onClose, agentId = null }) {
 // Step 1 · elegir plantilla (solo modo crear)
 // =====================================================================
 function TemplateStep({ onPick, onCancel }) {
-  const { agents } = useAgents()
-  // Ocultamos las plantillas cuyo agente YA existe en el sidebar (mismo nombre o slug normalizado),
-  // para no ofrecer crear duplicados. "En blanco" siempre disponible.
-  const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
-  const taken = useMemo(() => {
-    const set = new Set()
-    for (const a of agents || []) {
-      if (a?.slug) set.add(norm(a.slug))
-      if (a?.name) set.add(norm(a.name))
-    }
-    return set
-  }, [agents])
-  const visible = TEMPLATE_LIST.filter(
-    (tpl) => tpl.id === 'blank' || !(taken.has(norm(tpl.suggestedSlug)) || taken.has(norm(tpl.suggestedName))),
-  )
+  // Todas las plantillas SIEMPRE disponibles: se pueden tener varios agentes del mismo tipo
+  // (p.ej. dos vendedores WhatsApp). El slug se autoincrementa al crear si ya existe (→ contador-2).
   return (
     <div className="space-y-5">
       <p className="text-sm text-nina-mute">
@@ -189,7 +176,7 @@ function TemplateStep({ onPick, onCancel }) {
         antes de crear el agente.
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {visible.map((tpl) => {
+        {TEMPLATE_LIST.map((tpl) => {
           const Icon = ICON_MAP[tpl.icon] ?? Bot
           return (
             <motion.button
@@ -322,13 +309,25 @@ function DetailsStep({ form, setForm, tplId, isEdit, agentId, onBack, onClose, b
         }
         toast.success(`${form.name} actualizado`)
       } else {
-        const { error } = await supabase.from('agents').insert({ ...payload, status: 'idle' })
-        if (error) {
-          if (error.code === '23505')
-            throw new Error(`Ya existe un agente con el slug "${form.slug}"`)
-          throw error
+        // Slug único: si ya existe, autoincrementa (-2, -3…) para permitir varios agentes del
+        // mismo tipo. El loop reintenta ante colisión real en BD (23505), también cubre carreras.
+        const base = payload.slug
+        let candidate = base
+        let n = 1
+        let inserted = false
+        for (let tries = 0; tries < 8 && !inserted; tries++) {
+          const { error } = await supabase.from('agents').insert({ ...payload, slug: candidate, status: 'idle' })
+          if (!error) { inserted = true; break }
+          if (error.code !== '23505') throw error
+          n += 1
+          candidate = `${base}-${n}` // base-2, base-3, …
         }
-        toast.success(`${form.name} listo. Aparecerá en la lista.`)
+        if (!inserted) throw new Error('No pude generar un slug único; cambia el nombre o el slug.')
+        toast.success(
+          candidate === base
+            ? `${form.name} listo. Aparecerá en la lista.`
+            : `${form.name} listo como "${candidate}". Aparecerá en la lista.`,
+        )
       }
       onClose()
     } catch (err) {
