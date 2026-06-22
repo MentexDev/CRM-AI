@@ -6,7 +6,7 @@ import { Loader2, Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../../../lib/supabase'
 import Modal from '../../../components/Modal'
-import { useCsBrand } from './CsShell'
+import { normPhone, useCsBrand } from './CsShell'
 
 export default function CsPipeline() {
   const { brands, brandId, setBrandId } = useCsBrand()
@@ -22,7 +22,7 @@ export default function CsPipeline() {
     setLoading(true)
     const [{ data: st }, { data: ld }] = await Promise.all([
       supabase.from('cs_stages').select('id, name, color, position').eq('brand_id', brandId).order('position', { ascending: true }),
-      supabase.from('cs_leads').select('id, stage_id, status, created_at, cs_contacts!inner(id, name, phone, tags)').eq('brand_id', brandId).order('created_at', { ascending: true }),
+      supabase.from('cs_leads').select('id, stage_id, status, position, created_at, cs_contacts!inner(id, name, phone, tags)').eq('brand_id', brandId).order('position', { ascending: true }).order('created_at', { ascending: true }),
     ])
     setStages(st ?? [])
     setLeads(ld ?? [])
@@ -43,8 +43,10 @@ export default function CsPipeline() {
   const moveLead = async (leadId, stageId) => {
     const lead = leads.find((l) => l.id === leadId)
     if (!lead || lead.stage_id === stageId) return
-    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, stage_id: stageId } : l))) // optimista
-    const { error } = await supabase.from('cs_leads').update({ stage_id: stageId, updated_at: new Date().toISOString() }).eq('id', leadId)
+    // Posición = al final de la etapa destino (persistida → el orden se conserva tras recargar).
+    const pos = Math.max(0, ...leads.filter((l) => l.stage_id === stageId).map((l) => l.position ?? 0)) + 1
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, stage_id: stageId, position: pos } : l))) // optimista
+    const { error } = await supabase.from('cs_leads').update({ stage_id: stageId, position: pos, updated_at: new Date().toISOString() }).eq('id', leadId)
     if (error) { toast.error(error.message); load() }
   }
 
@@ -52,7 +54,7 @@ export default function CsPipeline() {
 
   // Crear lead (contacto + lead) en una etapa.
   const createLead = async ({ name, phone }) => {
-    const ph = (phone || '').trim()
+    const ph = normPhone(phone)
     if (!ph) { toast.error('El número es obligatorio'); return }
     const { data: u } = await supabase.auth.getUser()
     const { data: c, error } = await supabase.from('cs_contacts').insert({ brand_id: brandId, name: (name || '').trim() || null, phone: ph, created_by: u?.user?.id ?? null }).select('id').single()

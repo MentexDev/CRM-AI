@@ -65,19 +65,21 @@ Deno.serve(async (req) => {
 
   try {
     if (action === 'connect') {
-      // 1) Crear la instancia (si ya existe, Evolution responde error → seguimos a connect).
+      // El secreto del webhook va en HEADER (x-cs-secret) además del ?key de fallback → menos riesgo de
+      // filtración por logs de URL. cs-webhook acepta cualquiera de los dos.
       const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/cs-webhook?key=${WEBHOOK_SECRET}`
-      await evo('/instance/create', 'POST', {
-        instanceName: inst,
-        integration: 'WHATSAPP-BAILEYS',
-        qrcode: true,
-        webhook: { url: webhookUrl, byEvents: false, base64: true, events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'] },
-      })
+      const wh = { url: webhookUrl, byEvents: false, base64: true, headers: { 'x-cs-secret': WEBHOOK_SECRET }, events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'] }
+      // 1) Crear la instancia. "Ya existe" es benigno; cualquier OTRO error 4xx/5xx se propaga.
+      const created = await evo('/instance/create', 'POST', { instanceName: inst, integration: 'WHATSAPP-BAILEYS', qrcode: true, webhook: wh })
+      if (created.status >= 400 && !/exist|already|in use|duplicate/i.test(JSON.stringify(created.json ?? ''))) {
+        return json({ error: `Evolution (create): ${JSON.stringify(created.json ?? '').slice(0, 200)}` }, 502)
+      }
       // 2) Asegurar el webhook (algunas versiones lo ignoran en create) — best-effort.
-      await evo(`/webhook/set/${inst}`, 'POST', { webhook: { enabled: true, url: webhookUrl, byEvents: false, base64: true, events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'] } }).catch(() => {})
-      // 3) Obtener el QR.
+      await evo(`/webhook/set/${inst}`, 'POST', { webhook: { enabled: true, ...wh } }).catch(() => {})
+      // 3) Obtener el QR. Solo marcamos connecting + session_id cuando SÍ hay un QR válido (no antes).
       const c = await evo(`/instance/connect/${inst}`)
       const qr = c.json?.base64 ?? c.json?.qrcode?.base64 ?? c.json?.qrcode ?? null
+      if (!qr) return json({ error: `No pude generar el QR: ${JSON.stringify(c.json ?? '').slice(0, 160)}` }, 502)
       await db.from('cs_channels').update({ status: 'connecting', session_id: inst, updated_at: new Date().toISOString() }).eq('id', channel_id)
       return json({ ok: true, qr })
     }
@@ -91,15 +93,20 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'send') {
-      const { to, text, conversation_id } = body
-      const number = digits(to)
-      if (!number || !text) return json({ error: 'to y text requeridos' }, 400)
+      const { text, conversation_id } = body
+      if (!conversation_id || !text) return json({ error: 'conversation_id y text requeridos' }, 400)
+      // Validar que la conversación es de la MISMA marca y (si tiene canal) del MISMO canal, y derivar el
+      // DESTINO del contacto de la conversación — NO de un 'to' del body. Esto evita (incluso con
+      // service_role) escribir en hilos de otra marca o enviar WhatsApp a un número arbitrario.
+      const { data: conv } = await db.from('cs_conversations').select('id, brand_id, channel_id, cs_contacts!inner(phone)').eq('id', conversation_id).maybeSingle()
+      if (!conv || conv.brand_id !== ch.brand_id) return json({ error: 'La conversación no pertenece a este canal' }, 403)
+      if (conv.channel_id && conv.channel_id !== channel_id) return json({ error: 'La conversación es de otro canal' }, 403)
+      const number = digits(conv.cs_contacts?.phone ?? '')
+      if (!number) return json({ error: 'El contacto no tiene número' }, 400)
       const r = await evo(`/message/sendText/${inst}`, 'POST', { number, text })
       if (r.status >= 400) return json({ error: `Evolution: ${JSON.stringify(r.json).slice(0, 200)}` }, 502)
       const waId = r.json?.key?.id ?? null
-      if (conversation_id) {
-        await db.from('cs_messages').insert({ brand_id: ch.brand_id, conversation_id, direction: 'outbound', sender_type: 'operator', sender_id: u.user.id, type: 'text', content: text, wa_message_id: waId, status: 'sent' })
-      }
+      await db.from('cs_messages').insert({ brand_id: ch.brand_id, conversation_id, direction: 'outbound', sender_type: 'operator', sender_id: u.user.id, type: 'text', content: text, wa_message_id: waId, status: 'sent' })
       return json({ ok: true, wa_message_id: waId })
     }
 

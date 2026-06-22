@@ -7,7 +7,7 @@ import { Loader2, MessageSquare, Plus, Search, Send } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../../../lib/supabase'
 import Modal from '../../../components/Modal'
-import { useCsBrand } from './CsShell'
+import { normPhone, useCsBrand } from './CsShell'
 
 export default function CsInbox() {
   const { brands, brandId, setBrandId } = useCsBrand()
@@ -51,7 +51,7 @@ export default function CsInbox() {
 
   // Iniciar conversación manual: reusa/crea contacto por número y reusa/crea su conversación abierta.
   const startConversation = async ({ name, phone }) => {
-    const ph = (phone || '').trim()
+    const ph = normPhone(phone)
     if (!ph) { toast.error('El número es obligatorio'); return }
     let { data: contact } = await supabase.from('cs_contacts').select('id').eq('brand_id', brandId).eq('phone', ph).maybeSingle()
     if (!contact) {
@@ -147,16 +147,18 @@ function Thread({ conv, me, brandId, onRead }) {
 
   useEffect(() => {
     load()
-    // marcar como leído al abrir
-    if (conv.unread > 0) supabase.from('cs_conversations').update({ unread: 0 }).eq('id', conv.id).then(onRead)
+    // Marcar como leído al abrir (la lista se refresca sola por Realtime de cs_conversations → sin doble fetch).
+    if (conv.unread > 0) supabase.from('cs_conversations').update({ unread: 0 }).eq('id', conv.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conv.id])
 
-  // Tiempo real: mensajes nuevos de ESTA conversación.
+  // Tiempo real: mensajes nuevos de ESTA conversación. Si llega uno ENTRANTE con el hilo abierto, lo
+  // marcamos leído de inmediato (el trigger lo cuenta como no leído al insertar).
   useEffect(() => {
     const ch = supabase.channel(`cs_thread-${conv.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'cs_messages', filter: `conversation_id=eq.${conv.id}` }, (p) => {
         setMessages((prev) => (prev.some((m) => m.id === p.new.id) ? prev : [...prev, p.new]))
+        if (p.new?.direction === 'inbound') supabase.from('cs_conversations').update({ unread: 0 }).eq('id', conv.id)
       })
       .subscribe()
     return () => { try { supabase.removeChannel(ch) } catch { /* */ } }
@@ -171,7 +173,7 @@ function Thread({ conv, me, brandId, onRead }) {
     setText('')
     if (conv.channel_id) {
       // Conversación con canal de WhatsApp → enviar DE VERDAD (cs-evolution envía + guarda el mensaje).
-      const { data, error } = await supabase.functions.invoke('cs-evolution', { body: { action: 'send', channel_id: conv.channel_id, conversation_id: conv.id, to: ct.phone, text: body } })
+      const { data, error } = await supabase.functions.invoke('cs-evolution', { body: { action: 'send', channel_id: conv.channel_id, conversation_id: conv.id, text: body } })
       setSending(false)
       if (error || data?.error) { toast.error('No pude enviar: ' + (data?.error || error.message)); setText(body); return }
     } else {

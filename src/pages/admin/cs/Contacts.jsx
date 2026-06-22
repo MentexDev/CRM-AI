@@ -6,7 +6,7 @@ import { Loader2, Plus, Search, Pencil, Trash2, User } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../../../lib/supabase'
 import Modal from '../../../components/Modal'
-import { CsShell, CsEmpty, useCsBrand } from './CsShell'
+import { CsShell, CsEmpty, normPhone, useCsBrand } from './CsShell'
 
 export default function CsContacts() {
   const { brands, brandId, setBrandId } = useCsBrand()
@@ -44,7 +44,7 @@ export default function CsContacts() {
   })
 
   const save = async (form) => {
-    const phone = (form.phone || '').trim()
+    const phone = normPhone(form.phone)
     if (!phone) { toast.error('El número es obligatorio'); return }
     const tags = (form.tags || '').split(',').map((t) => t.trim()).filter(Boolean)
     const payload = { name: (form.name || '').trim() || null, phone, tags }

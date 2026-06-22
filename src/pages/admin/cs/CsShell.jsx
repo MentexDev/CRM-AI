@@ -6,19 +6,24 @@ import { useBrands } from '../../../hooks/useBrands'
 
 const KEY = 'nina:cs:brand'
 
+// Canon ÚNICO del teléfono: solo dígitos (mismo formato que usa WhatsApp/Evolution) → un número escrito
+// "+57 300 123" y el "573001234567" del webhook coinciden y no duplican contacto. La BD también lo
+// normaliza con un trigger; esto asegura que los LOOKUPs del front (.eq('phone', ...)) encuentren al mismo.
+export const normPhone = (s) => String(s || '').replace(/\D/g, '')
+
 export function useCsBrand() {
   const { brands, loading } = useBrands()
   const [brandId, setBrandId] = useState(() => {
     try { return localStorage.getItem(KEY) || '' } catch { return '' }
   })
-  // Default a la primera marca accesible cuando carguen (o si la guardada ya no existe).
+  const set = (id) => { setBrandId(id); try { localStorage.setItem(KEY, id) } catch { /* */ } }
+  // Default a la primera marca accesible cuando carguen (o si la guardada ya no existe) — y PERSISTIRLA.
   useEffect(() => {
     if (!loading && brands.length && !brands.some((b) => b.id === brandId)) {
-      setBrandId(brands[0].id)
+      set(brands[0].id)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, brands])
-  const set = (id) => { setBrandId(id); try { localStorage.setItem(KEY, id) } catch { /* */ } }
   return { brands, brandId, brand: brands.find((b) => b.id === brandId) || null, setBrandId: set, loading }
 }
 

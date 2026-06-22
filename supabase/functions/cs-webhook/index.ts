@@ -14,9 +14,10 @@ const WEBHOOK_SECRET = Deno.env.get('CS_WEBHOOK_SECRET') ?? ''
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
 
-  // Verificación del secreto (fail-closed).
+  // Verificación del secreto (fail-closed). Acepta header x-cs-secret (preferido) o ?key (fallback).
   const key = new URL(req.url).searchParams.get('key') ?? ''
-  if (!WEBHOOK_SECRET || key !== WEBHOOK_SECRET) return new Response('Forbidden', { status: 403 })
+  const headerKey = req.headers.get('x-cs-secret') ?? ''
+  if (!WEBHOOK_SECRET || (key !== WEBHOOK_SECRET && headerKey !== WEBHOOK_SECRET)) return new Response('Forbidden', { status: 403 })
 
   let body: any
   try { body = await req.json() } catch { return new Response('ok') }
@@ -42,11 +43,14 @@ Deno.serve(async (req) => {
       // El payload varía por versión: data puede ser el mensaje, {message:{...}}, o {messages:[...]}.
       const msg = data?.key ? data : data?.message?.key ? data.message : Array.isArray(data?.messages) ? data.messages[0] : data
       const k = msg?.key ?? {}
-      if (k.fromMe) return new Response('ok') // saliente (eco de nuestro envío) → ya guardado
       const jid = String(k.remoteJid ?? '')
       if (!jid || jid.endsWith('@g.us')) return new Response('ok') // ignorar grupos por ahora
       const phone = jid.split('@')[0].replace(/\D/g, '')
       if (!phone) return new Response('ok')
+      // fromMe = lo enviamos nosotros (eco de cs-evolution, lo descarta el dedup) o el operador respondió
+      // DESDE el celular (lo guardamos como outbound para que la bandeja compartida no lo pierda).
+      const direction = k.fromMe ? 'outbound' : 'inbound'
+      const sender_type = k.fromMe ? 'operator' : 'contact'
 
       const m = msg?.message ?? {}
       let type = 'text'
@@ -58,33 +62,40 @@ Deno.serve(async (req) => {
       const waId = k.id ?? null
       const pushName = msg?.pushName ?? null
 
-      // Contacto (auto-crear por marca+número; reusar si ya existe).
+      // Contacto IDEMPOTENTE (ante carrera del unique(brand_id,phone) NO se pierde el mensaje).
       let { data: contact } = await db.from('cs_contacts').select('id, name').eq('brand_id', channel.brand_id).eq('phone', phone).maybeSingle()
       if (!contact) {
-        const { data: c } = await db.from('cs_contacts').insert({ brand_id: channel.brand_id, channel_id: channel.id, name: pushName, phone }).select('id, name').single()
-        contact = c
-        // entra al pipeline en la 1ª etapa
-        const { data: st } = await db.from('cs_stages').select('id').eq('brand_id', channel.brand_id).order('position', { ascending: true }).limit(1)
-        if (contact) await db.from('cs_leads').insert({ brand_id: channel.brand_id, contact_id: contact.id, stage_id: st?.[0]?.id ?? null })
-      } else if (!contact.name && pushName) {
+        const ins = await db.from('cs_contacts').insert({ brand_id: channel.brand_id, channel_id: channel.id, name: pushName, phone }).select('id, name').maybeSingle()
+        if (ins.data) {
+          contact = ins.data
+          const { data: st } = await db.from('cs_stages').select('id').eq('brand_id', channel.brand_id).order('position', { ascending: true }).limit(1)
+          await db.from('cs_leads').insert({ brand_id: channel.brand_id, contact_id: contact.id, stage_id: st?.[0]?.id ?? null })
+        } else {
+          // Carrera: otro webhook ya lo creó → reseleccionar (el INSERT falló por unique, sin throw).
+          contact = (await db.from('cs_contacts').select('id, name').eq('brand_id', channel.brand_id).eq('phone', phone).maybeSingle()).data
+        }
+      } else if (!contact.name && pushName && !k.fromMe) {
         await db.from('cs_contacts').update({ name: pushName }).eq('id', contact.id)
       }
       if (!contact) return new Response('ok')
 
-      // Conversación abierta del contacto en este canal (reusar o crear).
-      let { data: conv } = await db.from('cs_conversations').select('id').eq('brand_id', channel.brand_id).eq('contact_id', contact.id).eq('status', 'open').maybeSingle()
+      // Conversación abierta (reusar/crear). Si la existente es MANUAL (channel_id null), asignarle el canal
+      // para que el operador pueda responder por WhatsApp.
+      let { data: conv } = await db.from('cs_conversations').select('id, channel_id').eq('brand_id', channel.brand_id).eq('contact_id', contact.id).eq('status', 'open').maybeSingle()
       if (!conv) {
-        const { data: cv } = await db.from('cs_conversations').insert({ brand_id: channel.brand_id, contact_id: contact.id, channel_id: channel.id }).select('id').single()
-        conv = cv
+        const ins = await db.from('cs_conversations').insert({ brand_id: channel.brand_id, contact_id: contact.id, channel_id: channel.id }).select('id').maybeSingle()
+        conv = ins.data ?? (await db.from('cs_conversations').select('id').eq('brand_id', channel.brand_id).eq('contact_id', contact.id).eq('status', 'open').maybeSingle()).data
+      } else if (!conv.channel_id) {
+        await db.from('cs_conversations').update({ channel_id: channel.id }).eq('id', conv.id)
       }
       if (!conv) return new Response('ok')
 
-      // Dedup por wa_message_id; insertar el mensaje entrante (trigger actualiza last_message/unread).
+      // Dedup por wa_message_id (descarta nuestro propio eco outbound y reentregas del webhook).
       if (waId) {
         const { data: dup } = await db.from('cs_messages').select('id').eq('conversation_id', conv.id).eq('wa_message_id', waId).maybeSingle()
         if (dup) return new Response('ok')
       }
-      await db.from('cs_messages').insert({ brand_id: channel.brand_id, conversation_id: conv.id, direction: 'inbound', sender_type: 'contact', type, content, wa_message_id: waId })
+      await db.from('cs_messages').insert({ brand_id: channel.brand_id, conversation_id: conv.id, direction, sender_type, type, content, wa_message_id: waId })
       return new Response('ok')
     }
 

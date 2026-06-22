@@ -73,6 +73,10 @@ export default function CsChannels() {
 
   const del = async () => {
     if (!confirmDel) return
+    // Si está conectado/conectando, cerrar la sesión en Evolution primero (evita instancia zombi).
+    if (confirmDel.status && confirmDel.status !== 'disconnected') {
+      await supabase.functions.invoke('cs-evolution', { body: { action: 'disconnect', channel_id: confirmDel.id } }).catch(() => {})
+    }
     const { error } = await supabase.from('cs_channels').delete().eq('id', confirmDel.id)
     if (error) toast.error(error.message); else toast.success('Canal eliminado')
     setConfirmDel(null)
@@ -186,10 +190,13 @@ function ConnectModal({ channel, onClose, onDone }) {
 
   useEffect(() => { start() }, [start])
 
-  // Polling del estado mientras se muestra el QR.
+  // Polling del estado mientras se muestra el QR (con timeout: el QR de WhatsApp expira ~60s).
   useEffect(() => {
     if (status !== 'qr') return
+    let n = 0
     pollRef.current = setInterval(async () => {
+      n += 1
+      if (n > 20) { clearInterval(pollRef.current); setStatus('expired'); return } // ~60s sin escanear
       const { data } = await supabase.functions.invoke('cs-evolution', { body: { action: 'state', channel_id: channel.id } })
       if (data?.status === 'connected') { clearInterval(pollRef.current); setStatus('connected'); onDone?.(); setTimeout(onClose, 1300) }
     }, 3000)
@@ -211,6 +218,12 @@ function ConnectModal({ channel, onClose, onDone }) {
           <img src={qrSrc} alt="QR de WhatsApp" className="w-56 h-56 mx-auto rounded-xl bg-white p-2" />
           <p className="text-[12.5px] text-nina-mute mt-3 leading-relaxed">En tu teléfono: <b className="text-nina-chrome">WhatsApp → Ajustes → Dispositivos vinculados → Vincular dispositivo</b>, y escanea este código.</p>
           <button onClick={start} className="btn-ghost text-sm mt-3">Refrescar QR</button>
+        </div>
+      )}
+      {status === 'expired' && (
+        <div className="py-10">
+          <div className="text-nina-mute text-[13px] mb-3">El QR expiró sin conectarse. Genera uno nuevo.</div>
+          <button onClick={start} className="btn-primary text-sm">Generar QR nuevo</button>
         </div>
       )}
       {status === 'connected' && <div className="py-12 text-emerald-300 flex flex-col items-center justify-center gap-2"><Check className="w-8 h-8" /><span className="text-[14px]">¡Conectado!</span></div>}
