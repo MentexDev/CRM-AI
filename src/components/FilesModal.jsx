@@ -43,7 +43,7 @@ export default function FilesModal({ files = [], onClose }) {
       <div className="w-full max-w-2xl max-h-[82vh] flex flex-col rounded-2xl border border-nina-line bg-nina-panel shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-nina-line/60 shrink-0">
-          <span className="w-9 h-9 grid place-items-center rounded-xl bg-violet-500/15 text-violet-300 shrink-0"><FolderOpen className="w-5 h-5" /></span>
+          <span className="w-9 h-9 grid place-items-center rounded-xl bg-silver-gradient text-nina-black shrink-0"><FolderOpen className="w-5 h-5" /></span>
           <div className="text-[14px] font-semibold text-nina-chrome">Archivos de la conversación</div>
           <span className="text-[12px] text-nina-mute shrink-0 ml-1">· {files.length ? `${files.length} archivo${files.length > 1 ? 's' : ''}` : 'sin archivos'}</span>
           <div className="flex-1" />
@@ -67,7 +67,7 @@ export default function FilesModal({ files = [], onClose }) {
               <button
                 key={c.id}
                 onClick={() => setCat(c.id)}
-                className={`px-3 py-1.5 rounded-lg text-[12.5px] whitespace-nowrap transition shrink-0 border ${on ? 'border-violet-400/70 text-nina-chrome bg-violet-500/10' : 'border-transparent text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'}`}
+                className={`px-3 py-1.5 rounded-lg text-[12.5px] whitespace-nowrap transition shrink-0 ${on ? 'bg-silver-gradient text-nina-black font-medium' : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40'}`}
               >
                 {c.label}{c.id !== 'todo' && n > 0 ? ` · ${n}` : ''}
               </button>
