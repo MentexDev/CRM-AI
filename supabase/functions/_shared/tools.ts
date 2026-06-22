@@ -1406,6 +1406,23 @@ async function draftDocument(_ctx: ToolContext, args: Record<string, unknown>): 
 // draft_slides: crea una PRESENTACIÓN editable (artefacto kind:'slides' que el canvas abre
 // en el visor de diapositivas). Sin side-effects — solo normaliza y devuelve las diapositivas.
 const SLIDE_LAYOUTS = new Set(['cover', 'bullets', 'statement', 'section', 'quote'])
+// Tema (fondo/colores): saneamos cada valor a un charset CSS seguro (hex, rgb/rgba, gradientes,
+// nombres) — bloquea ; { } < > " ' para que un valor del modelo no inyecte CSS/HTML en el PDF.
+const SLIDE_CSS_RE = /^[#a-zA-Z0-9 ,.%()/-]+$/
+function cssColorValue(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const s = v.trim().slice(0, 200)
+  return s && SLIDE_CSS_RE.test(s) ? s : null
+}
+function sanitizeSlideTheme(t: unknown): { background?: string; text?: string; accent?: string } | null {
+  if (!t || typeof t !== 'object') return null
+  const o = t as Record<string, unknown>
+  const out: Record<string, string> = {}
+  const bg = cssColorValue(o.background); if (bg) out.background = bg
+  const text = cssColorValue(o.text); if (text) out.text = text
+  const accent = cssColorValue(o.accent); if (accent) out.accent = accent
+  return Object.keys(out).length ? out : null
+}
 async function draftSlides(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const title = (args.title as string)?.trim() || 'Presentación'
   const subtitle = typeof args.subtitle === 'string' ? args.subtitle.trim().slice(0, 240) : ''
@@ -1426,7 +1443,8 @@ async function draftSlides(_ctx: ToolContext, args: Record<string, unknown>): Pr
     })
     .filter((s) => s.heading || s.body || s.bullets.length) // descarta diapositivas vacías
   if (!slides.length) return { ok: false, error: 'Las diapositivas vienen sin contenido' }
-  return { ok: true, data: { kind: 'slides', title, subtitle, slides } }
+  const theme = sanitizeSlideTheme(args.theme)
+  return { ok: true, data: { kind: 'slides', title, subtitle, ...(theme ? { theme } : {}), slides } }
 }
 
 // draft_sheet: crea una HOJA DE CÁLCULO editable (artefacto kind:'sheet' que el canvas abre en

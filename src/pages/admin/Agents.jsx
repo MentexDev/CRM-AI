@@ -699,6 +699,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
             title: d.title || 'Presentación',
             subtitle: typeof d.subtitle === 'string' ? d.subtitle : '',
             slides: d.slides,
+            theme: d.theme && typeof d.theme === 'object' ? d.theme : undefined,
             messageId: m.id,
             key: String(m.id),
           })
@@ -1555,6 +1556,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
             title={active.title}
             subtitle={active.subtitle}
             slides={active.slides}
+            theme={active.theme}
             getContentRef={docContentRef}
             onChange={(p) => onDocChange?.(active.key, p)}
           />

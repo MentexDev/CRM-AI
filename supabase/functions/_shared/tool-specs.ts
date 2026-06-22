@@ -232,7 +232,7 @@ export const TOOL_SPECS: ToolSpecData[] = [
   },
   {
     "name": "draft_slides",
-    "description": "Crea O EDITA una PRESENTACIÓN (mazo de diapositivas) en el canvas: pitch de colección, propuesta comercial, reporte visual, plan de campaña. Devuelve diapositivas estructuradas (portada, viñetas, frase de impacto, secciones, cita). SÍ puedes editar una que ya creaste: vuelve a llamar esta tool con el MISMO título y TODAS las diapositivas ya actualizadas → reemplaza esa pestaña (la edita) en vez de crear otra. NO publica nada. Para texto largo usa draft_document; para correo HTML usa compose_email.",
+    "description": "Crea O EDITA una PRESENTACIÓN (mazo de diapositivas) en el canvas: pitch de colección, propuesta comercial, reporte visual, plan de campaña. Devuelve diapositivas estructuradas (portada, viñetas, frase de impacto, secciones, cita). Puedes definir el TEMA visual (fondo, color de texto, acento) con el parámetro 'theme' — p.ej. un fondo degradado rojo-amarillo: background='linear-gradient(135deg,#e11d48,#f59e0b)', text='#ffffff'. SÍ puedes editar una que ya creaste: vuelve a llamar esta tool con el MISMO título y TODAS las diapositivas ya actualizadas → reemplaza esa pestaña (la edita) en vez de crear otra. Si editas, reenvía también el theme si quieres conservarlo. NO publica nada. Para texto largo usa draft_document; para correo HTML usa compose_email.",
     "category": "document",
     "parameters": {
       "type": "object",
@@ -248,6 +248,15 @@ export const TOOL_SPECS: ToolSpecData[] = [
         "subtitle": {
           "type": "string",
           "description": "Subtítulo o bajada de la portada (opcional)."
+        },
+        "theme": {
+          "type": "object",
+          "description": "Tema visual del mazo (opcional). Colores CSS o gradientes. Ejemplos: rojo-amarillo → background:'linear-gradient(135deg,#e11d48,#f59e0b)', text:'#ffffff'; claro → background:'#f7f7f5', text:'#1a1c22'. Si lo omites, queda el tema oscuro NINA por defecto.",
+          "properties": {
+            "background": { "type": "string", "description": "Fondo: color CSS (#hex, rgb/rgba) o gradiente (linear-gradient(...))." },
+            "text": { "type": "string", "description": "Color del texto principal (títulos y viñetas)." },
+            "accent": { "type": "string", "description": "Color de acento (subtítulos, viñetas, etiquetas)." }
+          }
         },
         "slides": {
           "type": "array",
