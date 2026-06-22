@@ -37,20 +37,52 @@ const FONT_SCALES = [0.85, 1, 1.15, 1.3]
 const defaultAlign = (layout) => (layout === 'bullets' ? 'left' : 'center')
 // clamp escalado: con sc=1 da exactamente el tamaño original (cero regresión visual).
 const fs = (min, vw, max, sc = 1) => `clamp(${(min * sc).toFixed(1)}px, ${(vw * sc).toFixed(2)}vw, ${(max * sc).toFixed(1)}px)`
-// Sanea un valor CSS de color/gradiente: bloquea ; { } < > " ' (inyección en el PDF y defensa
-// general). Permite hex, rgb/rgba, gradientes y nombres. Si no pasa, cae al fallback.
+// Sanea un valor CSS de color/gradiente: bloquea ; { } < > " ' (inyección/breakout) Y las funciones
+// que cargan recursos externos (url() protocol-relative dispararía un GET/beacon al pintar el fondo
+// o el PDF). Permite hex, rgb/rgba, gradientes y nombres. Si no pasa, cae al fallback.
+const SLIDE_CSS_RE = /^[#a-zA-Z0-9 ,.%()/-]+$/
+const SLIDE_CSS_FN_BLOCK = /(?:url|image|image-set|cross-fade|element|expression)\s*\(/i
 const cssColor = (v, fallback) => {
   if (typeof v !== 'string') return fallback
   const s = v.trim().slice(0, 200)
-  return /^[#a-zA-Z0-9 ,.%()/-]+$/.test(s) ? s : fallback
+  if (!s || !SLIDE_CSS_RE.test(s) || SLIDE_CSS_FN_BLOCK.test(s)) return fallback
+  return s
 }
+// Luminancia relativa de un hex6 (0..1) → para derivar un texto legible sobre un fondo dado.
+const hexLuminance = (hex) => {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex)
+  if (!m) return null
+  const n = parseInt(m[1], 16)
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => { const x = c / 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4) })
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2]
+}
+const contrastText = (bg) => { const L = hexLuminance(bg); return L == null ? null : (L > 0.5 ? '#15171d' : '#f5f6f8') }
 const sanitizeTheme = (t) => {
   if (!t || typeof t !== 'object') return null
-  return {
-    background: cssColor(t.background, DEFAULT_THEME.background),
-    text: cssColor(t.text, DEFAULT_THEME.text),
-    accent: cssColor(t.accent, DEFAULT_THEME.accent),
-  }
+  const background = cssColor(t.background, DEFAULT_THEME.background)
+  let text = cssColor(t.text, null)
+  let accent = cssColor(t.accent, null)
+  // Si dieron fondo pero NO texto, derivamos un texto contrastante por luminancia (evita texto
+  // casi-blanco por defecto sobre un fondo claro = ilegible). El acento cae al texto si falta.
+  if (!text) text = contrastText(background) || DEFAULT_THEME.text
+  if (!accent) accent = text
+  return { background, text, accent }
+}
+// Valor para <input type=color> (SOLO admite #rrggbb): expande #abc, recorta #rrggbbaa, y para
+// gradientes/rgb/nombres cae a un hex representativo (no muestra negro engañoso ni pisa el valor real).
+const toHex6 = (v, fallback) => {
+  if (typeof v !== 'string') return fallback
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) return v.toLowerCase()
+  const m3 = /^#([0-9a-fA-F]{3})$/.exec(v)
+  if (m3) return '#' + m3[1].split('').map((c) => c + c).join('').toLowerCase()
+  if (/^#[0-9a-fA-F]{8}$/.test(v)) return v.slice(0, 7).toLowerCase()
+  return fallback
+}
+// Color del placeholder derivado del texto del tema (con baja opacidad) → legible en claro y oscuro.
+const placeholderColor = (text) => {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(text)
+  if (m) { const n = parseInt(m[1], 16); return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, 0.42)` }
+  return 'rgba(127,127,127,0.5)'
 }
 
 // Diapositiva en blanco según layout.
@@ -65,7 +97,7 @@ const normalizeSlide = (x) => {
 
 const SLIDE_CSS = `
 .nina-slide-edit:focus { outline: none; }
-.nina-slide-edit[data-empty="true"]::before { content: attr(data-placeholder); color: rgba(127,127,127,0.45); pointer-events: none; }
+.nina-slide-edit[data-empty="true"]::before { content: attr(data-placeholder); color: var(--nina-ph, rgba(127,127,127,0.45)); pointer-events: none; }
 `
 
 // contentEditable robusto: sincroniza el texto desde props SOLO cuando el elemento NO tiene el
@@ -218,29 +250,32 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
     const slideHTML = (s) => {
       const al = s.style?.align || defaultAlign(s.layout)
       const ai = al === 'center' ? 'center' : al === 'right' ? 'flex-end' : 'flex-start'
+      const cst = `align-items:${ai};text-align:${al}` // alineación honrada en TODOS los layouts
       if (s.layout === 'cover') {
-        return `<div class="c center"><div class="kicker">NINA</div><h1>${esc(s.heading || title)}</h1>${s.body ? `<p class="sub">${esc(s.body)}</p>` : ''}</div>`
+        return `<div class="c center" style="${cst}"><div class="kicker">NINA</div><h1>${esc(s.heading || title)}</h1>${s.body ? `<p class="sub">${esc(s.body)}</p>` : ''}</div>`
       }
-      if (s.layout === 'statement') return `<div class="c center"><h2 class="stmt">${esc(s.heading)}</h2>${s.body ? `<p class="sub">${esc(s.body)}</p>` : ''}</div>`
-      if (s.layout === 'section') return `<div class="c center"><div class="kicker">Sección</div><h1>${esc(s.heading)}</h1></div>`
-      if (s.layout === 'quote') return `<div class="c center"><blockquote>“${esc(s.heading)}”</blockquote>${s.body ? `<p class="attr">— ${esc(s.body)}</p>` : ''}</div>`
+      if (s.layout === 'statement') return `<div class="c center" style="${cst}"><h2 class="stmt">${esc(s.heading)}</h2>${s.body ? `<p class="sub">${esc(s.body)}</p>` : ''}</div>`
+      if (s.layout === 'section') return `<div class="c center" style="${cst}"><div class="kicker">Sección</div><h1>${esc(s.heading)}</h1></div>`
+      if (s.layout === 'quote') return `<div class="c center" style="${cst}"><blockquote>“${esc(s.heading)}”</blockquote>${s.body ? `<p class="attr">— ${esc(s.body)}</p>` : ''}</div>`
       const items = (s.bullets || []).filter(Boolean).map((b) => `<li>${esc(b)}</li>`).join('')
-      return `<div class="c" style="text-align:${al};align-items:${ai}"><h2>${esc(s.heading)}</h2><ul>${items}</ul>${s.body ? `<p class="sub">${esc(s.body)}</p>` : ''}</div>`
+      // El <ul> inline-block se posiciona con el text-align del contenedor (izq/centro/der), igual que el visor.
+      return `<div class="c" style="text-align:${al}"><h2>${esc(s.heading)}</h2><ul style="display:inline-block;text-align:left;margin:0">${items}</ul>${s.body ? `<p class="sub">${esc(s.body)}</p>` : ''}</div>`
     }
     const renderable = (s) => s.layout === 'cover' || s.heading || s.body || (s.bullets || []).some(Boolean)
-    const pages = slides.filter(renderable).map((s) => `<section class="slide">${slideHTML(s)}</section>`).join('')
+    // font-size base por diapositiva = 16px × escala (A-/A+); los tamaños del <style> son em → escalan con esto.
+    const pages = slides.filter(renderable).map((s) => `<section class="slide" style="font-size:${(16 * (s.style?.scale || 1)).toFixed(1)}px">${slideHTML(s)}</section>`).join('')
     w.document.write(
       `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>` +
         `@page{size:A4 landscape;margin:0}*{box-sizing:border-box}` +
         `html{-webkit-print-color-adjust:exact;print-color-adjust:exact}` +
         `body{margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;color:${fg}}` +
         `.slide{width:297mm;height:209mm;page-break-after:always;padding:18mm 22mm;display:flex;background:${bg};border-bottom:1px solid rgba(127,127,127,.25)}` +
-        `.c{width:100%;align-self:center}.center{text-align:center;display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%}` +
-        `.kicker{letter-spacing:.32em;text-transform:uppercase;font-size:13px;color:${ac};margin-bottom:14px}` +
-        `h1{font-size:46px;line-height:1.1;margin:0;font-weight:800;color:${fg}}h2{font-size:34px;margin:0 0 22px;font-weight:700;color:${fg}}` +
-        `.stmt{font-size:42px;font-weight:800;line-height:1.15;max-width:80%}` +
-        `.sub{font-size:20px;color:${ac};margin-top:16px}ul{font-size:23px;line-height:1.6;padding-left:1.1em;color:${fg}}li{margin:.35em 0}` +
-        `blockquote{font-size:34px;font-style:italic;max-width:80%;margin:0;line-height:1.3;color:${fg}}.attr{font-size:20px;color:${ac};margin-top:18px}` +
+        `.c{width:100%;align-self:center}.center{display:flex;flex-direction:column;justify-content:center;height:100%}` +
+        `.kicker{letter-spacing:.32em;text-transform:uppercase;font-size:0.8125em;color:${ac};margin-bottom:14px}` +
+        `h1{font-size:2.875em;line-height:1.1;margin:0;font-weight:800;color:${fg}}h2{font-size:2.125em;margin:0 0 22px;font-weight:700;color:${fg}}` +
+        `.stmt{font-size:2.625em;font-weight:800;line-height:1.15;max-width:80%}` +
+        `.sub{font-size:1.25em;color:${ac};margin-top:16px}ul{font-size:1.4375em;line-height:1.6;padding-left:1.1em;color:${fg}}li{margin:.35em 0}` +
+        `blockquote{font-size:2.125em;font-style:italic;max-width:80%;margin:0;line-height:1.3;color:${fg}}.attr{font-size:1.25em;color:${ac};margin-top:18px}` +
         `</style></head><body>${pages}</body></html>`,
     )
     w.document.close()
@@ -314,7 +349,7 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
                 }}
                 placeholder="Punto clave"
                 className="leading-relaxed"
-                style={{ color: theme.text, fontSize: fs(14, 1.9, 21, sc), flex: align === 'center' ? '0 1 auto' : '1' }}
+                style={{ color: theme.text, fontSize: fs(14, 1.9, 21, sc), flex: align === 'left' ? '1' : '0 1 auto' }}
               />
               <button
                 onClick={() => removeBullet(safeIdx, bi)}
@@ -326,7 +361,11 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
             </li>
           ))}
         </ul>
-        <button onClick={() => addBullet(safeIdx, cur.bullets.length - 1)} className="mt-3 self-start flex items-center gap-1.5 text-[12px] text-nina-mute hover:text-nina-chrome transition">
+        <button
+          onClick={() => addBullet(safeIdx, cur.bullets.length - 1)}
+          className={`mt-3 flex items-center gap-1.5 text-[12px] opacity-70 hover:opacity-100 transition ${align === 'center' ? 'self-center' : align === 'right' ? 'self-end' : 'self-start'}`}
+          style={{ color: theme.accent }}
+        >
           <Plus size={13} /> viñeta
         </button>
       </div>
@@ -393,7 +432,7 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-nina-line/40 shrink-0 overflow-x-auto text-[11px]">
           <span className="text-nina-mute shrink-0">Fondo</span>
           {THEME_PRESETS.map((p) => {
-            const on = theme.background === p.background
+            const on = theme.background === p.background && theme.text === p.text && theme.accent === p.accent
             return (
               <button
                 key={p.id}
@@ -410,7 +449,8 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
             <Palette size={13} />
             <input
               type="color"
-              value={theme.background.startsWith('#') ? theme.background : '#15171d'}
+              aria-label="Color de fondo"
+              value={toHex6(theme.background, '#15171d')}
               onChange={(e) => setDeckTheme({ background: e.target.value })}
               className="w-5 h-5 rounded cursor-pointer bg-transparent border border-nina-line/70"
             />
@@ -420,7 +460,8 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
             <Type size={13} />
             <input
               type="color"
-              value={theme.text.startsWith('#') ? theme.text : '#e9ebee'}
+              aria-label="Color del texto"
+              value={toHex6(theme.text, '#e9ebee')}
               onChange={(e) => setDeckTheme({ text: e.target.value })}
               className="w-5 h-5 rounded cursor-pointer bg-transparent border border-nina-line/70"
             />
@@ -449,7 +490,7 @@ export default function SlideDeck({ title: initialTitle, subtitle: initialSubtit
           </button>
           <div
             className="w-full h-full rounded-xl border border-nina-line overflow-hidden shadow-2xl"
-            style={{ background: theme.background }}
+            style={{ background: theme.background, '--nina-ph': placeholderColor(theme.text) }}
           >
             {renderStage()}
           </div>

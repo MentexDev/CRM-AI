@@ -1409,10 +1409,15 @@ const SLIDE_LAYOUTS = new Set(['cover', 'bullets', 'statement', 'section', 'quot
 // Tema (fondo/colores): saneamos cada valor a un charset CSS seguro (hex, rgb/rgba, gradientes,
 // nombres) — bloquea ; { } < > " ' para que un valor del modelo no inyecte CSS/HTML en el PDF.
 const SLIDE_CSS_RE = /^[#a-zA-Z0-9 ,.%()/-]+$/
+// Funciones CSS que cargan/referencian recursos: aunque el charset bloquea ':' (corta http:/data:),
+// una url() protocol-relative ('//host') NO necesita ':' y dispararía un GET (beacon/tracking) al
+// pintar el fondo en pantalla o en el PDF. Las rechazamos explícitamente.
+const SLIDE_CSS_FN_BLOCK = /(?:url|image|image-set|cross-fade|element|expression)\s*\(/i
 function cssColorValue(v: unknown): string | null {
   if (typeof v !== 'string') return null
   const s = v.trim().slice(0, 200)
-  return s && SLIDE_CSS_RE.test(s) ? s : null
+  if (!s || !SLIDE_CSS_RE.test(s) || SLIDE_CSS_FN_BLOCK.test(s)) return null
+  return s
 }
 function sanitizeSlideTheme(t: unknown): { background?: string; text?: string; accent?: string } | null {
   if (!t || typeof t !== 'object') return null

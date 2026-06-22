@@ -737,10 +737,16 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     const DEFAULT_TITLES = new Set(['documento', 'presentación', 'presentacion', 'hoja de cálculo', 'hoja de calculo', 'pizarra'])
     const idxByKey = new Map()
     const deduped = []
-    for (const a of out) {
+    for (let a of out) {
       const t = a.title ? a.title.trim().toLowerCase() : ''
       const k = EDITABLE.has(a.type) && t && !DEFAULT_TITLES.has(t) ? `${a.type}::${t}` : null
-      if (k && idxByKey.has(k)) deduped[idxByKey.get(k)] = null // descarta la versión anterior
+      if (k && idxByKey.has(k)) {
+        const prev = deduped[idxByKey.get(k)]
+        // Si el agente RE-EMITE para editar el contenido pero NO reenvió el tema visual, heredamos el
+        // tema de la versión anterior (no confiamos en que el LLM recuerde reenviarlo → no resetea a NINA).
+        if (a.type === 'slides' && !a.theme && prev?.theme) a = { ...a, theme: prev.theme }
+        deduped[idxByKey.get(k)] = null // descarta la versión anterior
+      }
       if (k) idxByKey.set(k, deduped.length)
       deduped.push(a)
     }
