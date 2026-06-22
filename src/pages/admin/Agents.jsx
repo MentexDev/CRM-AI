@@ -18,6 +18,7 @@ import {
   Download,
   Eye,
   FileText,
+  FileType,
   Github,
   Globe,
   GraduationCap,
@@ -66,8 +67,9 @@ import DocumentEditor from '../../components/DocumentEditor'
 import SlideDeck from '../../components/SlideDeck'
 import SheetView from '../../components/SheetView'
 import BoardView from '../../components/BoardView'
+import PdfView from '../../components/PdfView'
 import CommandPalette from '../../components/CommandPalette'
-import { readAttachmentFile } from '../../lib/readFile'
+import { readAttachmentFile, fileKind } from '../../lib/readFile'
 import { useVoiceTranscription } from '../../hooks/useVoiceTranscription'
 import { useAuth } from '../../context/AuthContext'
 import { useConfirm } from '../../components/ConfirmDialog'
@@ -813,6 +815,19 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     setActiveKey(key)
     setCanvasOpen(true)
   }
+  // Abre un PDF (adjunto en el chat) en el VISOR del canvas. Pestaña local de SESIÓN: el object URL
+  // vive en memoria y loadLocalTabs solo conserva 'document', así que no se persiste ni infla storage.
+  const openPdf = (title, file) => {
+    if (!file) return
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      toast('El espacio de trabajo necesita una pantalla más ancha')
+      return
+    }
+    const key = `local-pdf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    setLocalTabs((prev) => [...prev, { key, type: 'pdf', title: title || 'PDF', src: URL.createObjectURL(file) }])
+    setActiveKey(key)
+    setCanvasOpen(true)
+  }
   // El DocumentEditor reporta sus cambios → los guardamos en la pestaña LOCAL (para que el
   // cambio de pestaña / cierre del browser NO pierda lo escrito y la etiqueta refleje el
   // título) y limpiamos el "guardado" para reactivar el botón Guardar (dirty).
@@ -943,8 +958,12 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // lo ocultamos ya; si falla, lo restauramos. Si era el activo, vuelve al más reciente.
   const deleteArtifact = async (artifact) => {
     if (!artifact) return
-    // Pestaña LOCAL (documento en blanco): no hay mensaje que ocultar, solo la quitamos.
+    // Pestaña LOCAL (documento en blanco o visor de PDF): no hay mensaje que ocultar, solo la quitamos.
     if (typeof artifact.key === 'string' && artifact.key.startsWith('local-')) {
+      // Liberar el object URL del PDF (evita fuga de memoria del blob).
+      if (artifact.type === 'pdf' && typeof artifact.src === 'string' && artifact.src.startsWith('blob:')) {
+        try { URL.revokeObjectURL(artifact.src) } catch { /* noop */ }
+      }
       setLocalTabs((prev) => prev.filter((t) => t.key !== artifact.key))
       if (activeKey === artifact.key) setActiveKey(null)
       return
@@ -1231,6 +1250,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         onUserSend={addOptimistic}
         onSettled={() => setThinking(false)}
         onOpenPalette={() => setPaletteOpen(true)}
+        onOpenPdf={openPdf}
         suggestions={suggestions}
       />
       </div>
@@ -1357,6 +1377,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
       : a.type === 'slides' ? a.title || 'Presentación'
       : a.type === 'sheet' ? a.title || 'Hoja de cálculo'
       : a.type === 'board' ? a.title || 'Pizarra'
+      : a.type === 'pdf' ? a.title || 'PDF'
       : a.type === 'calendar' ? 'Calendario'
       : a.type === 'image' ? a.title
       : a.subject
@@ -1429,7 +1450,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
                 ) : (
                   [...(history || [])].reverse().map((a) => {
                     const HIcon =
-                      a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : a.type === 'board' ? LayoutGrid : MessageSquare
+                      a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : a.type === 'board' ? LayoutGrid : a.type === 'pdf' ? FileType : MessageSquare
                     const isOpen = artifacts.some((t) => t.key === a.key)
                     return (
                       <button
@@ -1451,7 +1472,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
           {artifacts.map((a) => {
             const isActive = active && a.key === active.key
-            const TabIcon = a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : a.type === 'board' ? LayoutGrid : MessageSquare
+            const TabIcon = a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : a.type === 'board' ? LayoutGrid : a.type === 'pdf' ? FileType : MessageSquare
             return (
               <button
                 key={a.key}
@@ -1537,7 +1558,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         </button>
       </div>
       {/* Preview del artefacto activo: documento editable, agenda, imagen o correo HTML. */}
-      <div className={`relative flex-1 min-h-0 bg-nina-ink ${['document', 'slides', 'sheet', 'board'].includes(active?.type) ? '' : 'p-3'}`}>
+      <div className={`relative flex-1 min-h-0 bg-nina-ink ${['document', 'slides', 'sheet', 'board', 'pdf'].includes(active?.type) ? '' : 'p-3'}`}>
         {!active ? (
           <div className="h-full grid place-items-center text-center px-8">
             <div className="max-w-sm">
@@ -1584,6 +1605,8 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
             getContentRef={docContentRef}
             onChange={(p) => onDocChange?.(active.key, p)}
           />
+        ) : active?.type === 'pdf' ? (
+          <PdfView key={active.key} src={active.src} title={active.title} />
         ) : active?.type === 'calendar' ? (
           <CalendarView events={active.events} />
         ) : active?.type === 'image' ? (
@@ -1656,6 +1679,8 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
           <>Hoja editable · clic en una celda para escribir · totales automáticos de columnas numéricas · CSV arriba · "Guardar" la manda a la biblioteca.</>
         ) : active?.type === 'board' ? (
           <>Pizarra editable · arrastra las notas para moverlas · <span className="text-nina-chrome">✎</span> edita texto y color · "Conectar" une notas · "Guardar" la manda a la biblioteca.</>
+        ) : active?.type === 'pdf' ? (
+          <>Visor de PDF · zoom con los controles de arriba · "Descargar" guarda el archivo · pestaña de sesión (no se conserva al recargar).</>
         ) : active?.type === 'calendar' ? (
           <>Agenda del calendario de marca · pídele al agente que agende o liste más eventos.</>
         ) : active?.type === 'image' ? (
@@ -1749,7 +1774,7 @@ const COMPOSER_SOFT_LIMIT = 3000
 const COMPOSER_MAX_RAW = 4000
 const fmtKB = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(2)} KB`)
 
-function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend, onSettled, onOpenPalette, bare = false, suggestions }) {
+function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend, onSettled, onOpenPalette, onOpenPdf, bare = false, suggestions }) {
   const { isJunta } = useAuth()
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState([]) // [{ name, text }] — archivos adjuntos / texto convertido
@@ -1890,7 +1915,8 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
       try {
         const a = await readAttachmentFile(f)
         if (!a.text.trim()) { toast.error(`"${f.name}" no tiene texto`) }
-        else { setAttachments((prev) => [...prev, a]); room-- }
+        // Para PDFs guardamos también el File → se puede ABRIR en el visor del canvas (botón "ver").
+        else { setAttachments((prev) => [...prev, fileKind(f) === 'pdf' ? { ...a, file: f } : a]); room-- }
       } catch (e) {
         toast.error(e?.message || `No pude leer "${f.name}"`)
       } finally {
@@ -2066,13 +2092,23 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
             )}
             {attachments.map((a, i) => (
               <div key={i} className="inline-flex items-center gap-2 max-w-full rounded-xl border border-nina-line bg-nina-ink px-2.5 py-1.5">
-                <span className="w-7 h-7 grid place-items-center rounded-lg bg-blue-500/15 text-blue-300 shrink-0">
-                  <FileText className="w-4 h-4" />
+                <span className={`w-7 h-7 grid place-items-center rounded-lg shrink-0 ${a.file ? 'bg-red-500/15 text-red-300' : 'bg-blue-500/15 text-blue-300'}`}>
+                  {a.file ? <FileType className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
                 </span>
                 <div className="min-w-0">
                   <div className="text-[12.5px] text-nina-chrome truncate max-w-[180px]">{a.name}</div>
-                  <div className="text-[10px] text-nina-mute">Texto · {fmtKB(a.text.length)}</div>
+                  <div className="text-[10px] text-nina-mute">{a.file ? 'PDF' : 'Texto'} · {fmtKB(a.text.length)}</div>
                 </div>
+                {a.file && onOpenPdf && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenPdf(a.name, a.file)}
+                    className="ml-1 w-5 h-5 grid place-items-center rounded text-nina-mute hover:text-nina-chrome shrink-0"
+                    title="Ver el PDF en el canvas"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => removeAttachment(i)}
