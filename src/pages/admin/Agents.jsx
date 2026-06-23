@@ -690,6 +690,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
                 title: d.prompt ? String(d.prompt).slice(0, 48) : 'Imagen',
                 url: String(url),
                 aspect: d.aspect_ratio ?? null,
+                warning: typeof d.warning === 'string' ? d.warning : undefined,
                 messageId: m.id,
                 key: `${m.id}:${i}`,
               })
@@ -1315,13 +1316,17 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               Sin mensajes en esta conversación todavía.
             </div>
           ) : (
-            groupTimeline(allMessages).map((it) => {
+            (() => {
+              const timeline = groupTimeline(allMessages)
+              // Índice del ÚLTIMO grupo de pasos → solo ese puede estar "en vivo" (los previos ya terminaron).
+              const lastStepsIdx = timeline.reduce((acc, t, i) => (t.kind === 'steps' ? i : acc), -1)
+              return timeline.map((it, idx) => {
               if (it.kind === 'steps') {
                 // Artefactos producidos en este grupo de pasos (match por messageId del resultado).
                 const ids = new Set(it.steps.filter((s) => s.result).map((s) => String(s.result.id)))
                 const groupArtifacts = canvasArtifacts.filter((a) => ids.has(String(a.messageId)))
-                // "En vivo" = el agente sigue pensando Y este grupo tiene un paso sin resultado.
-                const groupLive = thinking && it.steps.some((s) => s.call && !s.result)
+                // "En vivo" = el agente sigue pensando, es el ÚLTIMO grupo, Y tiene un paso sin resultado.
+                const groupLive = thinking && idx === lastStepsIdx && it.steps.some((s) => s.call && !s.result)
                 return (
                   <StepsBlock
                     key={it.key}
@@ -1336,7 +1341,8 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               }
               if (it.kind === 'note') return <SystemNote key={it.key} message={it.message} />
               return <MessageBubble key={it.key} message={it.message} hideTools />
-            })
+              })
+            })()
           )}
           {thinking && <ThinkingIndicator name={agent.name} />}
           {activeQuestions && (
@@ -3360,7 +3366,9 @@ function normalizeSteps(steps, live) {
       activeSet = true
       return { label, status: 'active' }
     }
-    return { label, status: 'pending' }
+    // Sin resultado: en vivo queda 'pending' (en cola); en un grupo YA cerrado asumimos completado
+    // (p.ej. el call de ask_questions cuyo resultado se filtra del buffer) → no deja el contador atascado.
+    return { label, status: live ? 'pending' : 'done' }
   })
 }
 

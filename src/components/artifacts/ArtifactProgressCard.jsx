@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { AlertCircle, CheckCircle2, ChevronRight, Clock, Loader2, Sparkles } from 'lucide-react'
 
@@ -7,14 +7,27 @@ import { AlertCircle, CheckCircle2, ChevronRight, Clock, Loader2, Sparkles } fro
 // `steps` ya viene normalizado: [{ label, status: 'done'|'active'|'error'|'pending' }].
 export default function ArtifactProgressCard({ agentName, steps = [], done = 0, total = 0, subtitle, live = false }) {
   const [open, setOpen] = useState(live)
+  // Expandida mientras trabaja; se colapsa al terminar (solo reacciona a `live`, no pisa el toggle manual).
+  useEffect(() => {
+    setOpen(live)
+  }, [live])
   if (!steps.length) return null
-  const allDone = done >= total && total > 0
-  const HeadIcon = live ? Loader2 : allDone ? CheckCircle2 : Sparkles
+  const ok = steps.filter((s) => s.status === 'done').length
+  const hasError = steps.some((s) => s.status === 'error')
+  const allOk = total > 0 && ok === total
+  const HeadIcon = live ? Loader2 : allOk ? CheckCircle2 : hasError ? AlertCircle : Sparkles
+  const headTone = live
+    ? 'bg-silver-gradient text-nina-black'
+    : allOk
+      ? 'bg-emerald-500/15 text-emerald-300'
+      : hasError
+        ? 'bg-red-500/15 text-red-300'
+        : 'bg-silver-gradient text-nina-black'
 
   return (
     <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="panel overflow-hidden w-full max-w-[440px]">
       <button type="button" onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
-        <span className={`w-7 h-7 grid place-items-center rounded-lg shrink-0 ${allDone && !live ? 'bg-emerald-500/15 text-emerald-300' : 'bg-silver-gradient text-nina-black'}`}>
+        <span className={`w-7 h-7 grid place-items-center rounded-lg shrink-0 ${headTone}`}>
           <HeadIcon className={`w-4 h-4 ${live ? 'animate-spin' : ''}`} />
         </span>
         <div className="min-w-0 flex-1">

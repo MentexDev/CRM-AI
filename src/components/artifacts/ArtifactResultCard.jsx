@@ -45,7 +45,8 @@ export default function ArtifactResultCard({ artifact, agentName, onOpen, onDown
           <img src={artifact.url} alt={title} referrerPolicy="no-referrer" className="w-full max-h-60 object-cover" />
         </button>
       ) : isEmail && artifact.html ? (
-        <button type="button" onClick={onOpen} className="relative block w-full h-32 bg-white border-b border-nina-line/40 overflow-hidden" title="Abrir">
+        <button type="button" onClick={onOpen} className="relative block w-full h-36 bg-white border-b border-nina-line/40 overflow-hidden" title="Abrir">
+          {/* Render a ~735px (167%) y escala 0.6 → cabe en la tarjeta pero muestra el correo, no solo la esquina */}
           <iframe
             title={title}
             srcDoc={artifact.html}
@@ -53,7 +54,7 @@ export default function ArtifactResultCard({ artifact, agentName, onOpen, onDown
             scrolling="no"
             tabIndex={-1}
             aria-hidden="true"
-            className="absolute inset-0 w-full h-full pointer-events-none"
+            className="absolute top-0 left-0 w-[167%] h-[167%] origin-top-left scale-[0.6] pointer-events-none"
           />
         </button>
       ) : null}

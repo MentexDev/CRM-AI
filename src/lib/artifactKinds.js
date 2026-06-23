@@ -49,7 +49,7 @@ export function artifactPreview(a) {
     }
     case 'slides': {
       const n = Array.isArray(a.slides) ? a.slides.length : 0
-      return { meta: `${n} diapositiva${n === 1 ? '' : 's'}`, snippet: a.subtitle || a.slides?.[0]?.title || '' }
+      return { meta: `${n} diapositiva${n === 1 ? '' : 's'}`, snippet: a.subtitle || a.slides?.[0]?.heading || a.slides?.[0]?.title || '' }
     }
     case 'sheet': {
       const cols = Array.isArray(a.columns) ? a.columns.length : 0
@@ -62,7 +62,8 @@ export function artifactPreview(a) {
     case 'image':
       return { meta: a.aspect ? `Imagen · ${a.aspect}` : 'Imagen', snippet: '' }
     case 'email':
-      return { meta: 'Correo HTML', snippet: a.subject || '' }
+      // El asunto ya es el título de la tarjeta y el cuerpo se ve en el iframe → sin snippet (evita duplicar).
+      return { meta: 'Correo HTML', snippet: '' }
     case 'calendar': {
       const n = Array.isArray(a.events) ? a.events.length : 0
       return { meta: `${n} evento${n === 1 ? '' : 's'}`, snippet: '' }
@@ -102,13 +103,16 @@ export function artifactToFile(a) {
       return { name: `${base}.csv`, text: lines.join('\n'), mime: 'text/csv' }
     }
     case 'slides': {
+      // El motor emite cada diapositiva como { heading, body, bullets } (bullets es [] en layouts
+      // cover/statement/quote). Usamos heading y acumulamos bullets NO vacíos + body para no perder texto.
       const body = (a.slides || [])
         .map((s, i) => {
-          const t = s?.title || `Diapositiva ${i + 1}`
-          const bullets = Array.isArray(s?.bullets)
-            ? s.bullets.map((b) => `- ${b}`).join('\n')
-            : String(s?.body || s?.content || '')
-          return `## ${t}\n${bullets}`.trim()
+          const heading = s?.heading || s?.title || `Diapositiva ${i + 1}`
+          const lines = []
+          if (Array.isArray(s?.bullets) && s.bullets.length) lines.push(s.bullets.map((b) => `- ${b}`).join('\n'))
+          const txt = String(s?.body || s?.content || '').trim()
+          if (txt) lines.push(txt)
+          return `## ${heading}\n${lines.join('\n\n')}`.trim()
         })
         .join('\n\n')
       return { name: `${base}.md`, text: `# ${a.title || 'Presentación'}\n\n${body}`, mime: 'text/markdown' }
