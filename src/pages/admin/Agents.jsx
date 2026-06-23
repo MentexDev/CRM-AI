@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowLeft,
   ArrowUp,
+  ArrowUpLeft,
   BookOpen,
   Bot,
   Calculator,
@@ -42,6 +43,7 @@ import {
   Plug,
   Plus,
   Presentation,
+  RefreshCw,
   Save,
   Settings as SettingsIcon,
   ShoppingBag,
@@ -1796,6 +1798,11 @@ function quickPromptsFor(agent) {
       '¿Qué decisiones necesitan mi aprobación?',
       'Resume el avance de las marcas',
       '¿Qué tareas están bloqueadas?',
+      'Compara el desempeño entre marcas este mes',
+      '¿Dónde estamos perdiendo plata?',
+      'Dame 3 prioridades para esta semana',
+      'Resume las conversaciones importantes de hoy',
+      '¿Qué riesgos debería vigilar?',
     ]
   }
   if (agent.role === 'brand_manager') {
@@ -1804,6 +1811,11 @@ function quickPromptsFor(agent) {
       'Dame ideas para la próxima campaña',
       'Revisa los KPIs y dame alertas',
       'Consulta el brain sobre nuestra política de descuentos',
+      'Planéame el calendario de contenido del mes',
+      '¿Qué productos están rotando mejor?',
+      'Redáctame un anuncio para Instagram',
+      'Analiza a la competencia y dame insights',
+      '¿Qué tareas le asigno al equipo hoy?',
     ]
   }
   // Especialistas
@@ -1811,6 +1823,12 @@ function quickPromptsFor(agent) {
     '¿En qué estás trabajando ahora?',
     'Dame un resumen de tu última tarea',
     '¿Qué necesitas de mí para avanzar?',
+    'Muéstrame un avance de lo que llevas',
+    '¿Qué aprendiste de la última tarea?',
+    'Proponme el siguiente paso',
+    'Hazme un resumen para presentarle al jefe',
+    'Identifica un problema y dame una solución',
+    '¿Cómo puedo ayudarte a hacerlo mejor?',
   ]
 }
 
@@ -1859,6 +1877,14 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
   // Respuestas rápidas: si hay sugerencias CONTEXTUALES (según la conversación), úsalas;
   // si no (chat nuevo / home), cae a las estáticas por rol.
   const quickPrompts = suggestions?.length ? suggestions : quickPromptsFor(agent)
+  // Home: las sugerencias se ven SIEMPRE, de a 3, y el ↻ rota a las siguientes 3 del pool.
+  const [suggPage, setSuggPage] = useState(0)
+  const SUGG_PER = 3
+  const suggPages = Math.max(1, Math.ceil(quickPrompts.length / SUGG_PER))
+  const visibleSugg = quickPrompts.length
+    ? Array.from({ length: Math.min(SUGG_PER, quickPrompts.length) }, (_, k) => quickPrompts[(suggPage * SUGG_PER + k) % quickPrompts.length])
+    : []
+  const refreshSugg = () => setSuggPage((p) => (p + 1) % suggPages)
 
   // Cambiar de AGENTE dentro del chat (p.ej. para usar las skills/tools de otro): mueve la
   // conversación al nuevo agente (conversations.agent_id) y navega a su chat con la MISMA
@@ -2099,41 +2125,90 @@ function ChatComposer({ agent, conversationId, onConversationCreated, onUserSend
 
   // Sugerencias rápidas. En el chat (placement 'top') van arriba, en una sola línea
   // con scroll horizontal. En el perfil del agente ('bottom') van abajo y envuelven.
-  const renderPrompts = (placement) => (
-    <AnimatePresence>
-      {focused && !text.trim() && quickPrompts.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: placement === 'top' ? 4 : -4 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: placement === 'top' ? 4 : -4 }}
-          transition={{ duration: 0.12 }}
-          // preventDefault evita que el click haga blur del textarea antes de aplicar
-          onMouseDown={(e) => e.preventDefault()}
-          className={
-            placement === 'top'
-              ? 'mb-2 flex flex-nowrap gap-1.5 px-1 overflow-x-auto cursor-grab [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
-              : 'mt-2 flex flex-wrap gap-1.5 px-1'
-          }
-        >
-          {quickPrompts.map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => {
-                setText(p)
-                requestAnimationFrame(() => taRef.current?.focus())
-              }}
-              className={`px-3 py-1.5 rounded-full border border-nina-line bg-nina-line/15 text-[12px] text-nina-mute hover:text-nina-chrome hover:border-nina-silver/40 hover:bg-nina-line/30 transition ${
-                placement === 'top' ? 'shrink-0 whitespace-nowrap' : ''
-              }`}
+  const applyPrompt = (p) => {
+    setText(p)
+    requestAnimationFrame(() => taRef.current?.focus())
+  }
+
+  const renderPrompts = (placement) => {
+    if (quickPrompts.length === 0) return null
+
+    // HOME (perfil del agente) — tarjetas estilo Manus, SIEMPRE visibles (hasta que escribes),
+    // de a 3, con ↻ para rotar a las siguientes 3 del pool.
+    if (placement === 'bottom') {
+      if (text.trim()) return null
+      return (
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-2.5 px-0.5">
+            <span className="text-[13px] font-medium text-nina-chrome">Sugerido para ti</span>
+            {suggPages > 1 && (
+              <button
+                type="button"
+                onClick={refreshSugg}
+                title="Otras sugerencias"
+                className="w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={suggPage}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.15 }}
+              className="grid grid-cols-1 sm:grid-cols-3 gap-2.5"
             >
-              {p}
-            </button>
-          ))}
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
+              {visibleSugg.map((p, idx) => (
+                <button
+                  key={`${suggPage}-${idx}`}
+                  type="button"
+                  onClick={() => applyPrompt(p)}
+                  className="group/sg relative text-left rounded-xl border border-nina-line bg-nina-panel/40 hover:bg-nina-panel/80 hover:border-nina-silver/30 transition p-3.5 min-h-[92px] flex flex-col"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <Sparkles className="w-4 h-4 text-nina-silver/70 shrink-0" />
+                    <ArrowUpLeft className="w-3.5 h-3.5 text-nina-mute/40 group-hover/sg:text-nina-chrome transition shrink-0" />
+                  </div>
+                  <span className="text-[12.5px] text-nina-chrome leading-relaxed mt-2">{p}</span>
+                </button>
+              ))}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      )
+    }
+
+    // CHAT (top) — pills al enfocar, una sola línea con scroll horizontal.
+    return (
+      <AnimatePresence>
+        {focused && !text.trim() && (
+          <motion.div
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={{ duration: 0.12 }}
+            // preventDefault evita que el click haga blur del textarea antes de aplicar
+            onMouseDown={(e) => e.preventDefault()}
+            className="mb-2 flex flex-nowrap gap-1.5 px-1 overflow-x-auto cursor-grab [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {quickPrompts.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => applyPrompt(p)}
+                className="px-3 py-1.5 rounded-full border border-nina-line bg-nina-line/15 text-[12px] text-nina-mute hover:text-nina-chrome hover:border-nina-silver/40 hover:bg-nina-line/30 transition shrink-0 whitespace-nowrap"
+              >
+                {p}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    )
+  }
 
   return (
     <div
