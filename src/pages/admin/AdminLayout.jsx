@@ -20,6 +20,7 @@ import {
   MessagesSquare,
   Package,
   PanelLeft,
+  Pin,
   Settings,
   Smartphone,
   Sparkles,
@@ -31,6 +32,7 @@ import {
 } from 'lucide-react'
 import TopBar from '../../components/TopBar'
 import { ConversationMenu } from '../../components/ConversationMenu'
+import { AgentMenu } from '../../components/AgentMenu'
 import SettingsModal from '../../components/SettingsModal'
 import { useAuth } from '../../context/AuthContext'
 import { useAgents } from '../../hooks/useAgents'
@@ -80,10 +82,14 @@ function sidebarAgentIcon(a) {
 
 // Lista de agentes en el sidebar principal. Click → abre el perfil del agente.
 function AgentsNav({ onNavigate, isJunta }) {
-  const { agents } = useAgents()
+  const { agents: rawAgents } = useAgents()
   const { slug } = useParams()
   const [showAll, setShowAll] = useState(false)
   const MAX_VISIBLE = 4
+  // Orden del sidebar: fijados arriba, luego el orden manual (sort_order), luego por nombre.
+  const agents = [...rawAgents].sort(
+    (a, b) => (Number(b.pinned) - Number(a.pinned)) || ((a.sort_order ?? 0) - (b.sort_order ?? 0)) || (a.name || '').localeCompare(b.name || ''),
+  )
   // Máximo 4 agentes visibles; el resto detrás de un "+N" que despliega al hacer click
   // (para que el historial de conversaciones no quede empujado fuera de vista). Mantenemos
   // visible el agente ACTIVO aunque quede más allá del tope.
@@ -121,24 +127,37 @@ function AgentsNav({ onNavigate, isJunta }) {
               const Icon = sidebarAgentIcon(a)
               const isActive = a.slug === slug
               return (
-                <button
+                <div
                   key={a.id}
-                  onClick={() => onNavigate(`/admin/agentes/${a.slug}`)}
-                  className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition text-left ${
+                  className={`group relative w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition ${
                     isActive ? 'bg-nina-line/40' : 'hover:bg-nina-line/25'
                   }`}
-                  title={a.name}
                 >
-                  <div className="relative shrink-0">
-                    <div className="w-7 h-7 rounded-full grid place-items-center bg-silver-gradient text-nina-black shadow-chrome">
-                      <Icon className="w-3.5 h-3.5" />
+                  <button
+                    onClick={() => onNavigate(`/admin/agentes/${a.slug}`)}
+                    className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
+                    title={a.name}
+                  >
+                    <div className="relative shrink-0">
+                      <div className="w-7 h-7 rounded-full grid place-items-center bg-silver-gradient text-nina-black shadow-chrome">
+                        <Icon className="w-3.5 h-3.5" />
+                      </div>
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-nina-panel ${AGENT_STATUS_DOT[a.status] ?? AGENT_STATUS_DOT.idle}`}
+                      />
                     </div>
-                    <span
-                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-nina-panel ${AGENT_STATUS_DOT[a.status] ?? AGENT_STATUS_DOT.idle}`}
+                    <span className="text-[12.5px] text-nina-chrome truncate flex-1">{a.name}</span>
+                    {a.pinned && <Pin className="w-3 h-3 text-nina-mute/70 shrink-0" />}
+                  </button>
+                  {isJunta && (
+                    <AgentMenu
+                      agent={a}
+                      agents={agents}
+                      onNavigate={onNavigate}
+                      buttonClassName="shrink-0 w-6 h-6 grid place-items-center rounded text-nina-mute hover:text-nina-chrome hover:bg-nina-line/50 opacity-0 group-hover:opacity-100 data-[open=true]:opacity-100 transition"
                     />
-                  </div>
-                  <span className="text-[12.5px] text-nina-chrome truncate flex-1">{a.name}</span>
-                </button>
+                  )}
+                </div>
               )
             })}
             {agents.length > MAX_VISIBLE && (

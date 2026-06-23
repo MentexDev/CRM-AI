@@ -27,7 +27,7 @@ export function useAgents() {
             supabase
               .from('agents')
               .select(
-                'id, slug, name, role, specialty, brand_id, parent_agent_id, status, model, last_heartbeat_at',
+                'id, slug, name, role, specialty, brand_id, parent_agent_id, status, model, last_heartbeat_at, pinned, sort_order',
               )
               .order('role', { ascending: true })
               .order('name', { ascending: true }),

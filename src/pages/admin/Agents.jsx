@@ -141,12 +141,18 @@ export default function Agents() {
   const [agentModal, setAgentModal] = useState({ open: false, agentId: null })
   const [running, setRunning] = useState(false)
 
-  // Abrir el modal de "nuevo agente" cuando el sidebar pide ?new=1
+  // Abrir el modal de agente: ?new=1 (nuevo) o ?edit=<id> (editar, desde el menú ⋯ del sidebar)
   useEffect(() => {
+    const editId = searchParams.get('edit')
     if (searchParams.get('new') === '1' && isJunta) {
       setAgentModal({ open: true, agentId: null })
       const next = new URLSearchParams(searchParams)
       next.delete('new')
+      setSearchParams(next, { replace: true })
+    } else if (editId && isJunta) {
+      setAgentModal({ open: true, agentId: editId })
+      const next = new URLSearchParams(searchParams)
+      next.delete('edit')
       setSearchParams(next, { replace: true })
     }
   }, [searchParams, isJunta, setSearchParams])
