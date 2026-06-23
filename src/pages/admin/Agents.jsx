@@ -82,6 +82,9 @@ import Modal from '../../components/Modal'
 import NewAgentModal from '../../components/NewAgentModal'
 import AgentActionsMenu from '../../components/AgentActionsMenu'
 import ToolResultBubble from '../../components/ToolResultBubble'
+import ArtifactResultCard from '../../components/artifacts/ArtifactResultCard'
+import ArtifactProgressCard from '../../components/artifacts/ArtifactProgressCard'
+import { artifactToFile } from '../../lib/artifactKinds'
 import Markdown from '../../components/Markdown'
 import VoiceOverlay from '../../components/VoiceOverlay'
 import { supabase } from '../../lib/supabase'
@@ -967,6 +970,24 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // El DocumentEditor expone aquí un getter de su contenido actual (título + markdown), para
   // que "Guardar" del canvas tome lo EDITADO, no el markdown original del artefacto.
   const docContentRef = useRef(null)
+  // Descargar un artefacto desde su tarjeta del hilo (documento→.md, hoja→.csv, correo→.html,
+  // imagen→abre la URL, etc.). Reusa la conversión de src/lib/artifactKinds.
+  const downloadArtifact = (a) => {
+    const f = artifactToFile(a)
+    const el = document.createElement('a')
+    if (f.url) {
+      el.href = f.url
+      el.target = '_blank'
+      el.rel = 'noreferrer'
+      el.download = f.name
+      el.click()
+      return
+    }
+    el.href = URL.createObjectURL(new Blob([f.text], { type: `${f.mime};charset=utf-8` }))
+    el.download = f.name
+    el.click()
+    URL.revokeObjectURL(el.href)
+  }
   const saveToLibrary = async (artifact) => {
     if (!artifact) return
     const t = toast.loading('Guardando en la biblioteca…')
@@ -1294,15 +1315,28 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               Sin mensajes en esta conversación todavía.
             </div>
           ) : (
-            groupTimeline(allMessages).map((it) =>
-              it.kind === 'steps' ? (
-                <StepsGroup key={it.key} steps={it.steps} />
-              ) : it.kind === 'note' ? (
-                <SystemNote key={it.key} message={it.message} />
-              ) : (
-                <MessageBubble key={it.key} message={it.message} hideTools />
-              ),
-            )
+            groupTimeline(allMessages).map((it) => {
+              if (it.kind === 'steps') {
+                // Artefactos producidos en este grupo de pasos (match por messageId del resultado).
+                const ids = new Set(it.steps.filter((s) => s.result).map((s) => String(s.result.id)))
+                const groupArtifacts = canvasArtifacts.filter((a) => ids.has(String(a.messageId)))
+                // "En vivo" = el agente sigue pensando Y este grupo tiene un paso sin resultado.
+                const groupLive = thinking && it.steps.some((s) => s.call && !s.result)
+                return (
+                  <StepsBlock
+                    key={it.key}
+                    steps={it.steps}
+                    agentName={agent.name}
+                    live={groupLive}
+                    artifacts={groupArtifacts}
+                    onOpenArtifact={reopenFromHistory}
+                    onDownloadArtifact={downloadArtifact}
+                  />
+                )
+              }
+              if (it.kind === 'note') return <SystemNote key={it.key} message={it.message} />
+              return <MessageBubble key={it.key} message={it.message} hideTools />
+            })
           )}
           {thinking && <ThinkingIndicator name={agent.name} />}
           {activeQuestions && (
@@ -3306,7 +3340,58 @@ function buildSteps(buf) {
   return steps
 }
 
-function StepsGroup({ steps }) {
+// Normaliza los pasos crudos ([{call,result}]) al formato de la tarjeta de progreso:
+// done (resultado ok) / error (resultado ok:false) / active (en curso, solo si live) / pending.
+function normalizeSteps(steps, live) {
+  let activeSet = false
+  return steps.map((s) => {
+    const label = s.call ? humanTool(s.call.function.name) : 'Resultado'
+    if (s.result) {
+      let ok = true
+      try {
+        const p = typeof s.result.content === 'string' ? JSON.parse(s.result.content) : null
+        if (p && p.ok === false) ok = false
+      } catch {
+        /* no es JSON */
+      }
+      return { label, status: ok ? 'done' : 'error' }
+    }
+    if (live && !activeSet) {
+      activeSet = true
+      return { label, status: 'active' }
+    }
+    return { label, status: 'pending' }
+  })
+}
+
+// Bloque de un turno con acciones: Tarjeta A (progreso) + Tarjeta(s) B (artefacto final) +
+// el detalle técnico (StepsGroup, que conserva aprobaciones/búsquedas/resultados crudos).
+function StepsBlock({ steps, agentName, live, artifacts = [], onOpenArtifact, onDownloadArtifact }) {
+  const norm = normalizeSteps(steps, live)
+  const done = norm.filter((s) => s.status === 'done' || s.status === 'error').length
+  const showProgress = live || steps.length >= 2 || artifacts.length > 0
+  const active = norm.find((s) => s.status === 'active')
+  const subtitle = active ? active.label : `${steps.length} paso${steps.length === 1 ? '' : 's'}`
+  return (
+    <div className="space-y-2">
+      {showProgress && (
+        <ArtifactProgressCard agentName={agentName} steps={norm} done={done} total={norm.length} subtitle={subtitle} live={live} />
+      )}
+      {artifacts.map((a) => (
+        <ArtifactResultCard
+          key={a.key}
+          artifact={a}
+          agentName={agentName}
+          onOpen={() => onOpenArtifact?.(a.key)}
+          onDownload={() => onDownloadArtifact?.(a)}
+        />
+      ))}
+      <StepsGroup steps={steps} summaryLabel={showProgress ? 'Ver detalle técnico' : undefined} />
+    </div>
+  )
+}
+
+function StepsGroup({ steps, summaryLabel }) {
   const [open, setOpen] = useState(false)
   const n = steps.length
   const lastCall = [...steps].reverse().find((s) => s.call)?.call
@@ -3320,10 +3405,16 @@ function StepsGroup({ steps }) {
           className="flex items-center gap-1.5 py-0.5 text-[11.5px] text-nina-mute hover:text-nina-chrome transition select-none"
         >
           <ListTodo className="w-3.5 h-3.5 opacity-70 shrink-0" />
-          <span className="font-medium">
-            {n} paso{n === 1 ? '' : 's'}
-          </span>
-          {!open && <span className="opacity-60 truncate max-w-[220px]">· {lastLabel}</span>}
+          {summaryLabel ? (
+            <span className="font-medium">{summaryLabel}</span>
+          ) : (
+            <>
+              <span className="font-medium">
+                {n} paso{n === 1 ? '' : 's'}
+              </span>
+              {!open && <span className="opacity-60 truncate max-w-[220px]">· {lastLabel}</span>}
+            </>
+          )}
           <ChevronRight className={`w-3 h-3 opacity-50 transition ${open ? 'rotate-90' : ''}`} />
         </button>
         {open && (
