@@ -173,7 +173,7 @@ export default function DocumentEditor({ title: initialTitle, markdown, cover: i
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({ link: false }), // StarterKit v3 ya incluye Link → lo desactivamos para usar el nuestro (sin duplicar)
       Placeholder.configure({ placeholder: "Escribe '/' para comandos, o solo empieza a escribir…" }),
       TaskList,
       TaskItem.configure({ nested: true }),

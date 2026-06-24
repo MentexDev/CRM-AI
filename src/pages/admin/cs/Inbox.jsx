@@ -3,7 +3,7 @@
 // mensajes (outbound del operador). Fase 1: sin WhatsApp todavía — el envío real a WhatsApp llega en
 // Fase 2 (Evolution). Mientras, el inbox funciona para conversaciones internas/manuales. Diseño NINA.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, Loader2, MessageSquare, Mic, Plus, Search, Send, Smile } from 'lucide-react'
+import { Bot, Check, Loader2, MessageSquare, Mic, Pause, Plus, Search, Send, Smile } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../../../lib/supabase'
 import Modal from '../../../components/Modal'
@@ -28,7 +28,7 @@ export default function CsInbox() {
     setLoading(true)
     const { data } = await supabase
       .from('cs_conversations')
-      .select('id, last_message, last_message_at, unread, status, channel_id, cs_contacts!inner(id, name, phone)')
+      .select('id, last_message, last_message_at, unread, status, channel_id, agent_active, cs_contacts!inner(id, name, phone)')
       .eq('brand_id', brandId)
       .order('last_message_at', { ascending: false, nullsFirst: false })
     setConvs(data ?? [])
@@ -144,6 +144,16 @@ function Thread({ conv, me, brandId, onRead }) {
   const endRef = useRef(null)
   const taRef = useRef(null)
   const ct = conv.cs_contacts || {}
+  // Pausa/reactiva la respuesta automática del agente en ESTA conversación (handoff humano).
+  const [agentActive, setAgentActive] = useState(conv.agent_active !== false)
+  useEffect(() => { setAgentActive(conv.agent_active !== false) }, [conv.id, conv.agent_active])
+  const toggleAgent = async () => {
+    const next = !agentActive
+    setAgentActive(next)
+    const { error } = await supabase.from('cs_conversations').update({ agent_active: next }).eq('id', conv.id)
+    if (error) { setAgentActive(!next); toast.error('No se pudo cambiar el agente') }
+    else toast.success(next ? '🤖 Agente reactivado' : '⏸ Agente en pausa — respondes tú')
+  }
   // Micrófono de notas de voz: el MISMO hook del chat de los agentes (dicta y rellena el mensaje).
   const voice = useVoiceTranscription({
     lang: 'es-CO',
@@ -205,6 +215,14 @@ function Thread({ conv, me, brandId, onRead }) {
           <div className="text-[14px] font-medium text-nina-chrome truncate">{ct.name || ct.phone}</div>
           <div className="text-[11.5px] text-nina-mute truncate">{ct.phone}</div>
         </div>
+        <button
+          onClick={toggleAgent}
+          title={agentActive ? 'Pausar el agente en esta conversación (respondes tú)' : 'Reactivar el agente para que responda solo'}
+          className={`ml-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium transition shrink-0 ${agentActive ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-nina-line/50 text-nina-mute hover:text-nina-chrome'}`}
+        >
+          {agentActive ? <Bot className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+          {agentActive ? 'Agente activo' : 'Pausado'}
+        </button>
       </div>
       {/* Hilo con fondo estilo WhatsApp (fondo-chat.png) + tinte oscuro para legibilidad sobre el tema NINA */}
       <div
