@@ -60,6 +60,7 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
   })
   const [showTotals, setShowTotals] = useState(true)
   const [colMenu, setColMenu] = useState(null) // índice de columna con menú abierto
+  const scrollRef = useRef(null) // grilla scrollable → auto-scroll a la derecha al agregar columna
 
   const stateRef = useRef({ title, columns, rows })
   stateRef.current = { title, columns, rows }
@@ -95,6 +96,8 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
     setColumns((prev) => [...prev, { name: `${TYPE_META[type]?.label || 'Columna'} ${prev.length + 1}`, type, options: [] }])
     setRows((prev) => prev.map((r) => [...r, '']))
     scheduleFire()
+    // Auto-scroll a la derecha → la nueva columna y el "+" quedan visibles sin mover la barra a mano.
+    requestAnimationFrame(() => { const el = scrollRef.current; if (el) el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' }) })
   }
   const removeColumn = (ci) => {
     if (columns.length <= 1) return
@@ -152,8 +155,9 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto">
-        <table className="border-collapse" style={{ minWidth: '100%' }}>
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
+        <div className="inline-block min-w-full pr-16 align-top">
+        <table className="border-collapse">
           <thead className="sticky top-0 z-10">
             <tr>
               <th className="sticky left-0 z-20 bg-nina-panel border-b border-r border-nina-line/60 w-9" />
@@ -221,6 +225,7 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
         <button onClick={addRow} className="flex items-center gap-1.5 px-3 py-2 text-[12px] text-nina-mute hover:text-nina-chrome transition">
           <Plus size={13} /> fila
         </button>
+        </div>
       </div>
     </div>
   )
