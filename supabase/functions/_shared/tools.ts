@@ -1456,24 +1456,39 @@ async function draftSlides(_ctx: ToolContext, args: Record<string, unknown>): Pr
 // la grilla). Sin side-effects — normaliza columnas/filas y alinea cada fila a las columnas.
 async function draftSheet(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const title = (args.title as string)?.trim() || 'Hoja de cálculo'
+  const TYPES = ['text', 'select', 'date', 'number', 'checkbox']
+  const COLORS = ['gray', 'blue', 'green', 'amber', 'red', 'purple', 'pink']
   const rawCols = Array.isArray(args.columns) ? args.columns : []
-  const columns = rawCols
-    .filter((c) => typeof c === 'string' || typeof c === 'number')
-    .slice(0, 30) // tope defensivo de columnas
-    .map((c) => String(c).slice(0, 80))
+  // Columnas TIPADAS: acepta string (→ text) u objeto {name, type, options}.
+  const columns = rawCols.slice(0, 30).map((c: unknown, i: number) => {
+    if (typeof c === 'string' || typeof c === 'number') return { name: String(c).slice(0, 80), type: 'text', options: [] }
+    const co = (c ?? {}) as Record<string, unknown>
+    const type = TYPES.includes(co.type as string) ? (co.type as string) : 'text'
+    const options = type === 'select' && Array.isArray(co.options)
+      ? (co.options as unknown[]).slice(0, 24).map((o: unknown) => {
+          if (typeof o === 'string') return { label: o.slice(0, 60), color: 'gray' }
+          const oo = (o ?? {}) as Record<string, unknown>
+          return { label: String(oo.label ?? '').slice(0, 60), color: COLORS.includes(oo.color as string) ? (oo.color as string) : 'gray' }
+        }).filter((o) => o.label)
+      : []
+    return { name: String(co.name ?? `Columna ${i + 1}`).slice(0, 80), type, options }
+  })
   if (!columns.length) return { ok: false, error: 'Faltan las columnas (columns)' }
+  const n = columns.length
+  const normRow = (r: unknown) => {
+    const cells = Array.isArray(r) ? r : [r]
+    return Array.from({ length: n }, (_, i) => { const v = cells[i]; return v == null ? '' : String(v).slice(0, 500) })
+  }
   const rawRows = Array.isArray(args.rows) ? args.rows : []
-  const rows = rawRows
-    .slice(0, 500) // tope defensivo de filas
-    .map((r) => {
-      const cells = Array.isArray(r) ? r : [r]
-      // Alinea cada fila a la cantidad de columnas (rellena vacíos, recorta excedente).
-      return Array.from({ length: columns.length }, (_, i) => {
-        const v = cells[i]
-        return v == null ? '' : String(v).slice(0, 500)
-      })
-    })
-  return { ok: true, data: { kind: 'sheet', title, columns, rows } }
+  const rows = rawRows.slice(0, 500).map(normRow)
+  // Subtareas (opcional) — paralelo a rows: sub[i] = subfilas de la fila i (mismas columnas).
+  const rawSub = Array.isArray(args.sub) ? args.sub : []
+  const sub = rows.map((_, i) => {
+    const sr = Array.isArray(rawSub[i]) ? (rawSub[i] as unknown[]) : []
+    return sr.slice(0, 100).map(normRow)
+  })
+  const hasSub = sub.some((s) => s.length > 0)
+  return { ok: true, data: { kind: 'sheet', title, columns, rows, ...(hasSub ? { sub } : {}) } }
 }
 
 // draft_board: crea una PIZARRA editable (artefacto kind:'board'). Sin side-effects — normaliza

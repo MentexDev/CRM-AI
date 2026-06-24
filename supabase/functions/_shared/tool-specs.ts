@@ -307,7 +307,7 @@ export const TOOL_SPECS: ToolSpecData[] = [
   },
   {
     "name": "draft_sheet",
-    "description": "Crea O EDITA una HOJA DE CÁLCULO en el canvas: tabla de datos, comparativo, catálogo, presupuesto, reporte de ventas. Devuelve columnas y filas; el usuario edita celdas, agrega/quita filas y columnas, ve totales y exporta a CSV. SÍ puedes editar una que ya creaste: vuelve a llamar esta tool con el MISMO título y TODAS las columnas/filas ya actualizadas → reemplaza esa pestaña (la edita) en vez de crear otra. NO publica ni envía nada. Para texto largo usa draft_document; para diapositivas usa draft_slides.",
+    "description": "Crea O EDITA una HOJA/TABLA tipo Notion en el canvas: tabla de datos, tablero de tareas/proyectos, comparativo, catálogo, presupuesto, reporte. Las COLUMNAS son TIPADAS ({name,type,options}): text, select (estado/etiqueta con opciones de COLOR), date, number, checkbox. Soporta SUBTAREAS por fila (parámetro 'sub'). El usuario edita celdas, mueve/ajusta columnas, despliega subtareas y exporta a CSV. SÍ puedes editar una que ya creaste: vuelve a llamar con el MISMO título y TODAS las columnas/filas/sub ya actualizadas → reemplaza esa pestaña. NO publica ni envía nada. Para texto largo usa draft_document; para diapositivas usa draft_slides.",
     "category": "document",
     "parameters": {
       "type": "object",
@@ -324,9 +324,25 @@ export const TOOL_SPECS: ToolSpecData[] = [
         "columns": {
           "type": "array",
           "items": {
-            "type": "string"
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "description": "Nombre de la columna." },
+              "type": { "type": "string", "enum": ["text", "select", "date", "number", "checkbox"], "description": "Tipo. 'text' texto; 'select' estado/etiqueta con opciones de color; 'date' fecha (YYYY-MM-DD); 'number' número; 'checkbox' casilla." },
+              "options": {
+                "type": "array",
+                "description": "Solo para type 'select': opciones posibles, cada una con su color.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": { "type": "string" },
+                    "color": { "type": "string", "enum": ["gray", "blue", "green", "amber", "red", "purple", "pink"] }
+                  }
+                }
+              }
+            }
           },
-          "description": "Encabezados de columna, en orden. Ej: [\"Producto\", \"Precio\", \"Stock\"]."
+          "description": "Columnas TIPADAS, en orden. Cada una {name, type, options?}. Para una tabla de tareas/proyectos usa: Tarea (text), Estado (select con opciones de color), Responsable (text), Prioridad (select), Fecha (date), Hecho (checkbox)."
         },
         "rows": {
           "type": "array",
@@ -336,7 +352,18 @@ export const TOOL_SPECS: ToolSpecData[] = [
               "type": "string"
             }
           },
-          "description": "Filas de datos. Cada fila es un arreglo de celdas alineado a 'columns' (mismo orden y cantidad). Los números van como texto; la hoja calcula totales de las columnas que sean 100% numéricas."
+          "description": "Filas de datos. Cada fila es un arreglo de celdas alineado a 'columns' (mismo orden y cantidad). Reglas por tipo: 'select' = el label EXACTO de una de sus opciones; 'date' = 'YYYY-MM-DD'; 'checkbox' = 'true' o cadena vacía; 'number'/'text' = texto. La hoja totaliza las columnas numéricas."
+        },
+        "sub": {
+          "type": "array",
+          "description": "Opcional. Subtareas por fila: sub[i] = arreglo de subfilas de la fila i (mismas columnas que 'columns'). Cada subfila es un arreglo de celdas. Usa [] para filas sin subtareas y alinea la longitud de 'sub' a la de 'rows'.",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
         }
       }
     },
