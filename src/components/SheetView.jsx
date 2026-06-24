@@ -2,7 +2,7 @@
 // Columnas TIPADAS: Texto, Estado/Selección (opciones con color), Fecha, Número, Casilla. Render por tipo,
 // selector de tipo al crear/cambiar columna, agregar/eliminar filas y columnas, totales numéricos y CSV.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Calculator, Calendar, Check, CheckSquare, ChevronDown, Download, Hash, Plus, Tag, Trash2, Type, X } from 'lucide-react'
+import { Calculator, Calendar, Check, CheckSquare, ChevronDown, Download, GripVertical, Hash, Plus, Tag, Trash2, Type, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 function parseNum(v) {
@@ -61,6 +61,8 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
   const [showTotals, setShowTotals] = useState(true)
   const [colMenu, setColMenu] = useState(null) // índice de columna con menú abierto
   const scrollRef = useRef(null) // grilla scrollable → auto-scroll a la derecha al agregar columna
+  const dragCol = useRef(null) // índice de columna que se está arrastrando
+  const [dragOverCol, setDragOverCol] = useState(null) // columna destino resaltada
 
   const stateRef = useRef({ title, columns, rows })
   stateRef.current = { title, columns, rows }
@@ -104,6 +106,14 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
     setColumns((prev) => prev.filter((_, i) => i !== ci))
     setRows((prev) => prev.map((r) => r.filter((_, i) => i !== ci)))
     setColMenu(null)
+    scheduleFire()
+  }
+  // Reordenar columnas (arrastrando el header) → mueve la columna y la celda correspondiente de cada fila.
+  const moveColumn = (from, to) => {
+    if (from == null || to == null || from === to) return
+    const reorder = (arr) => { const a = [...arr]; const [m] = a.splice(from, 1); a.splice(to, 0, m); return a }
+    setColumns((prev) => reorder(prev))
+    setRows((prev) => prev.map((r) => reorder(r)))
     scheduleFire()
   }
 
@@ -163,9 +173,24 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
               {columns.map((col, ci) => {
                 const TIcon = TYPE_META[col.type]?.icon || Type
                 return (
-                  <th key={ci} className="group bg-nina-panel border-b border-r border-nina-line/60 min-w-[140px] text-left relative">
+                  <th
+                    key={ci}
+                    onDragOver={(e) => { e.preventDefault(); setDragOverCol(ci) }}
+                    onDragLeave={() => setDragOverCol((o) => (o === ci ? null : o))}
+                    onDrop={() => { moveColumn(dragCol.current, ci); dragCol.current = null; setDragOverCol(null) }}
+                    className={`group bg-nina-panel border-b border-r border-nina-line/60 min-w-[140px] text-left relative transition-colors ${dragOverCol === ci ? 'bg-nina-line/50' : ''}`}
+                  >
                     <div className="flex items-center">
-                      <button onClick={() => setColMenu(colMenu === ci ? null : ci)} className="pl-2 pr-1 py-1.5 text-nina-mute hover:text-nina-chrome shrink-0" title={`Tipo: ${TYPE_META[col.type]?.label}`}>
+                      <span
+                        draggable
+                        onDragStart={(e) => { dragCol.current = ci; e.dataTransfer.effectAllowed = 'move' }}
+                        onDragEnd={() => { dragCol.current = null; setDragOverCol(null) }}
+                        className="cursor-grab active:cursor-grabbing pl-1 text-nina-mute/30 group-hover:text-nina-mute/80 shrink-0"
+                        title="Arrastra para mover la columna"
+                      >
+                        <GripVertical size={12} />
+                      </span>
+                      <button onClick={() => setColMenu(colMenu === ci ? null : ci)} className="pl-0.5 pr-1 py-1.5 text-nina-mute hover:text-nina-chrome shrink-0" title={`Tipo: ${TYPE_META[col.type]?.label}`}>
                         <TIcon size={12.5} />
                       </button>
                       <input
@@ -330,14 +355,14 @@ function ColumnMenu({ col, onType, onClose }) {
 function AddColumnButton({ onAdd }) {
   const [open, setOpen] = useState(false)
   return (
-    <>
-      <button onClick={() => setOpen((o) => !o)} className="w-full h-full flex items-center justify-start px-2.5 text-nina-mute hover:text-nina-chrome py-1.5" title="Agregar columna">
+    <div className="relative inline-flex">
+      <button onClick={() => setOpen((o) => !o)} className="px-2.5 py-1.5 text-nina-mute hover:text-nina-chrome" title="Agregar columna">
         <Plus size={14} />
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="absolute z-30 top-full left-0 mt-0.5 w-52 rounded-lg border border-nina-line bg-nina-panel shadow-xl p-1.5">
+          <div className="absolute z-30 top-full right-0 mt-0.5 w-52 rounded-lg border border-nina-line bg-nina-panel shadow-xl p-1.5">
             <div className="text-[10px] uppercase tracking-wide text-nina-mute px-1.5 pb-1">Nueva columna</div>
             {TYPE_KEYS.map((t) => {
               const Icon = TYPE_META[t].icon
@@ -351,6 +376,6 @@ function AddColumnButton({ onAdd }) {
           </div>
         </>
       )}
-    </>
+    </div>
   )
 }
