@@ -168,7 +168,7 @@ export const TOOL_SPECS: ToolSpecData[] = [
   },
   {
     "name": "generate_image",
-    "description": "Generar o EDITAR una imagen a partir de un prompt visual. MODELOS (param `model`): flux-schnell (rápido/barato, previews), flux-dev (equilibrado), stable-xl (open source), flux-pro (alta fidelidad comercial), flux-ultra (máxima calidad 4K) — todos vía fal.ai — y nano-banana (Gemini, el ÚNICO que EDITA con imágenes de referencia: aplica un PRODUCTO/MODELO real a la escena, ej. 'ponle ESTE pantalón a ESTA modelo'). IMPORTANTE: si el usuario NO indicó con qué modelo generar, NO generes todavía — primero llama `ask_questions` con UNA pregunta type 'single' y options con los modelos (Flux Schnell, Flux Dev, Stable XL, Flux Pro, Flux Ultra, Nano Banana), y SÓLO tras su respuesta llama generate_image con `model`. Si el usuario adjuntó/señaló una foto de referencia (reference_image_urls), usa nano-banana sin preguntar. La imagen vuelve como URL pública. NO publica nada — sólo crea el asset; para publicar externamente usa después request_approval.",
+    "description": "Generar o EDITAR una imagen a partir de un prompt visual. MODELOS (param `model`): flux-schnell (rápido/barato, previews), flux-dev (equilibrado), stable-xl (open source), flux-pro (alta fidelidad comercial), flux-ultra (máxima calidad 4K) — todos vía fal.ai — y nano-banana (Gemini, el ÚNICO que EDITA con imágenes de referencia: aplica un PRODUCTO/MODELO real a la escena, ej. 'ponle ESTE pantalón a ESTA modelo'). IMPORTANTE: si el usuario NO indicó con qué modelo generar, NO generes todavía — primero llama `ask_questions` con UNA pregunta type 'single' y options con los modelos (Flux Schnell, Flux Dev, Stable XL, Flux Pro, Flux Ultra, Nano Banana), y SÓLO tras su respuesta llama generate_image con `model`. Si el usuario adjuntó/señaló una foto de referencia (reference_image_urls), usa nano-banana sin preguntar. Si quiere el PRODUCTO REAL de NINA sobre otra modelo/escena ('el mismo pantalón pero con otra modelo'), PRIMERO búscalo con shopify_search_products, toma su image_url y pásalo en reference_image_urls con model nano-banana (NO inventes la prenda). La imagen vuelve como URL pública. NO publica nada — sólo crea el asset; para publicar externamente usa después request_approval.",
     "category": "image",
     "parameters": {
       "type": "object",
@@ -738,7 +738,7 @@ export const TOOL_SPECS: ToolSpecData[] = [
   },
   {
     "name": "shopify_search_products",
-    "description": "Buscar productos en la tienda Shopify (NINA). Acepta una query estilo Shopify (ej: \"title:vestido status:active vendor:NINA tag:verano\"). Devuelve título, precio, inventario, vendor, tags, y URL handle.",
+    "description": "Buscar productos en la tienda Shopify (NINA). Acepta una query estilo Shopify (ej: \"title:vestido status:active vendor:NINA tag:verano\"). Devuelve título, precio, inventario, vendor, tags, URL handle, y la FOTO del producto (image_url = foto principal; image_urls = todas). Para crear una imagen con el PRODUCTO REAL de NINA sobre otra modelo/escena: busca el producto aquí, toma su image_url y pásalo en reference_image_urls de generate_image con model 'nano-banana'.",
     "category": "shopify",
     "parameters": {
       "type": "object",

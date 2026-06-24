@@ -525,6 +525,8 @@ async function shopifySearchProducts(
                 minVariantPrice { amount currencyCode }
                 maxVariantPrice { amount currencyCode }
               }
+              featuredImage { url }
+              images(first: 4) { edges { node { url } } }
             }
           }
         }
@@ -546,7 +548,10 @@ async function shopifySearchProducts(
           minVariantPrice: { amount: string; currencyCode: string }
           maxVariantPrice: { amount: string; currencyCode: string }
         }
+        featuredImage?: { url: string } | null
+        images?: { edges: Array<{ node: { url: string } }> }
       }
+      const imageUrls = (n.images?.edges ?? []).map((e) => e.node?.url).filter((u): u is string => Boolean(u))
       return {
         id: stripGid(n.id),
         title: n.title,
@@ -560,6 +565,10 @@ async function shopifySearchProducts(
         price_max: Number(n.priceRangeV2.maxVariantPrice.amount),
         currency: n.priceRangeV2.minVariantPrice.currencyCode,
         updated_at: n.updatedAt,
+        // Foto(s) del producto REAL → úsalas como reference_image_urls en generate_image (nano-banana)
+        // para poner ESTE producto exacto sobre otra modelo/escena.
+        image_url: n.featuredImage?.url ?? imageUrls[0] ?? null,
+        image_urls: imageUrls,
       }
     })
     return {
