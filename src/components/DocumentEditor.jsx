@@ -15,9 +15,10 @@ import TurndownService from 'turndown'
 import toast from 'react-hot-toast'
 import {
   AlignCenter, AlignJustify, CheckSquare, Code, Copy, FileText, GripVertical, Heading1,
-  Heading2, Heading3, List, ListOrdered, Minus, Plus, Printer, Quote, Trash2, Type,
+  Heading2, Heading3, Image as ImageIcon, List, ListOrdered, Minus, Plus, Printer, Quote, Trash2, Type,
 } from 'lucide-react'
 import { DragHandle } from '@tiptap/extension-drag-handle-react'
+import { coverBg, COVER_PRESETS } from '../lib/artifactKinds'
 
 // markdown ⇄ html. Init: md→html (TipTap parsea HTML). Export: html→md (turndown).
 const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' })
@@ -90,8 +91,51 @@ const DOC_CSS = `
 .doc-prose p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: rgba(255,255,255,0.25); float: left; height: 0; pointer-events: none; }
 `
 
-export default function DocumentEditor({ title: initialTitle, markdown, getContentRef, onChange }) {
+// Portada (cover) estilo Notion: banner arriba de la página. Sin portada → "Agregar portada" al hover.
+// Con portada → "Cambiar / Quitar". El picker ofrece presets (gradientes) o pegar una URL de imagen.
+function CoverArea({ cover, menuOpen, onToggleMenu, onPick, onRemove }) {
+  const [url, setUrl] = useState('')
+  return (
+    <div className="relative">
+      {cover ? (
+        <div className="group relative h-40 w-full" style={{ background: coverBg(cover) }}>
+          <div className="absolute top-2 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition">
+            <button type="button" onClick={onToggleMenu} className="px-2 py-1 rounded-md text-[11px] bg-black/45 text-white/90 hover:bg-black/65 transition">Cambiar portada</button>
+            <button type="button" onClick={onRemove} className="px-2 py-1 rounded-md text-[11px] bg-black/45 text-white/90 hover:bg-black/65 transition">Quitar</button>
+          </div>
+        </div>
+      ) : (
+        <div className="group h-8 w-full flex items-end px-10">
+          <button type="button" onClick={onToggleMenu} className="opacity-0 group-hover:opacity-100 flex items-center gap-1.5 text-[11.5px] text-nina-mute hover:text-nina-chrome transition mb-1">
+            <ImageIcon className="w-3.5 h-3.5" /> Agregar portada
+          </button>
+        </div>
+      )}
+      {menuOpen && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={onToggleMenu} />
+          <div className="absolute z-30 top-full right-3 mt-1 w-64 rounded-xl border border-nina-line bg-nina-panel shadow-2xl p-2">
+            <div className="text-[10px] uppercase tracking-wide text-nina-mute px-1 pb-1.5">Portada</div>
+            <div className="grid grid-cols-3 gap-1.5 mb-2">
+              {COVER_PRESETS.map((p, i) => (
+                <button key={i} type="button" onClick={() => onPick(p)} className="h-10 rounded-md border border-nina-line hover:border-nina-silver/50 transition" style={{ background: p }} title="Usar esta portada" />
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Pega URL de imagen…" className="flex-1 bg-nina-ink border border-nina-line rounded-md px-2 py-1 text-[11.5px] text-nina-chrome placeholder:text-nina-mute/60 outline-none focus:border-nina-silver/40" />
+              <button type="button" onClick={() => { if (url.trim()) onPick(url.trim()) }} className="px-2 py-1 rounded-md text-[11px] bg-silver-gradient text-nina-black">OK</button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+export default function DocumentEditor({ title: initialTitle, markdown, cover: initialCover, getContentRef, onChange }) {
   const [title, setTitle] = useState(initialTitle || 'Sin título')
+  const [cover, setCover] = useState(initialCover || '')
+  const [coverMenu, setCoverMenu] = useState(false)
   const [layoutFull, setLayoutFull] = useState(false)
   const [wordCount, setWordCount] = useState(0)
   const [slash, setSlash] = useState({ open: false, query: '', idx: 0, top: 0, left: 0 })
@@ -190,12 +234,12 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
 
   // Exponemos el contenido actual para que el "Guardar" del canvas lo lea on-demand.
   if (getContentRef) {
-    getContentRef.current = () => ({ title, markdown: editor ? `# ${title}\n\n${htmlToMd(editor.getHTML())}` : (markdown || '') })
+    getContentRef.current = () => ({ title, cover, markdown: editor ? `# ${title}\n\n${htmlToMd(editor.getHTML())}` : (markdown || '') })
   }
   // El cuerpo (sin el título) es lo que se guarda en la pestaña local y se reusa al remontar.
   titleRef.current = title
   fireChangeRef.current = () => {
-    if (onChange && editor) onChange({ title, markdown: htmlToMd(editor.getHTML()) })
+    if (onChange && editor) onChange({ title, cover, markdown: htmlToMd(editor.getHTML()) })
   }
   // Al desmontar (cambio de pestaña / cierre del browser) volcamos el contenido YA, para no
   // perder los últimos cambios dentro de la ventana del debounce.
@@ -288,6 +332,13 @@ export default function DocumentEditor({ title: initialTitle, markdown, getConte
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
+        <CoverArea
+          cover={cover}
+          menuOpen={coverMenu}
+          onToggleMenu={() => setCoverMenu((o) => !o)}
+          onPick={(v) => { setCover(v); setCoverMenu(false); scheduleFire() }}
+          onRemove={() => { setCover(''); setCoverMenu(false); scheduleFire() }}
+        />
         <div className="mx-auto px-10 py-7 transition-[max-width] duration-200" style={{ maxWidth: layoutFull ? '100%' : 780 }}>
           <input
             value={title}

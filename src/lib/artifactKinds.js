@@ -25,6 +25,18 @@ export const ARTIFACT_KIND = {
 
 export const kindMeta = (k) => ARTIFACT_KIND[k] ?? { label: 'Archivo', Icon: FileText, color: 'text-nina-mute', dot: 'bg-nina-mute' }
 
+// Portada (cover) estilo Notion: el valor es un string CSS de `background`. Si es una URL de imagen la
+// envolvemos en url(); si es un gradiente/preset se usa tal cual. Compartido por el editor y la galería.
+export const coverBg = (c) => (!c ? '' : /^https?:\/\//.test(c) ? `url("${c}") center/cover no-repeat` : c)
+export const COVER_PRESETS = [
+  'linear-gradient(135deg, #0f172a, #6366f1)',
+  'linear-gradient(135deg, #1e3a8a, #0ea5e9)',
+  'linear-gradient(135deg, #4c1d95, #db2777)',
+  'linear-gradient(135deg, #064e3b, #10b981)',
+  'linear-gradient(135deg, #7c2d12, #f59e0b)',
+  'linear-gradient(135deg, #111827, #6b7280)',
+]
+
 export const wordCount = (s) => {
   const t = String(s || '').trim()
   return t ? t.split(/\s+/).length : 0

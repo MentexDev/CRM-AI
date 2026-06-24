@@ -708,6 +708,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
             type: 'document',
             title: d.title || 'Documento',
             markdown: typeof d.markdown === 'string' ? d.markdown : typeof d.content === 'string' ? d.content : '',
+            cover: typeof d.cover === 'string' ? d.cover : undefined,
             messageId: m.id,
             key: String(m.id),
           })
@@ -1702,6 +1703,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
             key={active.key}
             title={active.title}
             markdown={active.markdown}
+            cover={active.cover}
             getContentRef={docContentRef}
             onChange={(p) => onDocChange?.(active.key, p)}
           />

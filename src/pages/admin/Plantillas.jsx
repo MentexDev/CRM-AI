@@ -7,7 +7,7 @@ import { Download, Layers, LayoutTemplate, Loader2, Search, Sparkles } from 'luc
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import { useCodeTemplates } from '../../hooks/useCodeTemplates'
-import { artifactToFile, kindMeta } from '../../lib/artifactKinds'
+import { artifactToFile, coverBg, kindMeta } from '../../lib/artifactKinds'
 import { formatTimeAgo } from '../../lib/format'
 import Markdown from '../../components/Markdown'
 import Modal from '../../components/Modal'
@@ -152,7 +152,7 @@ function TemplateCard({ t, onOpen }) {
       <div className="aspect-[4/3] relative overflow-hidden bg-nina-panel/40 border-b border-nina-line/40">
         <span className={`absolute top-2 left-2 z-20 chip !px-2 !py-0.5 text-[10px] bg-nina-ink/80 border-nina-line ${m.color}`}>{m.label}</span>
         {t.cover_url ? (
-          <img src={t.cover_url} alt={t.title} referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
+          <div className="absolute inset-0" style={{ background: coverBg(t.cover_url) }} />
         ) : (
           <div
             className="absolute inset-0 overflow-hidden pointer-events-none"
