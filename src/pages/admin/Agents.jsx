@@ -38,8 +38,6 @@ import {
   MousePointerClick,
   Package,
   PanelRight,
-  Maximize2,
-  Minimize2,
   Paperclip,
   Pencil,
   Play,
@@ -802,16 +800,8 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     if (lightboxKey && !galleryImages.some((i) => i.key === lightboxKey)) setLightboxKey(null)
   }, [lightboxKey, galleryImages])
 
-  // Modo del panel: acoplado (empuja el chat) ↔ flotante (overlay a la derecha, estilo NeuralOS).
-  // Persiste por agente.
-  const [canvasFloating, setCanvasFloating] = useState(() => {
-    try { return localStorage.getItem(`nina-canvas-float-${agent.slug}`) === '1' } catch { return false }
-  })
-  const toggleCanvasFloat = () => setCanvasFloating((v) => {
-    const next = !v
-    try { localStorage.setItem(`nina-canvas-float-${agent.slug}`, next ? '1' : '0') } catch { /* */ }
-    return next
-  })
+  // Panel SIEMPRE acoplado por ahora — el modo flotante/expandir quedó deshabilitado (se veía como modal).
+  const canvasFloating = false
 
   const [canvasOpen, setCanvasOpen] = useState(false)
   const [activeKey, setActiveKey] = useState(null)
@@ -1509,8 +1499,6 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               onElementEdit={submitElementEdit}
               onDocChange={onDocChange}
               onImageZoom={openLightbox}
-              floating={canvasFloating}
-              onToggleFloat={toggleCanvasFloat}
               onGenerateImage={sendImagePrompt}
               sending={thinking}
             />
@@ -1994,16 +1982,6 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
               <span className="hidden lg:inline">Eliminar</span>
             </button>
           </>
-        )}
-        {onToggleFloat && (
-          <button
-            onClick={onToggleFloat}
-            className="w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition shrink-0"
-            title={floating ? 'Acoplar el panel' : 'Hacer flotante (Image Studio)'}
-            aria-label="Alternar panel flotante"
-          >
-            {floating ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </button>
         )}
         <button
           onClick={onClose}
