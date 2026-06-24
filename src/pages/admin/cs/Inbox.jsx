@@ -3,7 +3,7 @@
 // mensajes (outbound del operador). Fase 1: sin WhatsApp todavía — el envío real a WhatsApp llega en
 // Fase 2 (Evolution). Mientras, el inbox funciona para conversaciones internas/manuales. Diseño NINA.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bot, Check, Loader2, MessageSquare, Mic, Pause, Plus, Search, Send, Smile } from 'lucide-react'
+import { Bot, Check, ChevronDown, Loader2, MessageSquare, Mic, Pause, Plus, Search, Send, Smile } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../../../lib/supabase'
 import Modal from '../../../components/Modal'
@@ -38,6 +38,7 @@ export default function CsInbox() {
   const [q, setQ] = useState('')
   const [activeId, setActiveId] = useState(null)
   const [showNew, setShowNew] = useState(false)
+  const [brandOpen, setBrandOpen] = useState(false)
   const [me, setMe] = useState(null)
 
   useEffect(() => { supabase.auth.getUser().then(({ data }) => setMe(data?.user?.id ?? null)) }, [])
@@ -105,9 +106,33 @@ export default function CsInbox() {
             <button onClick={() => setShowNew(true)} disabled={!brandId} className="w-7 h-7 grid place-items-center rounded-lg bg-silver-gradient text-nina-black disabled:opacity-40" title="Nueva conversación"><Plus className="w-4 h-4" /></button>
           </div>
           {brands.length > 1 && (
-            <select value={brandId} onChange={(e) => setBrandId(e.target.value)} className="w-full mb-2 bg-nina-ink border border-nina-line rounded-lg px-2.5 py-1.5 text-[12.5px] text-nina-chrome outline-none focus:border-nina-silver/40">
-              {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+            <div className="relative mb-2">
+              <button
+                onClick={() => setBrandOpen((o) => !o)}
+                className="w-full flex items-center gap-2 bg-nina-ink border border-nina-line rounded-lg pl-3 pr-2.5 py-1.5 text-[12.5px] text-nina-chrome hover:border-nina-silver/40 transition"
+              >
+                <span className="flex-1 text-left truncate font-medium">{brands.find((b) => b.id === brandId)?.name || 'Marca'}</span>
+                <ChevronDown className={`w-4 h-4 text-nina-mute shrink-0 transition ${brandOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {brandOpen && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setBrandOpen(false)} />
+                  <div className="absolute z-40 top-full left-0 right-0 mt-1 rounded-xl border border-nina-line bg-nina-panel shadow-2xl p-1 max-h-64 overflow-y-auto">
+                    {brands.map((b) => (
+                      <button
+                        key={b.id}
+                        onClick={() => { setBrandId(b.id); setBrandOpen(false) }}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12.5px] text-left transition ${b.id === brandId ? 'bg-nina-line/50 text-nina-chrome' : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'}`}
+                      >
+                        <span className="w-5 h-5 grid place-items-center rounded-md bg-silver-gradient text-nina-black text-[10px] font-semibold shrink-0">{(b.name || '?').charAt(0).toUpperCase()}</span>
+                        <span className="flex-1 truncate">{b.name}</span>
+                        {b.id === brandId && <Check className="w-3.5 h-3.5 shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           )}
           <div className="relative">
             <Search className="w-4 h-4 text-nina-mute absolute left-2.5 top-1/2 -translate-y-1/2" />
