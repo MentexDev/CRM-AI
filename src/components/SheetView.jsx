@@ -1,8 +1,8 @@
 // Visor / editor de HOJAS DE CÁLCULO tipo base de datos de Notion — artefacto kind:'sheet' del canvas.
 // Columnas TIPADAS: Texto, Estado/Selección (opciones con color), Fecha, Número, Casilla. Render por tipo,
 // selector de tipo al crear/cambiar columna, agregar/eliminar filas y columnas, totales numéricos y CSV.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Calculator, Calendar, Check, CheckSquare, ChevronDown, Download, GripVertical, Hash, Plus, Tag, Trash2, Type, X } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Calculator, Calendar, Check, CheckSquare, ChevronDown, ChevronRight, Download, GripVertical, Hash, Plus, Tag, Trash2, Type, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 function parseNum(v) {
@@ -46,7 +46,7 @@ const normCol = (c, i) => {
   return { name: String(c?.name ?? `Columna ${i + 1}`), type, options, width: typeof c?.width === 'number' ? c.width : undefined }
 }
 
-export default function SheetView({ title: initialTitle, columns: initialColumns, rows: initialRows, getContentRef, onChange }) {
+export default function SheetView({ title: initialTitle, columns: initialColumns, rows: initialRows, sub: initialSub, getContentRef, onChange }) {
   const [title, setTitle] = useState(initialTitle || 'Hoja de cálculo')
   const [columns, setColumns] = useState(() => {
     const cs = Array.isArray(initialColumns) && initialColumns.length ? initialColumns : ['Columna 1']
@@ -58,14 +58,20 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
     const norm = r.map((row) => Array.from({ length: cols }, (_, i) => (Array.isArray(row) ? String(row[i] ?? '') : '')))
     return norm.length ? norm : [Array.from({ length: cols }, () => '')]
   })
+  // Subtareas: `sub` es paralelo a `rows` (sub[i] = subfilas de la fila i). No cambia el formato de `rows`.
+  const [sub, setSub] = useState(() => {
+    const s = Array.isArray(initialSub) ? initialSub : []
+    return Array.from({ length: rows.length }, (_, i) => (Array.isArray(s[i]) ? s[i].map((sr) => (Array.isArray(sr) ? sr.map((c) => String(c ?? '')) : [])) : []))
+  })
+  const [expanded, setExpanded] = useState(() => new Set())
   const [showTotals, setShowTotals] = useState(true)
   const [colMenu, setColMenu] = useState(null) // índice de columna con menú abierto
   const scrollRef = useRef(null) // grilla scrollable → auto-scroll a la derecha al agregar columna
   const dragCol = useRef(null) // índice de columna que se está arrastrando
   const [dragOverCol, setDragOverCol] = useState(null) // columna destino resaltada
 
-  const stateRef = useRef({ title, columns, rows })
-  stateRef.current = { title, columns, rows }
+  const stateRef = useRef({ title, columns, rows, sub })
+  stateRef.current = { title, columns, rows, sub }
   const fireTimer = useRef(null)
   const dirtyRef = useRef(false)
   const onChangeRef = useRef(onChange)
@@ -77,7 +83,7 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
   }, [])
   useEffect(() => () => { clearTimeout(fireTimer.current); if (dirtyRef.current) onChangeRef.current?.(stateRef.current) }, [])
 
-  if (getContentRef) getContentRef.current = () => ({ title, columns, rows })
+  if (getContentRef) getContentRef.current = () => ({ title, columns, rows, sub })
 
   // ── Mutadores ──────────────────────────────────────────────────────────────
   const setCell = (ri, ci, val) => { setRows((prev) => prev.map((r, i) => (i === ri ? r.map((c, j) => (j === ci ? val : c)) : r))); scheduleFire() }
@@ -92,11 +98,21 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
       return { ...c, options: [...c.options, { label, color }] }
     }))
   }
-  const addRow = () => { setRows((prev) => [...prev, columns.map(() => '')]); scheduleFire() }
-  const removeRow = (ri) => { setRows((prev) => (prev.length <= 1 ? [columns.map(() => '')] : prev.filter((_, i) => i !== ri))); scheduleFire() }
+  const addRow = () => { setRows((prev) => [...prev, columns.map(() => '')]); setSub((prev) => [...prev, []]); scheduleFire() }
+  const removeRow = (ri) => {
+    setRows((prev) => (prev.length <= 1 ? [columns.map(() => '')] : prev.filter((_, i) => i !== ri)))
+    setSub((prev) => (prev.length <= 1 ? [[]] : prev.filter((_, i) => i !== ri)))
+    scheduleFire()
+  }
+  // Subtareas (sub paralelo a rows)
+  const toggleExpand = (ri) => setExpanded((prev) => { const n = new Set(prev); if (n.has(ri)) n.delete(ri); else n.add(ri); return n })
+  const addSub = (ri) => { setSub((prev) => prev.map((s, i) => (i === ri ? [...s, columns.map(() => '')] : s))); setExpanded((prev) => new Set(prev).add(ri)); scheduleFire() }
+  const setSubCell = (ri, si, ci, val) => { setSub((prev) => prev.map((s, i) => (i === ri ? s.map((sr, j) => (j === si ? sr.map((c, k) => (k === ci ? val : c)) : sr)) : s))); scheduleFire() }
+  const removeSub = (ri, si) => { setSub((prev) => prev.map((s, i) => (i === ri ? s.filter((_, j) => j !== si) : s))); scheduleFire() }
   const addColumn = (type = 'text') => {
     setColumns((prev) => [...prev, { name: `${TYPE_META[type]?.label || 'Columna'} ${prev.length + 1}`, type, options: [] }])
     setRows((prev) => prev.map((r) => [...r, '']))
+    setSub((prev) => prev.map((s) => s.map((sr) => [...sr, ''])))
     scheduleFire()
     // Auto-scroll a la derecha → la nueva columna y el "+" quedan visibles sin mover la barra a mano.
     requestAnimationFrame(() => { const el = scrollRef.current; if (el) el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' }) })
@@ -105,6 +121,7 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
     if (columns.length <= 1) return
     setColumns((prev) => prev.filter((_, i) => i !== ci))
     setRows((prev) => prev.map((r) => r.filter((_, i) => i !== ci)))
+    setSub((prev) => prev.map((s) => s.map((sr) => sr.filter((_, i) => i !== ci))))
     setColMenu(null)
     scheduleFire()
   }
@@ -119,6 +136,7 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
     }
     setColumns((prev) => reorder(prev))
     setRows((prev) => prev.map((r) => reorder(r)))
+    setSub((prev) => prev.map((s) => s.map(reorder)))
     scheduleFire()
   }
   // Ajustar el ancho de una columna arrastrando su borde derecho (estilo Excel).
@@ -193,7 +211,7 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
         <table className="border-collapse w-full">
           <thead className="sticky top-0 z-10">
             <tr>
-              <th className="sticky left-0 z-20 bg-nina-panel border-b border-r border-nina-line/60 w-9" />
+              <th className="sticky left-0 z-20 bg-nina-panel border-b border-r border-nina-line/60 w-14" />
               {columns.map((col, ci) => {
                 const TIcon = TYPE_META[col.type]?.icon || Type
                 return (
@@ -255,22 +273,58 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
           </thead>
           <tbody>
             {rows.map((r, ri) => (
-              <tr key={ri} className="group">
-                <td className="sticky left-0 z-10 bg-nina-ink border-b border-r border-nina-line/40 text-center align-middle">
-                  <div className="relative w-9 h-full grid place-items-center">
-                    <span className="text-[10px] text-nina-mute group-hover:opacity-0">{ri + 1}</span>
-                    <button onClick={() => removeRow(ri)} className="absolute inset-0 grid place-items-center opacity-0 group-hover:opacity-100 text-nina-mute hover:text-red-300 transition" title="Eliminar fila">
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                </td>
-                {columns.map((col, ci) => (
-                  <td key={ci} className="border-b border-r border-nina-line/40 p-0 align-middle">
-                    <Cell col={col} value={r[ci] ?? ''} onChange={(v) => setCell(ri, ci, v)} onEnsureOption={(label) => ensureOption(ci, label)} />
+              <Fragment key={ri}>
+                <tr className="group">
+                  <td className="sticky left-0 z-10 bg-nina-ink border-b border-r border-nina-line/40">
+                    <div className="flex items-center h-full pl-1 pr-0.5 w-14">
+                      <button onClick={() => toggleExpand(ri)} className="shrink-0 p-0.5 text-nina-mute/50 hover:text-nina-chrome" title={expanded.has(ri) ? 'Contraer' : 'Desplegar subtareas'}>
+                        <ChevronRight size={12} className={`transition-transform ${expanded.has(ri) ? 'rotate-90' : ''}`} />
+                      </button>
+                      <div className="relative flex-1 grid place-items-center">
+                        <span className="text-[10px] text-nina-mute group-hover:opacity-0">{ri + 1}</span>
+                        <button onClick={() => removeRow(ri)} className="absolute inset-0 grid place-items-center opacity-0 group-hover:opacity-100 text-nina-mute hover:text-red-300 transition" title="Eliminar fila">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
                   </td>
-                ))}
-                <td className="border-b border-nina-line/40" />
-              </tr>
+                  {columns.map((col, ci) => (
+                    <td key={ci} className="border-b border-r border-nina-line/40 p-0 align-middle">
+                      <Cell col={col} value={r[ci] ?? ''} onChange={(v) => setCell(ri, ci, v)} onEnsureOption={(label) => ensureOption(ci, label)} />
+                    </td>
+                  ))}
+                  <td className="border-b border-nina-line/40" />
+                </tr>
+                {expanded.has(ri) && (
+                  <>
+                    {(sub[ri] || []).map((sr, si) => (
+                      <tr key={`s-${si}`} className="group/sub bg-nina-ink/40">
+                        <td className="sticky left-0 z-10 bg-nina-ink border-b border-r border-nina-line/40">
+                          <div className="flex items-center h-full justify-end pr-1.5 w-14">
+                            <button onClick={() => removeSub(ri, si)} className="opacity-0 group-hover/sub:opacity-100 p-0.5 text-nina-mute hover:text-red-300 transition" title="Eliminar subtarea">
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
+                        </td>
+                        {columns.map((col, ci) => (
+                          <td key={ci} className={`border-b border-r border-nina-line/40 p-0 align-middle ${ci === 0 ? 'border-l-2 !border-l-nina-line/70' : ''}`}>
+                            <Cell col={col} value={sr[ci] ?? ''} onChange={(v) => setSubCell(ri, si, ci, v)} onEnsureOption={(label) => ensureOption(ci, label)} />
+                          </td>
+                        ))}
+                        <td className="border-b border-nina-line/40" />
+                      </tr>
+                    ))}
+                    <tr className="bg-nina-ink/40">
+                      <td className="sticky left-0 z-10 bg-nina-ink border-b border-r border-nina-line/40 w-14" />
+                      <td colSpan={columns.length + 1} className="border-b border-nina-line/40">
+                        <button onClick={() => addSub(ri)} className="flex items-center gap-1.5 pl-6 pr-3 py-1.5 text-[11.5px] text-nina-mute hover:text-nina-chrome transition">
+                          <Plus size={12} /> nueva subtarea
+                        </button>
+                      </td>
+                    </tr>
+                  </>
+                )}
+              </Fragment>
             ))}
           </tbody>
           {showTotals && (

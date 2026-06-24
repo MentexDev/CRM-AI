@@ -730,6 +730,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
             title: d.title || 'Hoja de cálculo',
             columns: d.columns,
             rows: Array.isArray(d.rows) ? d.rows : [],
+            sub: Array.isArray(d.sub) ? d.sub : undefined,
             messageId: m.id,
             key: String(m.id),
           })
@@ -1723,6 +1724,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
             title={active.title}
             columns={active.columns}
             rows={active.rows}
+            sub={active.sub}
             getContentRef={docContentRef}
             onChange={(p) => onDocChange?.(active.key, p)}
           />
