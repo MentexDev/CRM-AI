@@ -111,7 +111,12 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
   // Reordenar columnas (arrastrando el header) → mueve la columna y la celda correspondiente de cada fila.
   const moveColumn = (from, to) => {
     if (from == null || to == null || from === to) return
-    const reorder = (arr) => { const a = [...arr]; const [m] = a.splice(from, 1); a.splice(to, 0, m); return a }
+    const reorder = (arr) => {
+      const a = [...arr]
+      const [m] = a.splice(from, 1)
+      a.splice(from < to ? to - 1 : to, 0, m) // insertar ANTES del destino (coherente con la línea azul)
+      return a
+    }
     setColumns((prev) => reorder(prev))
     setRows((prev) => prev.map((r) => reorder(r)))
     scheduleFire()
@@ -178,8 +183,9 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
                     onDragOver={(e) => { e.preventDefault(); setDragOverCol(ci) }}
                     onDragLeave={() => setDragOverCol((o) => (o === ci ? null : o))}
                     onDrop={() => { moveColumn(dragCol.current, ci); dragCol.current = null; setDragOverCol(null) }}
-                    className={`group bg-nina-panel border-b border-r border-nina-line/60 min-w-[140px] text-left relative transition-colors ${dragOverCol === ci ? 'bg-nina-line/50' : ''}`}
+                    className="group bg-nina-panel border-b border-r border-nina-line/60 min-w-[140px] text-left relative"
                   >
+                    {dragOverCol === ci && dragCol.current !== ci && <span className="absolute -left-px top-0 bottom-0 w-0.5 bg-blue-500 z-30 pointer-events-none" />}
                     <div className="flex items-center">
                       <span
                         draggable
@@ -209,7 +215,14 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
                   </th>
                 )
               })}
-              <th className="bg-nina-panel border-b border-nina-line/60 relative" style={{ width: '100%' }}>
+              <th
+                onDragOver={(e) => { e.preventDefault(); setDragOverCol(columns.length) }}
+                onDragLeave={() => setDragOverCol((o) => (o === columns.length ? null : o))}
+                onDrop={() => { moveColumn(dragCol.current, columns.length); dragCol.current = null; setDragOverCol(null) }}
+                className="bg-nina-panel border-b border-nina-line/60 relative"
+                style={{ width: '100%' }}
+              >
+                {dragOverCol === columns.length && <span className="absolute -left-px top-0 bottom-0 w-0.5 bg-blue-500 z-30 pointer-events-none" />}
                 <AddColumnButton onAdd={addColumn} />
               </th>
             </tr>
