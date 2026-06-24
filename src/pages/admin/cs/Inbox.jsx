@@ -12,6 +12,25 @@ import { normPhone, useCsBrand } from './CsShell'
 
 const EMOJIS = ['😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😎', '🤩', '🥳', '😇', '🙂', '😉', '😋', '🤗', '🤔', '😅', '😴', '🙄', '😬', '😮', '😢', '😭', '😱', '👍', '👎', '🙏', '👏', '🙌', '💪', '🤝', '👋', '✌️', '🔥', '✨', '🎉', '❤️', '🧡', '💛', '💚', '💙', '💜', '💯', '✅', '❌', '⚠️', '📌', '🛒', '💰', '🎁', '📦', '🚀', '⏰', '📅', '📍', '📞']
 
+// Render ligero de chat: **negrita**, *itálica* y saltos de línea (el agente manda markdown; WhatsApp lo
+// interpreta, aquí también). No es markdown completo — suficiente para los mensajes del inbox.
+function parseInline(line, base) {
+  const parts = []
+  const re = /\*\*([^*]+)\*\*|\*([^*]+)\*/g
+  let last = 0, m, k = base
+  while ((m = re.exec(line))) {
+    if (m.index > last) parts.push(line.slice(last, m.index))
+    if (m[1] != null) parts.push(<strong key={k++} className="font-semibold">{m[1]}</strong>)
+    else parts.push(<em key={k++} className="italic">{m[2]}</em>)
+    last = m.index + m[0].length
+  }
+  if (last < line.length) parts.push(line.slice(last))
+  return parts.length ? parts : line
+}
+function renderRich(text) {
+  return String(text ?? '').split('\n').map((line, i) => <span key={i}>{i > 0 && <br />}{parseInline(line, i * 1000)}</span>)
+}
+
 export default function CsInbox() {
   const { brands, brandId, setBrandId } = useCsBrand()
   const [convs, setConvs] = useState([])
@@ -236,7 +255,7 @@ function Thread({ conv, me, brandId, onRead }) {
             return (
               <div key={m.id} className={`flex ${out ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[72%] rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed shadow-md ${out ? 'bg-silver-gradient text-nina-black rounded-br-md' : 'bg-nina-panel/95 text-nina-chrome border border-nina-line rounded-bl-md'}`}>
-                  {m.type !== 'text' ? <span className="italic opacity-80">[{m.type}]</span> : m.content}
+                  {m.type !== 'text' ? <span className="italic opacity-80">[{m.type}]</span> : renderRich(m.content)}
                   <span className={`flex items-center justify-end gap-1 text-[9.5px] mt-0.5 ${out ? 'text-nina-black/55' : 'text-nina-mute'}`}>
                     {new Date(m.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
                     {out && <Check className="w-3 h-3" />}
