@@ -43,7 +43,7 @@ const normCol = (c, i) => {
   const options = Array.isArray(c?.options)
     ? c.options.map((o) => (typeof o === 'string' ? { label: o, color: 'gray' } : { label: String(o?.label ?? ''), color: PILL[o?.color] ? o.color : 'gray' }))
     : []
-  return { name: String(c?.name ?? `Columna ${i + 1}`), type, options }
+  return { name: String(c?.name ?? `Columna ${i + 1}`), type, options, width: typeof c?.width === 'number' ? c.width : undefined }
 }
 
 export default function SheetView({ title: initialTitle, columns: initialColumns, rows: initialRows, getContentRef, onChange }) {
@@ -121,6 +121,25 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
     setRows((prev) => prev.map((r) => reorder(r)))
     scheduleFire()
   }
+  // Ajustar el ancho de una columna arrastrando su borde derecho (estilo Excel).
+  const setColWidth = (ci, w) => setColumns((prev) => prev.map((c, i) => (i === ci ? { ...c, width: w } : c)))
+  const startResize = (ci, e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const th = e.currentTarget.closest('th')
+    const startX = e.clientX
+    const startW = th ? th.offsetWidth : (columns[ci].width || 140)
+    const onMove = (ev) => setColWidth(ci, Math.max(70, startW + (ev.clientX - startX)))
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      scheduleFire()
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    document.body.style.cursor = 'col-resize'
+  }
 
   // Totales: solo columnas numéricas (type number, o text 100% numérico).
   const totals = useMemo(() => columns.map((col, ci) => {
@@ -183,7 +202,8 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
                     onDragOver={(e) => { e.preventDefault(); setDragOverCol(ci) }}
                     onDragLeave={() => setDragOverCol((o) => (o === ci ? null : o))}
                     onDrop={() => { moveColumn(dragCol.current, ci); dragCol.current = null; setDragOverCol(null) }}
-                    className="group bg-nina-panel border-b border-r border-nina-line/60 min-w-[140px] text-left relative"
+                    style={{ width: col.width || undefined, minWidth: col.width || 140, maxWidth: col.width || undefined }}
+                    className="group bg-nina-panel border-b border-r border-nina-line/60 text-left relative"
                   >
                     {dragOverCol === ci && dragCol.current !== ci && <span className="absolute -left-px top-0 bottom-0 w-0.5 bg-blue-500 z-30 pointer-events-none" />}
                     <div className="flex items-center">
@@ -212,6 +232,12 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
                     {colMenu === ci && (
                       <ColumnMenu col={col} onType={(t) => { setColType(ci, t); setColMenu(null) }} onClose={() => setColMenu(null)} />
                     )}
+                    <span
+                      onMouseDown={(e) => startResize(ci, e)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-blue-500/50 z-20"
+                      title="Arrastra para ajustar el ancho"
+                    />
                   </th>
                 )
               })}
