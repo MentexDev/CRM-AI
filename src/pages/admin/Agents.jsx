@@ -38,6 +38,8 @@ import {
   MousePointerClick,
   Package,
   PanelRight,
+  Maximize2,
+  Minimize2,
   Paperclip,
   Pencil,
   Play,
@@ -800,6 +802,17 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     if (lightboxKey && !galleryImages.some((i) => i.key === lightboxKey)) setLightboxKey(null)
   }, [lightboxKey, galleryImages])
 
+  // Modo del panel: acoplado (empuja el chat) ↔ flotante (overlay a la derecha, estilo NeuralOS).
+  // Persiste por agente.
+  const [canvasFloating, setCanvasFloating] = useState(() => {
+    try { return localStorage.getItem(`nina-canvas-float-${agent.slug}`) === '1' } catch { return false }
+  })
+  const toggleCanvasFloat = () => setCanvasFloating((v) => {
+    const next = !v
+    try { localStorage.setItem(`nina-canvas-float-${agent.slug}`, next ? '1' : '0') } catch { /* */ }
+    return next
+  })
+
   const [canvasOpen, setCanvasOpen] = useState(false)
   const [activeKey, setActiveKey] = useState(null)
   // Pestañas LOCALES del workspace (p.ej. un documento en blanco creado desde el "+"), que
@@ -1101,6 +1114,17 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     setLightboxKey(null)
   }
 
+  // Generar imagen desde el composer del panel (Image Studio) con el modelo + proporción elegidos.
+  // El modelo/aspecto van EMBEBIDOS en el texto + force_tool generate_image (el agente los pone en los args).
+  const sendImagePrompt = (prompt, opts = {}) => {
+    const p = (prompt || '').trim()
+    if (!p) return
+    const model = opts.model || 'flux-pro'
+    const aspect = opts.aspect || '1:1'
+    const text = `${p}\n\n[Genera esta imagen con la herramienta generate_image usando model="${model}" y aspect_ratio="${aspect}".]`
+    sendAgentPrompt(text, 'generate_image')
+  }
+
   // Eliminar el avance del canvas (soft-hide persistente vía Edge Function). Optimista:
   // lo ocultamos ya; si falla, lo restauramos. Si era el activo, vuelve al más reciente.
   const deleteArtifact = async (artifact) => {
@@ -1317,7 +1341,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   }, [allMessages.length, thinking])
 
   return (
-    <div className="h-full flex flex-row">
+    <div className="h-full flex flex-row relative">
       {/* Capa transparente durante el arrastre: cubre el iframe del canvas para
           que NO se trague los eventos del puntero (si no, al mover rápido el cursor
           entra al iframe y el resize pierde el rastro). */}
@@ -1448,7 +1472,9 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
             animate={{ width: canvasWidth, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ duration: dragging ? 0 : 0.32, ease: 'easeOut' }}
-            className="hidden md:flex shrink-0 relative overflow-hidden border-l border-nina-line bg-nina-panel/40 flex-col min-w-0"
+            className={canvasFloating
+              ? 'hidden md:flex absolute right-3 top-3 bottom-3 z-30 rounded-2xl border border-nina-line bg-nina-panel shadow-2xl shadow-black/50 overflow-hidden flex-col min-w-0'
+              : 'hidden md:flex shrink-0 relative overflow-hidden border-l border-nina-line bg-nina-panel/40 flex-col min-w-0'}
           >
             {/* Divisor arrastrable — ajusta el ancho chat↔canvas (con límites) */}
             <div
@@ -1477,6 +1503,10 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               onElementEdit={submitElementEdit}
               onDocChange={onDocChange}
               onImageZoom={openLightbox}
+              floating={canvasFloating}
+              onToggleFloat={toggleCanvasFloat}
+              onGenerateImage={sendImagePrompt}
+              sending={thinking}
             />
             {/* Visor de imágenes — montado DENTRO del panel (absolute) para cubrir solo el ancho del canvas. */}
             {lightboxKey && (
@@ -1575,7 +1605,64 @@ const SELECTOR_SCRIPT = `<script>(function(){
   document.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var el=e.target;if(last&&last.classList)last.classList.remove('__ninaHov');var c=el.cloneNode(true);if(c.classList)c.classList.remove('__ninaHov');parent.postMessage({type:'nina-select',selector:path(el),tag:(el.tagName||'').toLowerCase(),text:(el.textContent||'').replace(/\\s+/g,' ').trim().slice(0,90),outerHTML:(c.outerHTML||'').slice(0,4000)},'*');},true);
 })();</script>`
 
-function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave, onDelete, saved, docContentRef, onElementEdit, onOpenPalette, onDocChange, onCloseTab, onReopen, onImageZoom }) {
+// Catálogo de modelos de imagen para el composer del Image Studio (espejo del enum de generate_image).
+const IMAGE_MODEL_CATALOG = [
+  { value: 'flux-schnell', label: 'Flux Schnell' },
+  { value: 'flux-dev', label: 'Flux Dev' },
+  { value: 'stable-xl', label: 'Stable XL' },
+  { value: 'flux-pro', label: 'Flux Pro' },
+  { value: 'flux-ultra', label: 'Flux Ultra' },
+  { value: 'nano-banana', label: 'Nano Banana' },
+]
+const ASPECT_OPTIONS = [
+  { value: '1:1', label: '1:1' },
+  { value: '16:9', label: '16:9' },
+  { value: '9:16', label: '9:16' },
+  { value: '4:5', label: '4:5' },
+  { value: '3:2', label: '3:2' },
+]
+
+// Composer del Image Studio: describe la imagen + elige modelo (fal) y proporción → genera en el panel.
+function ImageComposer({ onGenerate, sending }) {
+  const [prompt, setPrompt] = useState('')
+  const [model, setModel] = useState('flux-pro')
+  const [aspect, setAspect] = useState('1:1')
+  const submit = () => {
+    const p = prompt.trim()
+    if (!p || sending) return
+    onGenerate?.(p, { model, aspect })
+    setPrompt('')
+  }
+  return (
+    <div className="shrink-0 p-2.5 border-t border-nina-line/60">
+      <div className="rounded-2xl border border-nina-line bg-nina-ink/60 px-3 pt-2 pb-2">
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+          rows={1}
+          placeholder="Describe la imagen que quieres generar…"
+          className="w-full bg-transparent text-[13px] text-nina-chrome placeholder:text-nina-mute/60 outline-none resize-none max-h-28"
+        />
+        <div className="flex items-center gap-2 mt-1.5">
+          <Select value={model} onChange={setModel} options={IMAGE_MODEL_CATALOG} className="w-[150px]" />
+          <Select value={aspect} onChange={setAspect} options={ASPECT_OPTIONS} className="w-[84px]" />
+          <div className="flex-1" />
+          <button
+            onClick={submit}
+            disabled={!prompt.trim() || sending}
+            className="w-8 h-8 grid place-items-center rounded-full bg-silver-gradient text-nina-black disabled:opacity-40 shrink-0 transition"
+            title="Generar imagen"
+          >
+            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave, onDelete, saved, docContentRef, onElementEdit, onOpenPalette, onDocChange, onCloseTab, onReopen, onImageZoom, floating, onToggleFloat, onGenerateImage, sending }) {
   const label = (a) =>
     a.type === 'document' ? a.title || 'Documento'
       : a.type === 'slides' ? a.title || 'Presentación'
@@ -1753,6 +1840,16 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
             </button>
           </>
         )}
+        {onToggleFloat && (
+          <button
+            onClick={onToggleFloat}
+            className="w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition shrink-0"
+            title={floating ? 'Acoplar el panel' : 'Hacer flotante (Image Studio)'}
+            aria-label="Alternar panel flotante"
+          >
+            {floating ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
+        )}
         <button
           onClick={onClose}
           className="w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition shrink-0"
@@ -1817,24 +1914,27 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         ) : active?.type === 'calendar' ? (
           <CalendarView events={active.events} />
         ) : active?.type === 'gallery' ? (
-          <div className="w-full h-full overflow-auto p-1">
-            {/* Masonry: cada imagen conserva su proporción real (1:1, 9:16, 16:9…) y las columnas
-                acomodan alturas variables — no se recorta todo a cuadrado. */}
-            <div className="columns-2 lg:columns-3 gap-2">
-              {(active.images || []).map((img) => (
-                <button
-                  key={img.key}
-                  onClick={() => onImageZoom?.(img.key)}
-                  className="group relative mb-2 block w-full break-inside-avoid rounded-lg overflow-hidden border border-nina-line bg-nina-ink/50 cursor-zoom-in"
-                  title={img.prompt || 'Abrir'}
-                >
-                  <img src={img.url} alt={img.prompt || 'Imagen'} referrerPolicy="no-referrer" className="w-full h-auto object-cover transition duration-300 group-hover:scale-[1.03]" />
-                  {img.prompt && (
-                    <span className="absolute inset-x-0 bottom-0 px-2 py-1 text-[10px] text-white/90 bg-gradient-to-t from-black/70 to-transparent truncate text-left opacity-0 group-hover:opacity-100 transition">{img.prompt}</span>
-                  )}
-                </button>
-              ))}
+          <div className="w-full h-full flex flex-col">
+            <div className="flex-1 min-h-0 overflow-auto p-1">
+              {/* Masonry: cada imagen conserva su proporción real (1:1, 9:16, 16:9…) y las columnas
+                  acomodan alturas variables — no se recorta todo a cuadrado. */}
+              <div className="columns-2 lg:columns-3 gap-2">
+                {(active.images || []).map((img) => (
+                  <button
+                    key={img.key}
+                    onClick={() => onImageZoom?.(img.key)}
+                    className="group relative mb-2 block w-full break-inside-avoid rounded-lg overflow-hidden border border-nina-line bg-nina-ink/50 cursor-zoom-in"
+                    title={img.prompt || 'Abrir'}
+                  >
+                    <img src={img.url} alt={img.prompt || 'Imagen'} referrerPolicy="no-referrer" className="w-full h-auto object-cover transition duration-300 group-hover:scale-[1.03]" />
+                    {img.prompt && (
+                      <span className="absolute inset-x-0 bottom-0 px-2 py-1 text-[10px] text-white/90 bg-gradient-to-t from-black/70 to-transparent truncate text-left opacity-0 group-hover:opacity-100 transition">{img.prompt}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
+            {onGenerateImage && <ImageComposer onGenerate={onGenerateImage} sending={sending} />}
           </div>
         ) : active?.type === 'image' ? (
           <div className="w-full h-full grid place-items-center overflow-auto">

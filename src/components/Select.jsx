@@ -17,7 +17,11 @@ export default function Select({ value, onChange, options = [], placeholder = 'S
 
   const place = () => {
     const r = btnRef.current?.getBoundingClientRect()
-    if (r) setRect({ top: r.bottom + 4, left: r.left, width: r.width })
+    if (!r) return
+    // Flip hacia ARRIBA si no hay espacio suficiente abajo (p.ej. el composer al fondo del panel).
+    const estH = Math.min(options.length * 38 + 8, 264)
+    const up = window.innerHeight - r.bottom < estH + 8 && r.top > window.innerHeight - r.bottom
+    setRect({ left: r.left, width: r.width, top: up ? r.top - 4 : r.bottom + 4, up })
   }
   const toggle = () => { if (disabled) return; if (!open) place(); setOpen((o) => !o) }
 
@@ -58,7 +62,7 @@ export default function Select({ value, onChange, options = [], placeholder = 'S
       {open && rect && createPortal(
         <div
           ref={menuRef}
-          style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, zIndex: 9999 }}
+          style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, zIndex: 9999, ...(rect.up ? { transform: 'translateY(-100%)' } : null) }}
           className="rounded-xl border border-nina-line bg-nina-panel shadow-2xl p-1 max-h-64 overflow-y-auto"
         >
           {options.length === 0 && <div className="px-2.5 py-2 text-[12.5px] text-nina-mute">Sin opciones</div>}
