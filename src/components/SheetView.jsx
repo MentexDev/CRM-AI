@@ -156,8 +156,7 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
       </div>
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
-        <div className="inline-block min-w-full pr-3 align-top">
-        <table className="border-collapse">
+        <table className="border-collapse w-full">
           <thead className="sticky top-0 z-10">
             <tr>
               <th className="sticky left-0 z-20 bg-nina-panel border-b border-r border-nina-line/60 w-9" />
@@ -185,7 +184,7 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
                   </th>
                 )
               })}
-              <th className="bg-nina-panel border-b border-nina-line/60 w-9 relative">
+              <th className="bg-nina-panel border-b border-nina-line/60 relative" style={{ width: '100%' }}>
                 <AddColumnButton onAdd={addColumn} />
               </th>
             </tr>
@@ -225,7 +224,6 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
         <button onClick={addRow} className="flex items-center gap-1.5 px-3 py-2 text-[12px] text-nina-mute hover:text-nina-chrome transition">
           <Plus size={13} /> fila
         </button>
-        </div>
       </div>
     </div>
   )
@@ -333,13 +331,13 @@ function AddColumnButton({ onAdd }) {
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button onClick={() => setOpen((o) => !o)} className="w-full h-full grid place-items-center text-nina-mute hover:text-nina-chrome py-1.5" title="Agregar columna">
+      <button onClick={() => setOpen((o) => !o)} className="w-full h-full flex items-center justify-start px-2.5 text-nina-mute hover:text-nina-chrome py-1.5" title="Agregar columna">
         <Plus size={14} />
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="absolute z-30 top-full right-0 mt-0.5 w-52 rounded-lg border border-nina-line bg-nina-panel shadow-xl p-1.5">
+          <div className="absolute z-30 top-full left-0 mt-0.5 w-52 rounded-lg border border-nina-line bg-nina-panel shadow-xl p-1.5">
             <div className="text-[10px] uppercase tracking-wide text-nina-mute px-1.5 pb-1">Nueva columna</div>
             {TYPE_KEYS.map((t) => {
               const Icon = TYPE_META[t].icon
