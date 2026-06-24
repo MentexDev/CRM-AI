@@ -60,8 +60,9 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
   })
   // Subtareas: `sub` es paralelo a `rows` (sub[i] = subfilas de la fila i). No cambia el formato de `rows`.
   const [sub, setSub] = useState(() => {
+    const cols = columnsLen(initialColumns)
     const s = Array.isArray(initialSub) ? initialSub : []
-    return Array.from({ length: rows.length }, (_, i) => (Array.isArray(s[i]) ? s[i].map((sr) => (Array.isArray(sr) ? sr.map((c) => String(c ?? '')) : [])) : []))
+    return Array.from({ length: rows.length }, (_, i) => (Array.isArray(s[i]) ? s[i].map((sr) => Array.from({ length: cols }, (_, k) => (Array.isArray(sr) ? String(sr[k] ?? '') : ''))) : []))
   })
   const [expanded, setExpanded] = useState(() => new Set())
   const [showTotals, setShowTotals] = useState(true)
@@ -102,6 +103,13 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
   const removeRow = (ri) => {
     setRows((prev) => (prev.length <= 1 ? [columns.map(() => '')] : prev.filter((_, i) => i !== ri)))
     setSub((prev) => (prev.length <= 1 ? [[]] : prev.filter((_, i) => i !== ri)))
+    // Reindexar el Set de filas expandidas: las posteriores a `ri` se desplazan -1.
+    setExpanded((prev) => {
+      if (rows.length <= 1) return new Set()
+      const n = new Set()
+      prev.forEach((x) => { if (x < ri) n.add(x); else if (x > ri) n.add(x - 1) })
+      return n
+    })
     scheduleFire()
   }
   // Subtareas (sub paralelo a rows)
@@ -161,23 +169,42 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
 
   // Totales: solo columnas numéricas (type number, o text 100% numérico).
   const totals = useMemo(() => columns.map((col, ci) => {
-    if (col.type !== 'number' && col.type !== 'text') return null
-    let sum = 0, count = 0
-    for (const r of rows) {
-      const raw = r[ci]
-      if (typeof raw !== 'string' || raw.trim() === '') continue
-      const n = parseNum(raw)
-      if (n == null) return null
-      sum += n; count++
+    if (col.type === 'number') {
+      // Columna numérica: suma SOLO las celdas numéricas (ignora inválidas, no aborta).
+      // ',' = separador de miles, '.' = decimal (sin la heurística de miles de parseNum).
+      let sum = 0, count = 0
+      for (const r of rows) {
+        const raw = r[ci]
+        if (typeof raw !== 'string' || raw.trim() === '') continue
+        const num = Number(raw.replace(/[$\s%]/g, '').replace(/,/g, ''))
+        if (Number.isFinite(num)) { sum += num; count++ }
+      }
+      return count ? sum : null
     }
-    return count ? sum : null
+    if (col.type === 'text') {
+      // Best-effort: total solo si TODAS las celdas no vacías son numéricas (heurística de locale).
+      let sum = 0, count = 0
+      for (const r of rows) {
+        const raw = r[ci]
+        if (typeof raw !== 'string' || raw.trim() === '') continue
+        const n = parseNum(raw)
+        if (n == null) return null
+        sum += n; count++
+      }
+      return count ? sum : null
+    }
+    return null
   }), [columns, rows])
 
   const fmtTotal = (n) => (n == null ? '' : (Math.round(n * 100) / 100).toLocaleString('es-CO', { maximumFractionDigits: 2 }))
 
   const exportCSV = () => {
     const esc = (s) => { const v = String(s ?? ''); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v }
-    const lines = [columns.map((c) => esc(c.name)).join(','), ...rows.map((r) => r.map(esc).join(','))]
+    const lines = [columns.map((c) => esc(c.name)).join(',')]
+    rows.forEach((r, ri) => {
+      lines.push(r.map(esc).join(','))
+      ;(sub[ri] || []).forEach((sr) => lines.push(sr.map((cell, ci) => esc(ci === 0 ? `  ↳ ${cell}` : cell)).join(',')))
+    })
     const csv = '﻿' + lines.join('\r\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
@@ -376,12 +403,19 @@ function Cell({ col, value, onChange, onEnsureOption }) {
 
 function SelectCell({ col, value, onChange, onEnsureOption }) {
   const [open, setOpen] = useState(false)
+  const [up, setUp] = useState(false)
   const [draft, setDraft] = useState('')
+  const btnRef = useRef(null)
   const opt = col.options.find((o) => o.label === value)
   const pick = (label) => { onEnsureOption(label); onChange(label); setOpen(false); setDraft('') }
+  // Si la celda está en la mitad inferior de la pantalla, abre el menú HACIA ARRIBA (no se recorta).
+  const toggle = () => {
+    if (!open && btnRef.current) setUp(btnRef.current.getBoundingClientRect().bottom > window.innerHeight * 0.55)
+    setOpen((o) => !o)
+  }
   return (
     <div className="relative">
-      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-1 px-2 py-1.5 min-h-[31px] text-left hover:bg-nina-line/20 transition">
+      <button ref={btnRef} onClick={toggle} className="w-full flex items-center gap-1 px-2 py-1.5 min-h-[31px] text-left hover:bg-nina-line/20 transition">
         {value ? (
           <span className={`px-2 py-0.5 rounded-full text-[11px] border ${PILL[opt?.color] || PILL.gray}`}>{value}</span>
         ) : (
@@ -391,7 +425,7 @@ function SelectCell({ col, value, onChange, onEnsureOption }) {
       {open && (
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="absolute z-30 top-full left-1 mt-0.5 w-44 rounded-lg border border-nina-line bg-nina-panel shadow-xl p-1.5">
+          <div className={`absolute z-30 left-1 w-44 rounded-lg border border-nina-line bg-nina-panel shadow-xl p-1.5 ${up ? 'bottom-full mb-0.5' : 'top-full mt-0.5'}`}>
             <div className="max-h-44 overflow-y-auto space-y-0.5">
               {col.options.map((o) => (
                 <button key={o.label} onClick={() => pick(o.label)} className="w-full flex items-center justify-between gap-1 px-1.5 py-1 rounded-md hover:bg-nina-line/40 transition">

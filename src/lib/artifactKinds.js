@@ -107,11 +107,12 @@ export function artifactToFile(a) {
         const s = String(v ?? '')
         return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
       }
+      const cells = (r) => (Array.isArray(r) ? r : cols.map((c, i) => r?.[c] ?? r?.[i] ?? ''))
       const lines = [cols.map(esc).join(',')]
-      for (const r of a.rows || []) {
-        const arr = Array.isArray(r) ? r : cols.map((c, i) => r?.[c] ?? r?.[i] ?? '')
-        lines.push(arr.map(esc).join(','))
-      }
+      ;(a.rows || []).forEach((r, ri) => {
+        lines.push(cells(r).map(esc).join(','))
+        ;((a.sub || [])[ri] || []).forEach((sr) => lines.push(cells(sr).map((v, ci) => esc(ci === 0 ? `  ↳ ${v}` : v)).join(',')))
+      })
       return { name: `${base}.csv`, text: lines.join('\n'), mime: 'text/csv' }
     }
     case 'slides': {

@@ -598,14 +598,15 @@ function boardToMarkdown(title, nodes, edges) {
 }
 
 // Serializa una hoja (draft_sheet) a una tabla Markdown para guardarla en la biblioteca.
-function sheetToMarkdown(title, columns, rows) {
+function sheetToMarkdown(title, columns, rows, sub) {
   const cols = (columns && columns.length ? columns : ['Columna 1']).map((c) => String((typeof c === 'string' ? c : c?.name) ?? '').replace(/\|/g, '\\|') || ' ')
   const esc = (v) => String(v ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ')
   const lines = [`# ${title || 'Hoja de cálculo'}`, '', `| ${cols.join(' | ')} |`, `| ${cols.map(() => '---').join(' | ')} |`]
-  for (const r of rows || []) {
-    const cells = cols.map((_, i) => esc(Array.isArray(r) ? r[i] : ''))
-    lines.push(`| ${cells.join(' | ')} |`)
-  }
+  const rowMd = (r, indent) => `| ${cols.map((_, i) => esc((indent && i === 0 ? '↳ ' : '') + (Array.isArray(r) ? r[i] ?? '' : ''))).join(' | ')} |`
+  ;(rows || []).forEach((r, ri) => {
+    lines.push(rowMd(r, false))
+    ;((sub || [])[ri] || []).forEach((sr) => lines.push(rowMd(sr, true)))
+  })
   return lines.join('\n')
 }
 
@@ -1023,7 +1024,8 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         const ttl = (live?.title || artifact.title || 'Hoja NINA').trim() || 'Hoja NINA'
         const cols = Array.isArray(live?.columns) ? live.columns : artifact.columns || []
         const rws = Array.isArray(live?.rows) ? live.rows : artifact.rows || []
-        const md = sheetToMarkdown(ttl, cols, rws)
+        const sbs = Array.isArray(live?.sub) ? live.sub : artifact.sub
+        const md = sheetToMarkdown(ttl, cols, rws, sbs)
         row = { title: ttl, kind: 'document', content: md, source: 'canvas', size_bytes: new Blob([md]).size, agent_id: agent.id, brand_id: agent.brand_id ?? null }
       } else if (artifact.type === 'board') {
         // Toma lo EDITADO (docContentRef del BoardView activo) y serializa a Markdown.
