@@ -7,6 +7,7 @@ import Agents from './pages/admin/Agents'
 import Tasks from './pages/admin/Tasks'
 import Approvals from './pages/admin/Approvals'
 import Biblioteca from './pages/admin/Biblioteca'
+import Plantillas from './pages/admin/Plantillas'
 import Cerebro from './pages/admin/Cerebro'
 import Brands from './pages/admin/Brands'
 import Produccion from './pages/admin/Produccion'
@@ -83,6 +84,7 @@ export default function App() {
         <Route path="tareas" element={<Tasks />} />
         <Route path="aprobaciones" element={<Approvals />} />
         <Route path="biblioteca" element={<Biblioteca />} />
+        <Route path="plantillas" element={<Plantillas />} />
         <Route path="cerebro" element={<Cerebro />} />
         <Route path="produccion" element={<Produccion />} />
         <Route path="marcas" element={<Brands />} />

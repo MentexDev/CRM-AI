@@ -13,6 +13,7 @@ import {
   Crown,
   Headset,
   KanbanSquare,
+  LayoutTemplate,
   Library,
   ListFilter,
   ListTodo,
@@ -297,7 +298,7 @@ const WORKSPACES = [
 
 // Rutas que pertenecen a cada workspace (para saber cuál está activo).
 const WORKSPACE_ROUTES = {
-  agentes: ['/admin/agentes', '/admin/tareas', '/admin/aprobaciones', '/admin/biblioteca', '/admin/cerebro', '/admin/marcas'],
+  agentes: ['/admin/agentes', '/admin/tareas', '/admin/aprobaciones', '/admin/biblioteca', '/admin/plantillas', '/admin/cerebro', '/admin/marcas'],
   atencion: ['/admin/atencion'],
   produccion: ['/admin/produccion'],
   equipo: ['/admin/equipo'],
@@ -316,6 +317,7 @@ const WORKSPACE_NAV = {
     { to: '/admin/tareas', icon: ListTodo, label: 'Tareas' },
     { to: '/admin/aprobaciones', icon: CheckCircle2, label: 'Aprobaciones' },
     { to: '/admin/biblioteca', icon: Library, label: 'Biblioteca' },
+    { to: '/admin/plantillas', icon: LayoutTemplate, label: 'Plantillas Code' },
     { to: '/admin/cerebro', icon: Brain, label: 'Cerebro' },
     { to: '/admin/marcas', icon: Sparkles, label: 'Marcas' },
     { to: '/admin/salud', icon: Activity, label: 'Salud' },
