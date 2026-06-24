@@ -86,6 +86,7 @@ import AgentActionsMenu from '../../components/AgentActionsMenu'
 import ToolResultBubble from '../../components/ToolResultBubble'
 import ArtifactResultCard from '../../components/artifacts/ArtifactResultCard'
 import ArtifactProgressCard from '../../components/artifacts/ArtifactProgressCard'
+import ImageLightbox from '../../components/artifacts/ImageLightbox'
 import { artifactToFile } from '../../lib/artifactKinds'
 import Markdown from '../../components/Markdown'
 import VoiceOverlay from '../../components/VoiceOverlay'
@@ -693,8 +694,10 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               out.push({
                 type: 'image',
                 title: d.prompt ? String(d.prompt).slice(0, 48) : 'Imagen',
+                prompt: d.prompt ? String(d.prompt) : '',
                 url: String(url),
                 aspect: d.aspect_ratio ?? null,
+                model: d.model ?? d.provider ?? null,
                 warning: typeof d.warning === 'string' ? d.warning : undefined,
                 messageId: m.id,
                 key: `${m.id}:${i}`,
@@ -777,6 +780,20 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   }, [messages, hiddenKeys])
   const latestArtifact = canvasArtifacts.length ? canvasArtifacts[canvasArtifacts.length - 1] : null
 
+  // Galería de imágenes (Image Studio): TODAS las imágenes del hilo se agrupan en UNA sola pestaña
+  // 'gallery' en la barra del canvas (en vez de una pestaña por imagen). canvasArtifacts queda
+  // intacto (las tarjetas del hilo siguen viéndolas como type:'image'); solo cambia la capa de tabs.
+  const galleryImages = useMemo(() => canvasArtifacts.filter((a) => a.type === 'image'), [canvasArtifacts])
+  const groupedArtifacts = useMemo(() => {
+    const nonImg = canvasArtifacts.filter((a) => a.type !== 'image')
+    if (!galleryImages.length) return nonImg
+    const last = galleryImages[galleryImages.length - 1]
+    return [...nonImg, { type: 'gallery', key: 'gallery', title: 'Imágenes', images: galleryImages, messageId: last.messageId }]
+  }, [canvasArtifacts, galleryImages])
+  // Visor grande (lightbox) — key de la imagen abierta a tamaño completo.
+  const [lightboxKey, setLightboxKey] = useState(null)
+  const openLightbox = (key) => setLightboxKey(key)
+
   const [canvasOpen, setCanvasOpen] = useState(false)
   const [activeKey, setActiveKey] = useState(null)
   // Pestañas LOCALES del workspace (p.ej. un documento en blanco creado desde el "+"), que
@@ -803,8 +820,8 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // pierde lo editado. onDocChange escribe aquí (no solo para pestañas 'local-') y allTabs lo fusiona.
   const [editedTabs, setEditedTabs] = useState({})
   const allTabs = useMemo(
-    () => [...canvasArtifacts, ...localTabs].map((a) => (editedTabs[a.key] ? { ...a, ...editedTabs[a.key] } : a)),
-    [canvasArtifacts, localTabs, editedTabs],
+    () => [...groupedArtifacts, ...localTabs].map((a) => (editedTabs[a.key] ? { ...a, ...editedTabs[a.key] } : a)),
+    [groupedArtifacts, localTabs, editedTabs],
   )
   // Pestañas CERRADAS (recuperables desde el historial). Cerrar ≠ Eliminar: cerrar solo las
   // saca de la tira (siguen en el historial); "Eliminar" sí las borra (soft-hide) y entonces
@@ -967,7 +984,13 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
       // desmontaría su editor y perdería lo escrito. Igual abrimos el canvas (la nueva pestaña
       // queda disponible), pero respetamos su pestaña activa.
       if (!(typeof activeKey === 'string' && activeKey.startsWith('local-'))) {
-        setActiveKey(latestArtifact.key) // nueva pestaña al frente; las previas quedan como íconos
+        if (latestArtifact.type === 'image') {
+          // Todas las imágenes viven en la pestaña 'gallery' → la reabrimos (si estaba cerrada) y al frente.
+          setClosedKeys((s) => { if (!s.has('gallery')) return s; const n = new Set(s); n.delete('gallery'); return n })
+          setActiveKey('gallery')
+        } else {
+          setActiveKey(latestArtifact.key) // nueva pestaña al frente; las previas quedan como íconos
+        }
       }
     }
   }, [latestArtifact?.key, messages.length])
@@ -1046,6 +1069,17 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     } catch (e) {
       toast.error(e?.message || 'No se pudo guardar', { id: t })
     }
+  }
+
+  // Variación de una imagen: re-genera con nano-banana (Gemini) usando la imagen como referencia
+  // exacta + la instrucción del usuario. Reusa sendAgentPrompt (force_tool generate_image); la URL y
+  // 'nano-banana' van en el texto porque force_tool sólo fuerza el NOMBRE de la tool, no los args.
+  const submitImageVariation = (img, instruction) => {
+    if (!img || !instruction?.trim()) return
+    const base = img.prompt && img.prompt.trim() ? img.prompt.trim() : img.title || ''
+    const text = `Crea una VARIACIÓN de esta imagen con el modelo nano-banana (Gemini), usando la imagen como referencia EXACTA (pásala en reference_image_urls). Imagen de referencia: ${img.url}.${base ? ` Contexto original: ${base}.` : ''} Cambios a aplicar: ${instruction.trim()}. Mantén todo lo demás igual.`
+    sendAgentPrompt(text, 'generate_image')
+    setLightboxKey(null)
   }
 
   // Eliminar el avance del canvas (soft-hide persistente vía Edge Function). Optimista:
@@ -1356,6 +1390,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
                     artifacts={groupArtifacts}
                     onOpenArtifact={reopenFromHistory}
                     onDownloadArtifact={downloadArtifact}
+                    onZoomArtifact={openLightbox}
                   />
                 )
               }
@@ -1422,6 +1457,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               docContentRef={docContentRef}
               onElementEdit={submitElementEdit}
               onDocChange={onDocChange}
+              onImageZoom={openLightbox}
             />
           </motion.aside>
         )}
@@ -1433,6 +1469,20 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         onAgentPrompt={sendAgentPrompt}
       />
       {filesOpen && <FilesModal files={conversationFiles} onClose={() => setFilesOpen(false)} />}
+      {lightboxKey && (
+        <ImageLightbox
+          images={galleryImages}
+          activeKey={lightboxKey}
+          onClose={() => setLightboxKey(null)}
+          onSelect={setLightboxKey}
+          onDownload={downloadArtifact}
+          onSave={saveToLibrary}
+          onExport={() => { setLightboxKey(null); reopenFromHistory('gallery') }}
+          onVariation={submitImageVariation}
+          savedKeys={savedKeys}
+          sending={thinking}
+        />
+      )}
     </div>
   )
 }
@@ -1504,7 +1554,7 @@ const SELECTOR_SCRIPT = `<script>(function(){
   document.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var el=e.target;if(last&&last.classList)last.classList.remove('__ninaHov');var c=el.cloneNode(true);if(c.classList)c.classList.remove('__ninaHov');parent.postMessage({type:'nina-select',selector:path(el),tag:(el.tagName||'').toLowerCase(),text:(el.textContent||'').replace(/\\s+/g,' ').trim().slice(0,90),outerHTML:(c.outerHTML||'').slice(0,4000)},'*');},true);
 })();</script>`
 
-function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave, onDelete, saved, docContentRef, onElementEdit, onOpenPalette, onDocChange, onCloseTab, onReopen }) {
+function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave, onDelete, saved, docContentRef, onElementEdit, onOpenPalette, onDocChange, onCloseTab, onReopen, onImageZoom }) {
   const label = (a) =>
     a.type === 'document' ? a.title || 'Documento'
       : a.type === 'slides' ? a.title || 'Presentación'
@@ -1512,6 +1562,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
       : a.type === 'board' ? a.title || 'Pizarra'
       : a.type === 'pdf' ? a.title || 'PDF'
       : a.type === 'calendar' ? 'Calendario'
+      : a.type === 'gallery' ? a.title || 'Imágenes'
       : a.type === 'image' ? a.title
       : a.subject
   const [selecting, setSelecting] = useState(false)
@@ -1583,7 +1634,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
                 ) : (
                   [...(history || [])].reverse().map((a) => {
                     const HIcon =
-                      a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : a.type === 'board' ? LayoutGrid : a.type === 'pdf' ? FileType : MessageSquare
+                      a.type === 'image' || a.type === 'gallery' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : a.type === 'board' ? LayoutGrid : a.type === 'pdf' ? FileType : MessageSquare
                     const isOpen = artifacts.some((t) => t.key === a.key)
                     return (
                       <button
@@ -1605,7 +1656,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
           {artifacts.map((a) => {
             const isActive = active && a.key === active.key
-            const TabIcon = a.type === 'image' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : a.type === 'board' ? LayoutGrid : a.type === 'pdf' ? FileType : MessageSquare
+            const TabIcon = a.type === 'image' || a.type === 'gallery' ? ImageIcon : a.type === 'calendar' ? CalendarDays : a.type === 'document' ? FileText : a.type === 'slides' ? Presentation : a.type === 'sheet' ? Table : a.type === 'board' ? LayoutGrid : a.type === 'pdf' ? FileType : MessageSquare
             return (
               <button
                 key={a.key}
@@ -1656,7 +1707,7 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
             <span className="hidden lg:inline">{selecting ? 'Selecciona…' : 'Editar'}</span>
           </button>
         )}
-        {active && (
+        {active && active.type !== 'gallery' && (
           <>
             <button
               onClick={onSave}
@@ -1744,6 +1795,24 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
           <PdfView key={active.key} src={active.src} title={active.title} />
         ) : active?.type === 'calendar' ? (
           <CalendarView events={active.events} />
+        ) : active?.type === 'gallery' ? (
+          <div className="w-full h-full overflow-auto p-1">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+              {(active.images || []).map((img) => (
+                <button
+                  key={img.key}
+                  onClick={() => onImageZoom?.(img.key)}
+                  className="group relative rounded-lg overflow-hidden border border-nina-line bg-nina-ink/50 aspect-square cursor-zoom-in"
+                  title={img.prompt || 'Abrir'}
+                >
+                  <img src={img.url} alt={img.prompt || 'Imagen'} referrerPolicy="no-referrer" className="w-full h-full object-cover transition duration-300 group-hover:scale-105" />
+                  {img.prompt && (
+                    <span className="absolute inset-x-0 bottom-0 px-2 py-1 text-[10px] text-white/90 bg-gradient-to-t from-black/70 to-transparent truncate text-left">{img.prompt}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
         ) : active?.type === 'image' ? (
           <div className="w-full h-full grid place-items-center overflow-auto">
             <img
@@ -3396,7 +3465,7 @@ function normalizeSteps(steps, live) {
 
 // Bloque de un turno con acciones: Tarjeta A (progreso) + Tarjeta(s) B (artefacto final) +
 // el detalle técnico (StepsGroup, que conserva aprobaciones/búsquedas/resultados crudos).
-function StepsBlock({ steps, agentName, live, artifacts = [], onOpenArtifact, onDownloadArtifact }) {
+function StepsBlock({ steps, agentName, live, artifacts = [], onOpenArtifact, onDownloadArtifact, onZoomArtifact }) {
   const norm = normalizeSteps(steps, live)
   const done = norm.filter((s) => s.status === 'done' || s.status === 'error').length
   const showProgress = live || steps.length >= 2 || artifacts.length > 0
@@ -3412,7 +3481,8 @@ function StepsBlock({ steps, agentName, live, artifacts = [], onOpenArtifact, on
           key={a.key}
           artifact={a}
           agentName={agentName}
-          onOpen={() => onOpenArtifact?.(a.key)}
+          onOpen={() => onOpenArtifact?.(a.type === 'image' ? 'gallery' : a.key)}
+          onZoom={a.type === 'image' ? () => onZoomArtifact?.(a.key) : undefined}
           onDownload={() => onDownloadArtifact?.(a)}
         />
       ))}

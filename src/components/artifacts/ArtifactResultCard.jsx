@@ -5,7 +5,7 @@ import { artifactPreview, kindMeta } from '../../lib/artifactKinds'
 // Tarjeta del ARTEFACTO FINAL en el hilo del chat (estilo NeuralOS, diseño NINA).
 // Cabecera tipada (etiqueta + meta '· N palabras · generado por AGENTE') + preview + acciones.
 // Reusa el molde estructural de AssetCard (Biblioteca) y abre/descarga con los flujos ya existentes.
-export default function ArtifactResultCard({ artifact, agentName, onOpen, onDownload }) {
+export default function ArtifactResultCard({ artifact, agentName, onOpen, onDownload, onZoom }) {
   if (!artifact) return null
   const m = kindMeta(artifact.type)
   const Icon = m.Icon
@@ -41,7 +41,7 @@ export default function ArtifactResultCard({ artifact, agentName, onOpen, onDown
 
       {/* Preview del contenido */}
       {isImage && artifact.url ? (
-        <button type="button" onClick={onOpen} className="block w-full bg-nina-ink/50 border-b border-nina-line/40" title="Abrir">
+        <button type="button" onClick={onZoom || onOpen} className="block w-full bg-nina-ink/50 border-b border-nina-line/40 cursor-zoom-in" title="Ampliar">
           <img src={artifact.url} alt={title} referrerPolicy="no-referrer" className="w-full max-h-60 object-cover" />
         </button>
       ) : isEmail && artifact.html ? (
@@ -73,10 +73,10 @@ export default function ArtifactResultCard({ artifact, agentName, onOpen, onDown
 
       {/* Acciones */}
       <div className="flex items-center justify-end gap-1.5 px-3 py-2 border-t border-nina-line/50">
-        {onOpen && (
+        {(onZoom || onOpen) && (
           <button
             type="button"
-            onClick={onOpen}
+            onClick={onZoom || onOpen}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition"
           >
             <Eye className="w-3.5 h-3.5" /> Vista previa
