@@ -230,20 +230,32 @@ function TemplateDetail({ t, onClose }) {
   )
 }
 
+const PILL_PREVIEW = { gray: 'bg-nina-line/70 text-nina-chrome', blue: 'bg-blue-500/20 text-blue-200', green: 'bg-emerald-500/20 text-emerald-200', amber: 'bg-amber-500/20 text-amber-200', red: 'bg-red-500/20 text-red-200', purple: 'bg-violet-500/20 text-violet-200', pink: 'bg-pink-500/20 text-pink-200' }
+const normCol = (c, i) => (typeof c === 'string' ? { name: c, type: 'text', options: [] } : { name: c?.name ?? `Columna ${i + 1}`, type: c?.type ?? 'text', options: c?.options ?? [] })
+function cellView(c, v) {
+  if (!v) return ''
+  if (c.type === 'checkbox') return v === 'true' || v === '✓' ? '☑' : '☐'
+  if (c.type === 'select') {
+    const o = (c.options || []).find((x) => x.label === v)
+    return <span className={`px-1.5 py-0.5 rounded-full text-[10.5px] ${PILL_PREVIEW[o?.color] || PILL_PREVIEW.gray}`}>{v}</span>
+  }
+  return v
+}
+
 function SheetPreview({ d }) {
-  const cols = (d.columns || []).map(colName)
+  const cols = (d.columns || []).map(normCol)
   const rows = d.rows || []
   if (!cols.length) return <div className="text-nina-mute text-sm">Sin columnas.</div>
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-[12px] border-collapse">
         <thead>
-          <tr>{cols.map((c, i) => <th key={i} className="text-left font-medium text-nina-chrome px-2 py-1.5 border-b border-nina-line">{c}</th>)}</tr>
+          <tr>{cols.map((c, i) => <th key={i} className="text-left font-medium text-nina-chrome px-2 py-1.5 border-b border-nina-line">{c.name}</th>)}</tr>
         </thead>
         <tbody>
           {rows.slice(0, 30).map((r, ri) => (
             <tr key={ri} className="hover:bg-nina-line/20">
-              {cols.map((c, ci) => <td key={ci} className="px-2 py-1.5 border-b border-nina-line/40 text-nina-mute">{String((Array.isArray(r) ? r[ci] : r?.[c] ?? r?.[ci]) ?? '')}</td>)}
+              {cols.map((c, ci) => <td key={ci} className="px-2 py-1.5 border-b border-nina-line/40 text-nina-mute">{cellView(c, String((Array.isArray(r) ? r[ci] : r?.[c.name] ?? r?.[ci]) ?? ''))}</td>)}
             </tr>
           ))}
         </tbody>

@@ -599,7 +599,7 @@ function boardToMarkdown(title, nodes, edges) {
 
 // Serializa una hoja (draft_sheet) a una tabla Markdown para guardarla en la biblioteca.
 function sheetToMarkdown(title, columns, rows) {
-  const cols = (columns && columns.length ? columns : ['Columna 1']).map((c) => String(c).replace(/\|/g, '\\|') || ' ')
+  const cols = (columns && columns.length ? columns : ['Columna 1']).map((c) => String((typeof c === 'string' ? c : c?.name) ?? '').replace(/\|/g, '\\|') || ' ')
   const esc = (v) => String(v ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ')
   const lines = [`# ${title || 'Hoja de cálculo'}`, '', `| ${cols.join(' | ')} |`, `| ${cols.map(() => '---').join(' | ')} |`]
   for (const r of rows || []) {
