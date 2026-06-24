@@ -156,7 +156,7 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
       </div>
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
-        <div className="inline-block min-w-full pr-16 align-top">
+        <div className="inline-block min-w-full pr-3 align-top">
         <table className="border-collapse">
           <thead className="sticky top-0 z-10">
             <tr>
