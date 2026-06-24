@@ -103,7 +103,7 @@ export default function ImageLightbox({ images = [], activeKey, onClose, onSelec
             placeholder="Describe los cambios a aplicar… (variación con Nano Banana)"
             className="flex-1 bg-transparent text-[13px] text-nina-chrome placeholder:text-nina-mute/70 outline-none resize-none leading-relaxed min-h-[24px] max-h-[72px]"
           />
-          <button onClick={submit} disabled={!instruction.trim() || sending} className="w-8 h-8 grid place-items-center rounded-full bg-silver-gradient text-nina-black disabled:opacity-40 shrink-0 transition" title="Generar variación">
+          <button onClick={submit} disabled={!instruction.trim() || sending} className="!p-2 h-9 w-9 grid place-items-center rounded-xl btn-primary disabled:opacity-40 shrink-0 transition" title="Generar variación">
             <ArrowUp className="w-4 h-4" />
           </button>
         </div>

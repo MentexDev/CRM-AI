@@ -1325,8 +1325,9 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     const onMove = (ev) => {
       // En modo flotante el panel está anclado 12px adentro (right-3) → compensar el offset.
       const w = window.innerWidth - ev.clientX - (canvasFloating ? 12 : 0)
-      // El chat (izquierda) NO baja de 560px → su barra de botones (📎 ⚙️ agente ⌘K modelo 🎤 ↑) no se oculta.
-      setCanvasWidth(Math.max(420, Math.min(w, window.innerWidth - 560)))
+      // El chat (izquierda) NO baja de 600px → su barra de botones (📎 ⚙️ agente ⌘K modelo 🎤 ↑) no se oculta
+      // ni el botón de enviar se sale del cuadro.
+      setCanvasWidth(Math.max(420, Math.min(w, window.innerWidth - 600)))
     }
     const onUp = () => {
       setDragging(false)
@@ -1697,6 +1698,64 @@ const ASPECT_OPTIONS = [
   { value: '3:2', label: '3:2', icon: <AspectIcon ratio="3:2" /> },
 ]
 
+// Pastilla de proporción — MISMO diseño que el selector de agente del chat (redondeada, gris), con el
+// mini-ícono de la forma + el ratio + chevron, y menú que sube.
+function AspectPill({ value, onChange }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+  const current = ASPECT_OPTIONS.find((a) => a.value === value) || ASPECT_OPTIONS[0]
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 pl-2.5 pr-2.5 h-8 rounded-full bg-nina-line/40 hover:bg-nina-line/60 transition text-[11px] font-medium text-nina-chrome"
+        title="Proporción"
+      >
+        <AspectIcon ratio={current.value} />
+        <span>{current.label}</span>
+        <ChevronDown className="w-3 h-3 opacity-60" />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <motion.div
+              initial={{ opacity: 0, y: 6, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 6, scale: 0.97 }}
+              transition={{ duration: 0.12 }}
+              className="absolute left-0 z-50 w-36 rounded-xl border border-nina-line bg-nina-panel shadow-xl shadow-black/40 p-1 bottom-full mb-2"
+            >
+              {ASPECT_OPTIONS.map((opt) => {
+                const active = opt.value === value
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { onChange(opt.value); setOpen(false) }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-center gap-2 ${active ? 'bg-emerald-500/10 text-emerald-300' : 'text-nina-chrome hover:bg-nina-line/40'}`}
+                  >
+                    <AspectIcon ratio={opt.value} />
+                    <span className="flex-1 text-[12px]">{opt.label}</span>
+                    {active && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+                  </button>
+                )
+              })}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 // Composer del Image Studio: caja FLOTANTE centrada (estilo NeuralOS) con textarea + modelo + proporción
 // + micrófono (dictado por voz, el MISMO hook del chat) → genera en el panel.
 function ImageComposer({ onGenerate, sending }) {
@@ -1739,7 +1798,7 @@ function ImageComposer({ onGenerate, sending }) {
       />
       <div className="flex items-center gap-2 mt-1.5">
         <ImageModelPill value={model} onChange={setModel} />
-        <Select value={aspect} onChange={setAspect} options={ASPECT_OPTIONS} className="w-[116px]" />
+        <AspectPill value={aspect} onChange={setAspect} />
         <div className="flex-1" />
         <button
           type="button"
@@ -1753,7 +1812,7 @@ function ImageComposer({ onGenerate, sending }) {
         <button
           onClick={submit}
           disabled={!prompt.trim() || sending}
-          className="w-8 h-8 grid place-items-center rounded-full bg-silver-gradient text-nina-black disabled:opacity-40 shrink-0 transition"
+          className="!p-2 h-9 w-9 grid place-items-center rounded-xl btn-primary disabled:opacity-40 shrink-0 transition"
           title="Generar imagen"
         >
           {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
