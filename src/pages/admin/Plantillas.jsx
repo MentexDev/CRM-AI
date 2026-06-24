@@ -119,10 +119,28 @@ export default function Plantillas() {
   )
 }
 
+// Render del contenido de la plantilla (como se ve al abrirla). Reutilizado por la tarjeta (a escala) y el detalle.
+function TemplateBody({ t, mini }) {
+  const d = t?.data || {}
+  if (t?.kind === 'document') {
+    const md = String(d.markdown || d.content || '')
+    if (!md.trim()) return <Fallback t={t} />
+    return <div className={`doc-prose ${mini ? 'text-[12px]' : 'text-sm'}`}><Markdown>{md}</Markdown></div>
+  }
+  if (t?.kind === 'sheet') return <SheetPreview d={d} />
+  if (t?.kind === 'board') return <BoardPreview d={d} />
+  if (t?.kind === 'slides') return <SlidesPreview d={d} />
+  return <Fallback t={t} />
+}
+
+function Fallback({ t }) {
+  const m = kindMeta(t?.kind)
+  const Icon = m.Icon
+  return <div className="grid place-items-center py-8"><Icon className={`w-8 h-8 ${m.color} opacity-70`} /></div>
+}
+
 function TemplateCard({ t, onOpen }) {
   const m = kindMeta(t.kind)
-  const Icon = m.Icon
-  const preview = previewText(t)
   return (
     <motion.button
       initial={{ opacity: 0, y: 6 }}
@@ -130,20 +148,20 @@ function TemplateCard({ t, onOpen }) {
       onClick={onOpen}
       className="panel overflow-hidden text-left group hover:border-nina-silver/30 transition"
     >
-      {/* Preview (portada o contenido) */}
-      <div className="aspect-[4/3] relative overflow-hidden bg-nina-ink/50 border-b border-nina-line/40">
-        <span className={`absolute top-2 left-2 z-10 chip !px-2 !py-0.5 text-[10px] bg-nina-ink/80 border-nina-line ${m.color}`}>{m.label}</span>
+      {/* Preview RENDERIZADO (igual que al abrirla) o portada */}
+      <div className="aspect-[4/3] relative overflow-hidden bg-nina-panel/40 border-b border-nina-line/40">
+        <span className={`absolute top-2 left-2 z-20 chip !px-2 !py-0.5 text-[10px] bg-nina-ink/80 border-nina-line ${m.color}`}>{m.label}</span>
         {t.cover_url ? (
           <img src={t.cover_url} alt={t.title} referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
-        ) : preview ? (
-          <div
-            className="absolute inset-0 px-3 pt-9 pb-2 text-[8.5px] leading-[1.6] text-nina-mute/70 whitespace-pre-wrap overflow-hidden group-hover:text-nina-mute transition-colors"
-            style={{ maskImage: 'linear-gradient(to bottom, black 55%, transparent)', WebkitMaskImage: 'linear-gradient(to bottom, black 55%, transparent)' }}
-          >
-            {preview}
-          </div>
         ) : (
-          <div className="absolute inset-0 grid place-items-center"><Icon className={`w-8 h-8 ${m.color} opacity-70`} /></div>
+          <div
+            className="absolute inset-0 overflow-hidden pointer-events-none"
+            style={{ maskImage: 'linear-gradient(to bottom, black 62%, transparent)', WebkitMaskImage: 'linear-gradient(to bottom, black 62%, transparent)' }}
+          >
+            <div className="absolute top-0 left-0 origin-top-left scale-[0.6] w-[167%] p-3 pt-9">
+              <TemplateBody t={t} mini />
+            </div>
+          </div>
         )}
       </div>
       <div className="p-2.5 space-y-1">
@@ -187,22 +205,25 @@ function TemplateDetail({ t, onClose }) {
           <span>generada por Code</span>
         </div>
 
-        {/* Contenido */}
+        {/* Contenido (mismo render que la tarjeta) */}
         <div className="rounded-xl border border-nina-line bg-nina-ink/40 p-4 max-h-[55vh] overflow-y-auto">
-          {t.kind === 'document' ? (
-            <div className="doc-prose text-sm"><Markdown>{String(d.markdown || d.content || '')}</Markdown></div>
-          ) : t.kind === 'sheet' ? (
-            <SheetPreview d={d} />
-          ) : t.kind === 'board' ? (
-            <BoardPreview d={d} />
-          ) : (
-            <pre className="text-[11px] text-nina-mute whitespace-pre-wrap">{previewText(t)}</pre>
-          )}
+          <TemplateBody t={t} />
         </div>
 
         <div className="flex justify-end gap-2 pt-1">
           <button onClick={download} className="btn-ghost text-sm flex items-center gap-1.5"><Download className="w-4 h-4" /> Descargar</button>
-          <button onClick={() => navigate('/admin/agentes/code')} className="btn-primary text-sm flex items-center gap-1.5"><Sparkles className="w-4 h-4" /> Abrir Code</button>
+          <button
+            onClick={() =>
+              navigate(
+                t.source_conversation_id && t.source_artifact_key
+                  ? `/admin/agentes/code?c=${t.source_conversation_id}&tab=${encodeURIComponent(t.source_artifact_key)}`
+                  : '/admin/agentes/code',
+              )
+            }
+            className="btn-primary text-sm flex items-center gap-1.5"
+          >
+            <Sparkles className="w-4 h-4" /> Abrir en Code
+          </button>
         </div>
       </div>
     </Modal>
@@ -240,6 +261,26 @@ function BoardPreview({ d }) {
         <div key={i} className="rounded-lg border border-nina-line bg-nina-panel/60 px-3 py-2 text-[12px] text-nina-chrome max-w-[220px]">
           <div className="font-medium truncate">{n?.title || n?.label || n?.heading || `Tarjeta ${i + 1}`}</div>
           {(n?.text || n?.body) && <div className="text-[11px] text-nina-mute line-clamp-3 mt-0.5">{n.text || n.body}</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SlidesPreview({ d }) {
+  const slides = d.slides || []
+  if (!slides.length) return <div className="text-nina-mute text-sm">Sin diapositivas.</div>
+  return (
+    <div className="space-y-2">
+      {slides.map((s, i) => (
+        <div key={i} className="rounded-lg border border-nina-line bg-nina-panel/50 px-3 py-2">
+          <div className="text-[13px] font-semibold text-nina-chrome">{s?.heading || s?.title || `Diapositiva ${i + 1}`}</div>
+          {Array.isArray(s?.bullets) && s.bullets.length > 0 && (
+            <ul className="mt-1 space-y-0.5 text-[12px] text-nina-mute list-disc pl-4">
+              {s.bullets.map((b, bi) => <li key={bi}>{b}</li>)}
+            </ul>
+          )}
+          {(s?.body || s?.content) && <div className="text-[12px] text-nina-mute mt-1">{s.body || s.content}</div>}
         </div>
       ))}
     </div>

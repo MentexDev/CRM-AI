@@ -13,7 +13,7 @@ export function useCodeTemplates() {
     const load = async () => {
       const { data, error } = await supabase
         .from('code_templates')
-        .select('id, title, kind, data, cover_url, description, category, brand_id, agent_id, created_at')
+        .select('id, title, kind, data, cover_url, description, category, brand_id, agent_id, source_conversation_id, source_artifact_key, created_at')
         .order('created_at', { ascending: false })
       if (!active) return
       if (error) console.error('[CRM-AI] code_templates fetch:', error)

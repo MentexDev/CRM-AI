@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clapperboard,
+  Code2,
   Crown,
   Database,
   Download,
@@ -112,6 +113,8 @@ const SPECIALTY_ICON = {
 function agentIcon(agent) {
   if (!agent) return Bot
   if (agent.role === 'ceo_global') return Crown
+  // Code (constructor de plantillas) → icono de código, no el del creador de contenido.
+  if (agent.slug?.startsWith('code') || /plantilla|template/.test(`${agent.name ?? ''} ${agent.specialty ?? ''}`.toLowerCase())) return Code2
   // La ESPECIALIDAD manda sobre el genérico del rol (antes brand_manager → Sparkles
   // y Contador/Inventarista salían iguales). Mismo criterio que el sidebar.
   const bySpecialty = agent.specialty && SPECIALTY_ICON[agent.specialty]
@@ -1160,7 +1163,19 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // capturada en el montaje cierra sobre la URL de ENTONCES (?c=<id>). Al desmontar
   // (tras goHome) ese setter reaplica esa URL vieja y RESUCITA ?c → el chat se recarga
   // en vez de volver al perfil. (Bug real ya corregido — no reintroducir.)
-  const [, setSearchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
+  // "Abrir en Code" desde la sección Plantillas: ?tab=<key> activa esa pestaña del canvas en cuanto el
+  // artefacto exista. NO tocamos setSearchParams (evita el bug de arriba); un ref impide reactivar.
+  const handledTabRef = useRef(null)
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (!tab || handledTabRef.current === tab) return
+    if (allTabs.some((a) => a.key === tab)) {
+      handledTabRef.current = tab
+      setActiveKey(tab)
+      setCanvasOpen(true)
+    }
+  }, [searchParams, allTabs])
   // Selector visual de HTML: el usuario señala un elemento del correo y dice qué cambiar.
   // Mandamos al agente el HTML completo + el elemento vía edit_context (efímero, no se ve
   // en el chat); el agente edita SOLO ese elemento y re-emite el correo con compose_email.

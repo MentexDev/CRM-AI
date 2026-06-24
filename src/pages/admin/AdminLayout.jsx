@@ -10,6 +10,7 @@ import {
   Check,
   CheckCircle2,
   Clapperboard,
+  Code2,
   Crown,
   Headset,
   KanbanSquare,
@@ -67,6 +68,8 @@ const AGENT_SPECIALTY_ICON = {
 }
 function sidebarAgentIcon(a) {
   if (a.role === 'ceo_global') return Crown
+  // Code (constructor de plantillas) → icono de código, no el del creador de contenido.
+  if (a.slug?.startsWith('code') || /plantilla|template/.test(`${a.name ?? ''} ${a.specialty ?? ''}`.toLowerCase())) return Code2
   // La ESPECIALIDAD manda (ícono simbólico) sobre el genérico del rol — antes
   // brand_manager cortocircuitaba a Sparkles y Contador/Inventarista salían iguales.
   const bySpecialty = a.specialty && AGENT_SPECIALTY_ICON[a.specialty]
