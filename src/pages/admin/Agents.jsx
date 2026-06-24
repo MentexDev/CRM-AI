@@ -1475,6 +1475,9 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
             animate={{ width: canvasWidth, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ duration: dragging ? 0 : 0.32, ease: 'easeOut' }}
+            // Acoplado: el canvas nunca invade los últimos 600px → si el sidebar principal se abre (el área
+            // se reduce), el canvas CEDE y el chat conserva su ancho mínimo en vez de achicarse.
+            style={canvasFloating ? undefined : { maxWidth: 'calc(100% - 600px)' }}
             className={canvasFloating
               ? 'hidden md:flex absolute right-3 top-3 bottom-3 z-30 rounded-2xl border border-nina-line bg-nina-panel shadow-2xl shadow-black/50 overflow-hidden flex-col min-w-0'
               : 'hidden md:flex shrink-0 relative overflow-hidden border-l border-nina-line bg-nina-panel/40 flex-col min-w-0'}
@@ -1762,13 +1765,6 @@ function ImageComposer({ onGenerate, sending }) {
   const [prompt, setPrompt] = useState('')
   const [model, setModel] = useState('flux-pro')
   const [aspect, setAspect] = useState('1:1')
-  const taRef = useRef(null)
-  useEffect(() => {
-    const ta = taRef.current
-    if (!ta) return
-    ta.style.height = 'auto'
-    ta.style.height = Math.min(ta.scrollHeight, 72) + 'px' // auto-crece hasta 3 renglones
-  }, [prompt])
   const voice = useVoiceTranscription({
     lang: 'es-ES',
     onFinalResult: (t) => setPrompt((prev) => (prev ? `${prev} ${t}`.trim() : t)),
@@ -1788,13 +1784,12 @@ function ImageComposer({ onGenerate, sending }) {
   return (
     <div className="mx-auto w-full max-w-[432px] rounded-2xl border border-nina-line bg-nina-ink shadow-2xl shadow-black/40 px-3 pt-2.5 pb-2">
       <textarea
-        ref={taRef}
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-        rows={1}
+        rows={3}
         placeholder="Describe la imagen que quieres generar…"
-        className="w-full bg-transparent text-[13px] text-nina-chrome placeholder:text-nina-mute/60 outline-none resize-none leading-relaxed min-h-[24px] max-h-[72px]"
+        className="w-full bg-transparent text-[13px] text-nina-chrome placeholder:text-nina-mute/60 outline-none resize-none leading-relaxed"
       />
       <div className="flex items-center gap-2 mt-1.5">
         <ImageModelPill value={model} onChange={setModel} />

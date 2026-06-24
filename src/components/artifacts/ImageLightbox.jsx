@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { AlertTriangle, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, Download, ExternalLink, Save, Sparkles, Trash2, X } from 'lucide-react'
 
@@ -11,16 +11,8 @@ export default function ImageLightbox({ images = [], activeKey, onClose, onSelec
   const idx = images.findIndex((i) => i.key === activeKey)
   const current = idx >= 0 ? images[idx] : null
   const [instruction, setInstruction] = useState('')
-  const taRef = useRef(null)
 
   useEffect(() => { setInstruction('') }, [activeKey])
-  // Auto-crecer el textarea con el contenido, hasta 3 renglones (luego scrollea).
-  useEffect(() => {
-    const ta = taRef.current
-    if (!ta) return
-    ta.style.height = 'auto'
-    ta.style.height = Math.min(ta.scrollHeight, 72) + 'px'
-  }, [instruction])
 
   useEffect(() => {
     const onKey = (e) => {
@@ -92,20 +84,23 @@ export default function ImageLightbox({ images = [], activeKey, onClose, onSelec
 
       {/* Composer de variación */}
       <div className="shrink-0 px-4 pb-4 pt-2" onClick={(e) => e.stopPropagation()}>
-        <div className="mx-auto max-w-2xl flex items-end gap-2 rounded-2xl border border-nina-line bg-nina-ink px-3 py-2.5 shadow-xl">
-          <Sparkles className="w-4 h-4 text-nina-silver shrink-0 mb-1.5" />
+        <div className="mx-auto max-w-2xl rounded-2xl border border-nina-line bg-nina-ink px-3 pt-2.5 pb-2 shadow-xl">
           <textarea
-            ref={taRef}
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-            rows={1}
+            rows={3}
             placeholder="Describe los cambios a aplicar… (variación con Nano Banana)"
-            className="flex-1 bg-transparent text-[13px] text-nina-chrome placeholder:text-nina-mute/70 outline-none resize-none leading-relaxed min-h-[24px] max-h-[72px]"
+            className="w-full bg-transparent text-[13px] text-nina-chrome placeholder:text-nina-mute/70 outline-none resize-none leading-relaxed"
           />
-          <button onClick={submit} disabled={!instruction.trim() || sending} className="!p-2 h-9 w-9 grid place-items-center rounded-xl btn-primary disabled:opacity-40 shrink-0 transition" title="Generar variación">
-            <ArrowUp className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2 mt-1">
+            <Sparkles className="w-4 h-4 text-nina-silver shrink-0" />
+            <span className="text-[11px] text-nina-mute">Nano Banana</span>
+            <div className="flex-1" />
+            <button onClick={submit} disabled={!instruction.trim() || sending} className="!p-2 h-9 w-9 grid place-items-center rounded-xl btn-primary disabled:opacity-40 shrink-0 transition" title="Generar variación">
+              <ArrowUp className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </motion.div>
