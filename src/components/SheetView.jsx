@@ -307,7 +307,7 @@ export default function SheetView({ title: initialTitle, columns: initialColumns
                           </div>
                         </td>
                         {columns.map((col, ci) => (
-                          <td key={ci} className={`border-b border-r border-nina-line/40 p-0 align-middle ${ci === 0 ? 'border-l-2 !border-l-nina-line/70' : ''}`}>
+                          <td key={ci} className={`border-b border-r border-nina-line/40 align-middle ${ci === 0 ? 'p-0 pl-5' : 'p-0'}`}>
                             <Cell col={col} value={sr[ci] ?? ''} onChange={(v) => setSubCell(ri, si, ci, v)} onEnsureOption={(label) => ensureOption(ci, label)} />
                           </td>
                         ))}
