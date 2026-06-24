@@ -1614,12 +1614,24 @@ const IMAGE_MODEL_CATALOG = [
   { value: 'flux-ultra', label: 'Flux Ultra' },
   { value: 'nano-banana', label: 'Nano Banana' },
 ]
+// Mini-ícono que dibuja la PROPORCIÓN como un rectángulo (más ancho, más alto o cuadrado según el ratio).
+function AspectIcon({ ratio }) {
+  const [w, h] = ratio.split(':').map(Number)
+  const max = 14
+  const rw = w >= h ? max : Math.round((w / h) * max)
+  const rh = h >= w ? max : Math.round((h / w) * max)
+  return (
+    <span className="inline-grid place-items-center w-4 h-4 shrink-0">
+      <span className="border border-current rounded-[2px]" style={{ width: rw, height: rh }} />
+    </span>
+  )
+}
 const ASPECT_OPTIONS = [
-  { value: '1:1', label: '1:1' },
-  { value: '16:9', label: '16:9' },
-  { value: '9:16', label: '9:16' },
-  { value: '4:5', label: '4:5' },
-  { value: '3:2', label: '3:2' },
+  { value: '1:1', label: '1:1', icon: <AspectIcon ratio="1:1" /> },
+  { value: '16:9', label: '16:9', icon: <AspectIcon ratio="16:9" /> },
+  { value: '9:16', label: '9:16', icon: <AspectIcon ratio="9:16" /> },
+  { value: '4:5', label: '4:5', icon: <AspectIcon ratio="4:5" /> },
+  { value: '3:2', label: '3:2', icon: <AspectIcon ratio="3:2" /> },
 ]
 
 // Composer del Image Studio: describe la imagen + elige modelo (fal) y proporción → genera en el panel.

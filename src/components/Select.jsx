@@ -56,6 +56,7 @@ export default function Select({ value, onChange, options = [], placeholder = 'S
         onClick={toggle}
         className={`w-full flex items-center gap-2 bg-nina-ink border rounded-lg pl-3 pr-2.5 py-2 text-[13px] text-nina-chrome outline-none transition disabled:opacity-40 disabled:cursor-not-allowed ${open ? 'border-nina-silver/40' : 'border-nina-line hover:border-nina-silver/40'} ${buttonClassName}`}
       >
+        {current?.icon && <span className="shrink-0">{current.icon}</span>}
         <span className={`flex-1 text-left truncate ${current ? '' : 'text-nina-mute'}`}>{current ? current.label : placeholder}</span>
         <ChevronDown className={`w-4 h-4 text-nina-mute shrink-0 transition ${open ? 'rotate-180' : ''}`} />
       </button>
