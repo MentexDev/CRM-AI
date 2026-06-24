@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { AlertTriangle, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, Download, ExternalLink, Save, Sparkles, Trash2, X } from 'lucide-react'
 
@@ -11,8 +11,16 @@ export default function ImageLightbox({ images = [], activeKey, onClose, onSelec
   const idx = images.findIndex((i) => i.key === activeKey)
   const current = idx >= 0 ? images[idx] : null
   const [instruction, setInstruction] = useState('')
+  const taRef = useRef(null)
 
   useEffect(() => { setInstruction('') }, [activeKey])
+  // Auto-crecer el textarea con el contenido, hasta 3 renglones (luego scrollea).
+  useEffect(() => {
+    const ta = taRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = Math.min(ta.scrollHeight, 72) + 'px'
+  }, [instruction])
 
   useEffect(() => {
     const onKey = (e) => {
@@ -64,14 +72,14 @@ export default function ImageLightbox({ images = [], activeKey, onClose, onSelec
         </div>
       </div>
 
-      {/* Imagen + flechas */}
-      <div className="flex-1 min-h-0 flex items-center justify-center gap-3 px-3 sm:px-6" onClick={(e) => e.stopPropagation()}>
-        {images.length > 1 && (
-          <button onClick={() => step(-1)} className="w-10 h-10 grid place-items-center rounded-full bg-white/10 hover:bg-white/20 text-white shrink-0 transition" title="Anterior (←)"><ChevronLeft className="w-6 h-6" /></button>
-        )}
+      {/* Imagen + flechas (flotan SOBRE la imagen, a los lados → visibles también en 16:9) */}
+      <div className="relative flex-1 min-h-0 flex items-center justify-center px-3 sm:px-16" onClick={(e) => e.stopPropagation()}>
         <img src={current.url} alt={current.prompt || 'Imagen'} referrerPolicy="no-referrer" className="max-h-full max-w-full object-contain rounded-lg shadow-2xl" />
         {images.length > 1 && (
-          <button onClick={() => step(1)} className="w-10 h-10 grid place-items-center rounded-full bg-white/10 hover:bg-white/20 text-white shrink-0 transition" title="Siguiente (→)"><ChevronRight className="w-6 h-6" /></button>
+          <>
+            <button onClick={() => step(-1)} className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-10 w-11 h-11 grid place-items-center rounded-full bg-black/60 hover:bg-black/80 border border-white/15 text-white shadow-lg transition" title="Anterior (←)"><ChevronLeft className="w-6 h-6" /></button>
+            <button onClick={() => step(1)} className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-10 w-11 h-11 grid place-items-center rounded-full bg-black/60 hover:bg-black/80 border border-white/15 text-white shadow-lg transition" title="Siguiente (→)"><ChevronRight className="w-6 h-6" /></button>
+          </>
         )}
       </div>
 
@@ -84,15 +92,16 @@ export default function ImageLightbox({ images = [], activeKey, onClose, onSelec
 
       {/* Composer de variación */}
       <div className="shrink-0 px-4 pb-4 pt-2" onClick={(e) => e.stopPropagation()}>
-        <div className="mx-auto max-w-2xl flex items-end gap-2 rounded-2xl border border-white/15 bg-white/5 backdrop-blur px-3 py-2">
+        <div className="mx-auto max-w-2xl flex items-end gap-2 rounded-2xl border border-nina-line bg-nina-ink px-3 py-2.5 shadow-xl">
           <Sparkles className="w-4 h-4 text-nina-silver shrink-0 mb-1.5" />
           <textarea
+            ref={taRef}
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
             rows={1}
             placeholder="Describe los cambios a aplicar… (variación con Nano Banana)"
-            className="flex-1 bg-transparent text-[13px] text-white placeholder:text-white/40 outline-none resize-none py-1.5 max-h-32"
+            className="flex-1 bg-transparent text-[13px] text-nina-chrome placeholder:text-nina-mute/70 outline-none resize-none leading-relaxed min-h-[24px] max-h-[72px]"
           />
           <button onClick={submit} disabled={!instruction.trim() || sending} className="w-8 h-8 grid place-items-center rounded-full bg-silver-gradient text-nina-black disabled:opacity-40 shrink-0 transition" title="Generar variación">
             <ArrowUp className="w-4 h-4" />
