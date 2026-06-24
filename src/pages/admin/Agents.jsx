@@ -1608,13 +1608,74 @@ const SELECTOR_SCRIPT = `<script>(function(){
 
 // Catálogo de modelos de imagen para el composer del Image Studio (espejo del enum de generate_image).
 const IMAGE_MODEL_CATALOG = [
-  { value: 'flux-schnell', label: 'Flux Schnell' },
-  { value: 'flux-dev', label: 'Flux Dev' },
-  { value: 'stable-xl', label: 'Stable XL' },
-  { value: 'flux-pro', label: 'Flux Pro' },
-  { value: 'flux-ultra', label: 'Flux Ultra' },
-  { value: 'nano-banana', label: 'Nano Banana' },
+  { value: 'flux-schnell', label: 'Flux Schnell', hint: 'Rápido · previews' },
+  { value: 'flux-dev', label: 'Flux Dev', hint: 'Equilibrado' },
+  { value: 'stable-xl', label: 'Stable XL', hint: 'Open source' },
+  { value: 'flux-pro', label: 'Flux Pro', hint: 'Alta fidelidad' },
+  { value: 'flux-ultra', label: 'Flux Ultra', hint: 'Máxima calidad 4K' },
+  { value: 'nano-banana', label: 'Nano Banana', hint: 'Edita con foto (Gemini)' },
 ]
+
+// Pastilla de modelo de imagen — mismo diseño que la pastilla de modelo del chat (verde, punto +
+// texto + chevron, menú que sube con label+hint). Estado por-turno (no persiste como la del agente).
+function ImageModelPill({ value, onChange }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+  const current = IMAGE_MODEL_CATALOG.find((m) => m.value === value) || IMAGE_MODEL_CATALOG[0]
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 px-2.5 h-8 rounded-full bg-emerald-500/10 hover:bg-emerald-500/15 transition text-[11px] font-mono text-emerald-300"
+        title="Modelo de imagen"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+        <span className="truncate max-w-[110px]">{current.label}</span>
+        <ChevronDown className="w-3 h-3 opacity-60" />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <motion.div
+              initial={{ opacity: 0, y: 6, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 6, scale: 0.97 }}
+              transition={{ duration: 0.12 }}
+              className="absolute left-0 z-50 w-60 rounded-xl border border-nina-line bg-nina-panel shadow-xl shadow-black/40 p-1 bottom-full mb-2"
+            >
+              <div className="px-2.5 py-1.5 text-[10px] uppercase tracking-[0.18em] text-nina-mute">Modelo de imagen</div>
+              {IMAGE_MODEL_CATALOG.map((opt) => {
+                const active = opt.value === value
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { onChange(opt.value); setOpen(false) }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-start justify-between gap-2 ${active ? 'bg-emerald-500/10' : 'hover:bg-nina-line/40'}`}
+                  >
+                    <span className="min-w-0">
+                      <span className={`block text-[12px] truncate ${active ? 'text-emerald-300' : 'text-nina-chrome'}`}>{opt.label}</span>
+                      <span className="block text-[10px] text-nina-mute truncate">{opt.hint}</span>
+                    </span>
+                    {active && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />}
+                  </button>
+                )
+              })}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
 // Mini-ícono que dibuja la PROPORCIÓN como un rectángulo (más ancho, más alto o cuadrado según el ratio).
 function AspectIcon({ ratio }) {
   const [w, h] = ratio.split(':').map(Number)
@@ -1658,8 +1719,8 @@ function ImageComposer({ onGenerate, sending }) {
           className="w-full bg-transparent text-[13px] text-nina-chrome placeholder:text-nina-mute/60 outline-none resize-none max-h-28"
         />
         <div className="flex items-center gap-2 mt-1.5">
-          <Select value={model} onChange={setModel} options={IMAGE_MODEL_CATALOG} className="w-[150px]" />
-          <Select value={aspect} onChange={setAspect} options={ASPECT_OPTIONS} className="w-[84px]" />
+          <ImageModelPill value={model} onChange={setModel} />
+          <Select value={aspect} onChange={setAspect} options={ASPECT_OPTIONS} className="w-[116px]" />
           <div className="flex-1" />
           <button
             onClick={submit}
