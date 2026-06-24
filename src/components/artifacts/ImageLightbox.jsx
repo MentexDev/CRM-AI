@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { AlertTriangle, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, Download, ExternalLink, Save, Sparkles, X } from 'lucide-react'
+import { AlertTriangle, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, Download, ExternalLink, Save, Sparkles, Trash2, X } from 'lucide-react'
 
 // Visor grande de imágenes (lightbox) estilo NeuralOS Image Studio. Overlay full-screen con
 // navegación ◀▶ entre todas las imágenes de la galería, barra de acciones (Descargar, Guardar en
 // Biblioteca, Exportar al canvas) y un composer "Describe los cambios…" que dispara una VARIACIÓN
 // (re-genera con nano-banana usando la imagen como referencia). Toda la lógica de red vive en el
 // padre (Agents.jsx); aquí solo UI + callbacks. Se renderiza en un portal para cubrir todo.
-export default function ImageLightbox({ images = [], activeKey, onClose, onSelect, onDownload, onSave, onExport, onVariation, savedKeys, sending }) {
+export default function ImageLightbox({ images = [], activeKey, onClose, onSelect, onDownload, onSave, onExport, onVariation, onDelete, savedKeys, sending }) {
   const idx = images.findIndex((i) => i.key === activeKey)
   const current = idx >= 0 ? images[idx] : null
   const [instruction, setInstruction] = useState('')
@@ -17,9 +17,9 @@ export default function ImageLightbox({ images = [], activeKey, onClose, onSelec
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.target?.tagName === 'TEXTAREA') return // no navegar mientras se escribe la variación
-      if (e.key === 'Escape') onClose?.()
-      else if (e.key === 'ArrowLeft') step(-1)
+      if (e.key === 'Escape') { onClose?.(); return } // ESC siempre cierra (también desde el textarea)
+      if (e.target?.tagName === 'TEXTAREA') return // no navegar con ←→ mientras se escribe la variación
+      if (e.key === 'ArrowLeft') step(-1)
       else if (e.key === 'ArrowRight') step(1)
     }
     window.addEventListener('keydown', onKey)
@@ -60,6 +60,7 @@ export default function ImageLightbox({ images = [], activeKey, onClose, onSelec
             {saved ? <CheckCircle2 className="w-4 h-4 text-emerald-300" /> : <Save className="w-4 h-4" />}<span className="hidden sm:inline">{saved ? 'Guardado' : 'Guardar'}</span>
           </button>
           <button onClick={() => onExport?.(current)} className={btn} title="Abrir en una pestaña del canvas"><ExternalLink className="w-4 h-4" /><span className="hidden sm:inline">Exportar</span></button>
+          {onDelete && <button onClick={() => onDelete(current)} className={`${btn} hover:text-red-300 hover:bg-red-500/10`} title="Eliminar imagen"><Trash2 className="w-4 h-4" /></button>}
           <button onClick={onClose} className={`${btn} ml-1`} title="Cerrar (Esc)"><X className="w-4 h-4" /></button>
         </div>
       </div>

@@ -793,6 +793,11 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // Visor grande (lightbox) — key de la imagen abierta a tamaño completo.
   const [lightboxKey, setLightboxKey] = useState(null)
   const openLightbox = (key) => setLightboxKey(key)
+  // Si la imagen abierta en el visor desaparece (borrada / refetch del hilo), cerrar el visor para
+  // no dejar un overlay "fantasma" invisible montado (con el listener de teclado aún activo).
+  useEffect(() => {
+    if (lightboxKey && !galleryImages.some((i) => i.key === lightboxKey)) setLightboxKey(null)
+  }, [lightboxKey, galleryImages])
 
   const [canvasOpen, setCanvasOpen] = useState(false)
   const [activeKey, setActiveKey] = useState(null)
@@ -886,6 +891,19 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     const CODE_EXT = /\.(js|jsx|ts|tsx|py|rb|go|rs|java|kt|c|cpp|h|hpp|cs|php|swift|sh|bash|zsh|sql|css|html?|xml|json|jsonl|ya?ml|toml|ini)$/i
     const out = []
     for (const a of allTabs) {
+      if (a.type === 'gallery') {
+        // La galería agrupa N imágenes → una entrada multimedia POR imagen (abre el visor en esa).
+        for (const img of a.images || []) {
+          out.push({
+            id: `img:${img.key}`,
+            name: img.prompt || img.title || 'Imagen',
+            category: 'multimedia',
+            sub: 'Imagen',
+            open: () => { reopenFromHistory('gallery'); openLightbox(img.key) },
+          })
+        }
+        continue
+      }
       out.push({
         id: `art:${a.key}`,
         name: a.title || a.subject || TYPE_LABEL[a.type] || 'Archivo',
@@ -1479,6 +1497,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
           onSave={saveToLibrary}
           onExport={() => { setLightboxKey(null); reopenFromHistory('gallery') }}
           onVariation={submitImageVariation}
+          onDelete={deleteArtifact}
           savedKeys={savedKeys}
           sending={thinking}
         />
