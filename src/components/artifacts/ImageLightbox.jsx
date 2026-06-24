@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { AlertTriangle, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, Download, ExternalLink, Save, Sparkles, Trash2, X } from 'lucide-react'
 
@@ -42,11 +41,11 @@ export default function ImageLightbox({ images = [], activeKey, onClose, onSelec
   }
   const btn = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] text-white/80 hover:text-white hover:bg-white/10 transition disabled:opacity-50 shrink-0'
 
-  return createPortal(
+  return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="fixed inset-0 z-[120] bg-black/85 backdrop-blur-sm flex flex-col"
+      className="absolute inset-0 z-40 bg-black/90 backdrop-blur-sm flex flex-col"
       onClick={onClose}
     >
       {/* Barra superior: contador + acciones */}
@@ -100,7 +99,6 @@ export default function ImageLightbox({ images = [], activeKey, onClose, onSelec
           </button>
         </div>
       </div>
-    </motion.div>,
-    document.body,
+    </motion.div>
   )
 }

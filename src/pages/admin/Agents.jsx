@@ -792,7 +792,8 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   }, [canvasArtifacts, galleryImages])
   // Visor grande (lightbox) — key de la imagen abierta a tamaño completo.
   const [lightboxKey, setLightboxKey] = useState(null)
-  const openLightbox = (key) => setLightboxKey(key)
+  // El visor se monta DENTRO del panel del canvas → abrir el canvas para que sea visible.
+  const openLightbox = (key) => { setLightboxKey(key); setCanvasOpen(true) }
   // Si la imagen abierta en el visor desaparece (borrada / refetch del hilo), cerrar el visor para
   // no dejar un overlay "fantasma" invisible montado (con el listener de teclado aún activo).
   useEffect(() => {
@@ -1477,6 +1478,22 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               onDocChange={onDocChange}
               onImageZoom={openLightbox}
             />
+            {/* Visor de imágenes — montado DENTRO del panel (absolute) para cubrir solo el ancho del canvas. */}
+            {lightboxKey && (
+              <ImageLightbox
+                images={galleryImages}
+                activeKey={lightboxKey}
+                onClose={() => setLightboxKey(null)}
+                onSelect={setLightboxKey}
+                onDownload={downloadArtifact}
+                onSave={saveToLibrary}
+                onExport={() => { setLightboxKey(null); reopenFromHistory('gallery') }}
+                onVariation={submitImageVariation}
+                onDelete={deleteArtifact}
+                savedKeys={savedKeys}
+                sending={thinking}
+              />
+            )}
           </motion.aside>
         )}
       </AnimatePresence>
@@ -1487,21 +1504,6 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         onAgentPrompt={sendAgentPrompt}
       />
       {filesOpen && <FilesModal files={conversationFiles} onClose={() => setFilesOpen(false)} />}
-      {lightboxKey && (
-        <ImageLightbox
-          images={galleryImages}
-          activeKey={lightboxKey}
-          onClose={() => setLightboxKey(null)}
-          onSelect={setLightboxKey}
-          onDownload={downloadArtifact}
-          onSave={saveToLibrary}
-          onExport={() => { setLightboxKey(null); reopenFromHistory('gallery') }}
-          onVariation={submitImageVariation}
-          onDelete={deleteArtifact}
-          savedKeys={savedKeys}
-          sending={thinking}
-        />
-      )}
     </div>
   )
 }
@@ -1816,17 +1818,19 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
           <CalendarView events={active.events} />
         ) : active?.type === 'gallery' ? (
           <div className="w-full h-full overflow-auto p-1">
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+            {/* Masonry: cada imagen conserva su proporción real (1:1, 9:16, 16:9…) y las columnas
+                acomodan alturas variables — no se recorta todo a cuadrado. */}
+            <div className="columns-2 lg:columns-3 gap-2">
               {(active.images || []).map((img) => (
                 <button
                   key={img.key}
                   onClick={() => onImageZoom?.(img.key)}
-                  className="group relative rounded-lg overflow-hidden border border-nina-line bg-nina-ink/50 aspect-square cursor-zoom-in"
+                  className="group relative mb-2 block w-full break-inside-avoid rounded-lg overflow-hidden border border-nina-line bg-nina-ink/50 cursor-zoom-in"
                   title={img.prompt || 'Abrir'}
                 >
-                  <img src={img.url} alt={img.prompt || 'Imagen'} referrerPolicy="no-referrer" className="w-full h-full object-cover transition duration-300 group-hover:scale-105" />
+                  <img src={img.url} alt={img.prompt || 'Imagen'} referrerPolicy="no-referrer" className="w-full h-auto object-cover transition duration-300 group-hover:scale-[1.03]" />
                   {img.prompt && (
-                    <span className="absolute inset-x-0 bottom-0 px-2 py-1 text-[10px] text-white/90 bg-gradient-to-t from-black/70 to-transparent truncate text-left">{img.prompt}</span>
+                    <span className="absolute inset-x-0 bottom-0 px-2 py-1 text-[10px] text-white/90 bg-gradient-to-t from-black/70 to-transparent truncate text-left opacity-0 group-hover:opacity-100 transition">{img.prompt}</span>
                   )}
                 </button>
               ))}
