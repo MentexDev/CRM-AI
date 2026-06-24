@@ -5,6 +5,7 @@
 // fallback a Pollinations (gratis, sin auth).
 import { higgsfieldGenerateImage } from './higgsfield.ts'
 import { geminiGenerateImage } from './geminiImage.ts'
+import { falGenerateImage } from './fal.ts'
 
 export interface ImageGenResult {
   provider: string
@@ -12,6 +13,21 @@ export interface ImageGenResult {
   // Cuántas imágenes de referencia se APLICARON realmente (0 si el provider final no las
   // soporta o hubo fallback). NO es lo que se pidió — es lo que se usó. Ver tools.ts.
   referencesApplied: number
+}
+
+// Catálogo de modelos SELECCIONABLES por el usuario/agente (el arg `model` de la tool
+// generate_image). La clave es lo que llega en el arg; mapea a provider + id real + flags.
+// fal.* son de pago (fal.ai); nano-banana es Gemini (el único que EDITA con referencias).
+export const IMAGE_MODELS: Record<
+  string,
+  { provider: 'fal' | 'gemini'; id: string; label: string; usesAspectRatio?: boolean }
+> = {
+  'flux-schnell': { provider: 'fal', id: 'fal-ai/flux/schnell', label: 'Flux Schnell' },
+  'flux-dev': { provider: 'fal', id: 'fal-ai/flux/dev', label: 'Flux Dev' },
+  'stable-xl': { provider: 'fal', id: 'fal-ai/fast-sdxl', label: 'Stable XL' },
+  'flux-pro': { provider: 'fal', id: 'fal-ai/flux-pro/v1.1', label: 'Flux Pro' },
+  'flux-ultra': { provider: 'fal', id: 'fal-ai/flux-pro/v1.1-ultra', label: 'Flux Ultra', usesAspectRatio: true },
+  'nano-banana': { provider: 'gemini', id: 'gemini', label: 'Nano Banana (Gemini)' },
 }
 
 // Mapping de aspect ratios → dimensiones para providers que toman width/height.
@@ -56,11 +72,14 @@ async function pollinationsGenerate(
   return [url]
 }
 
-function pickProvider(referenceImageUrls?: string[]): string {
+function pickProvider(referenceImageUrls?: string[], model?: string): string {
+  // 1) Modelo ELEGIDO explícitamente (el usuario/agente lo pidió) → manda su provider.
+  if (model && IMAGE_MODELS[model]) return IMAGE_MODELS[model].provider
+  // 2) Sin modelo explícito → comportamiento automático (NO mete fal por defecto: es de pago).
   // Imágenes de referencia → solo Gemini las soporta; si hay key, gana sobre todo lo demás.
   if (referenceImageUrls?.length && Deno.env.get('GEMINI_API_KEY')) return 'gemini'
   const explicit = (Deno.env.get('IMAGE_PROVIDER') || '').trim().toLowerCase()
-  if (explicit === 'pollinations' || explicit === 'higgsfield' || explicit === 'gemini') return explicit
+  if (explicit === 'pollinations' || explicit === 'higgsfield' || explicit === 'gemini' || explicit === 'fal') return explicit
   // Auto (por calidad): Gemini "Nano Banana" si hay key → Higgsfield → Pollinations.
   if (Deno.env.get('GEMINI_API_KEY')) return 'gemini'
   if (Deno.env.get('HIGGSFIELD_API_KEY') && Deno.env.get('HIGGSFIELD_API_SECRET')) {
@@ -74,8 +93,19 @@ export async function generateImage(
   aspectRatio: string = '1:1',
   styleHint?: string,
   referenceImageUrls?: string[],
+  model?: string,
 ): Promise<ImageGenResult> {
-  const provider = pickProvider(referenceImageUrls)
+  const provider = pickProvider(referenceImageUrls, model)
+
+  if (provider === 'fal') {
+    // Modelo fal: el elegido (si es un modelo fal válido), o flux-dev por defecto (equilibrado).
+    const key = model && IMAGE_MODELS[model]?.provider === 'fal' ? model : 'flux-dev'
+    const m = IMAGE_MODELS[key]
+    // SIN fallback silencioso: el usuario eligió este modelo (de pago). Si fal falla, el error
+    // sube y el agente se lo comunica con transparencia (no entregamos una imagen que no pidió).
+    const urls = await falGenerateImage(m.id, prompt, aspectRatio, styleHint, { usesAspectRatio: m.usesAspectRatio })
+    return { provider: `fal · ${m.label}`, urls, referencesApplied: 0 }
+  }
 
   if (provider === 'gemini') {
     try {

@@ -795,20 +795,23 @@ async function generateImage(
   const prompt = (args.prompt as string)?.trim()
   const aspectRatio = (args.aspect_ratio as string) || '1:1'
   const styleHint = args.style_hint as string | undefined
-  // URLs de referencia (producto real de NINA, modelo) → Gemini las usa como base.
+  // Modelo elegido por el usuario (flux-schnell|flux-dev|stable-xl|flux-pro|flux-ultra|nano-banana).
+  const model = typeof args.model === 'string' && args.model.trim() ? args.model.trim() : undefined
+  // URLs de referencia (producto real de NINA, modelo) → solo Nano Banana (Gemini) las usa como base.
   const referenceImageUrls = Array.isArray(args.reference_image_urls)
     ? (args.reference_image_urls as unknown[]).filter((u) => typeof u === 'string' && u.trim()).map((u) => String(u).trim())
     : undefined
   if (!prompt) return { ok: false, error: 'Falta prompt' }
   try {
-    const result = await generateImageMulti(prompt, aspectRatio, styleHint, referenceImageUrls)
+    const result = await generateImageMulti(prompt, aspectRatio, styleHint, referenceImageUrls, model)
     const requested = referenceImageUrls?.length ?? 0
     const applied = result.referencesApplied ?? 0
     const data: Record<string, unknown> = {
       images: result.urls.map((url) => ({ url })),
       prompt,
       aspect_ratio: aspectRatio,
-      provider: result.provider,
+      model: model ?? null,
+      provider: result.provider, // p.ej. "fal · Flux Pro" — se muestra como "generado por"
       references_used: applied, // lo realmente APLICADO, no lo pedido (no mentir al agente)
     }
     // Si se pidieron referencias pero NINGUNA se aplicó (provider sin soporte o fallback),

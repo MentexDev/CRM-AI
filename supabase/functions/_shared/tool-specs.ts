@@ -168,7 +168,7 @@ export const TOOL_SPECS: ToolSpecData[] = [
   },
   {
     "name": "generate_image",
-    "description": "Generar o EDITAR una imagen con Gemini 3 Pro Image (Nano Banana Pro) a partir de un prompt visual. Acepta imágenes de referencia (reference_image_urls): p.ej. la foto del PRODUCTO real de NINA y/o una MODELO — Gemini aplica el producto exacto a la escena ('ponle ESTE pantalón a ESTA modelo en un estadio del Mundial'). Útil para mockups, campañas, propuestas visuales. La imagen vuelve como URL pública. NO publica nada — sólo crea el asset. Para publicar externamente, después usa request_approval para que la Junta autorice.",
+    "description": "Generar o EDITAR una imagen a partir de un prompt visual. MODELOS (param `model`): flux-schnell (rápido/barato, previews), flux-dev (equilibrado), stable-xl (open source), flux-pro (alta fidelidad comercial), flux-ultra (máxima calidad 4K) — todos vía fal.ai — y nano-banana (Gemini, el ÚNICO que EDITA con imágenes de referencia: aplica un PRODUCTO/MODELO real a la escena, ej. 'ponle ESTE pantalón a ESTA modelo'). IMPORTANTE: si el usuario NO indicó con qué modelo generar, NO generes todavía — primero llama `ask_questions` con UNA pregunta type 'single' y options con los modelos (Flux Schnell, Flux Dev, Stable XL, Flux Pro, Flux Ultra, Nano Banana), y SÓLO tras su respuesta llama generate_image con `model`. Si el usuario adjuntó/señaló una foto de referencia (reference_image_urls), usa nano-banana sin preguntar. La imagen vuelve como URL pública. NO publica nada — sólo crea el asset; para publicar externamente usa después request_approval.",
     "category": "image",
     "parameters": {
       "type": "object",
@@ -180,10 +180,22 @@ export const TOOL_SPECS: ToolSpecData[] = [
           "type": "string",
           "description": "Descripción visual detallada en inglés (mejores resultados) o español. Sé específico sobre escena, estilo, iluminación, look. Si pasas reference_image_urls, di qué hacer con ellas (ej. 'usa el pantalón de la imagen 1 sobre la modelo de la imagen 2')."
         },
+        "model": {
+          "type": "string",
+          "enum": [
+            "flux-schnell",
+            "flux-dev",
+            "stable-xl",
+            "flux-pro",
+            "flux-ultra",
+            "nano-banana"
+          ],
+          "description": "Modelo de generación ELEGIDO POR EL USUARIO. flux-schnell=rápido/barato; flux-dev=equilibrado; stable-xl=open source; flux-pro=alta fidelidad; flux-ultra=máxima calidad 4K; nano-banana=Gemini, ÚNICO que edita con reference_image_urls. Si el usuario NO lo indicó, pregúntaselo con ask_questions ANTES de generar (no lo inventes)."
+        },
         "reference_image_urls": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "URLs públicas de imágenes de referencia que Gemini debe usar como base: foto del producto REAL de NINA (para que la prenda sea exacta) y/o foto de la modelo. Úsalas cuando el usuario adjunte o señale un producto/modelo específico."
+          "description": "URLs públicas de imágenes de referencia para EDITAR (solo nano-banana las aplica): foto del producto REAL de NINA (para que la prenda sea exacta) y/o foto de la modelo. Úsalas cuando el usuario adjunte o señale un producto/modelo específico."
         },
         "style_hint": {
           "type": "string",
