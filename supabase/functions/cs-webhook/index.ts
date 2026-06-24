@@ -10,6 +10,8 @@
 import { adminDb } from '../_shared/db.ts'
 
 const WEBHOOK_SECRET = Deno.env.get('CS_WEBHOOK_SECRET') ?? ''
+const ENGINE_KEY = Deno.env.get('ENGINE_API_KEY') ?? ''
+const FUNCTIONS_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '')
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
@@ -28,7 +30,7 @@ Deno.serve(async (req) => {
   if (!instance) return new Response('ok')
 
   const db = adminDb()
-  const { data: channel } = await db.from('cs_channels').select('id, brand_id').eq('session_id', instance).maybeSingle()
+  const { data: channel } = await db.from('cs_channels').select('id, brand_id, agent_id, auto_reply').eq('session_id', instance).maybeSingle()
   if (!channel) return new Response('ok') // instancia desconocida → ignorar
 
   try {
@@ -81,7 +83,7 @@ Deno.serve(async (req) => {
 
       // Conversación abierta (reusar/crear). Si la existente es MANUAL (channel_id null), asignarle el canal
       // para que el operador pueda responder por WhatsApp.
-      let { data: conv } = await db.from('cs_conversations').select('id, channel_id').eq('brand_id', channel.brand_id).eq('contact_id', contact.id).eq('status', 'open').maybeSingle()
+      let { data: conv } = await db.from('cs_conversations').select('id, channel_id, agent_active').eq('brand_id', channel.brand_id).eq('contact_id', contact.id).eq('status', 'open').maybeSingle()
       if (!conv) {
         const ins = await db.from('cs_conversations').insert({ brand_id: channel.brand_id, contact_id: contact.id, channel_id: channel.id }).select('id').maybeSingle()
         conv = ins.data ?? (await db.from('cs_conversations').select('id').eq('brand_id', channel.brand_id).eq('contact_id', contact.id).eq('status', 'open').maybeSingle()).data
@@ -96,6 +98,18 @@ Deno.serve(async (req) => {
         if (dup) return new Response('ok')
       }
       await db.from('cs_messages').insert({ brand_id: channel.brand_id, conversation_id: conv.id, direction, sender_type, type, content, wa_message_id: waId })
+
+      // Auto-respuesta del agente vendedor (m2m → cs-agent-reply) si el canal lo tiene activo y la
+      // conversación no está pausada. En segundo plano (el LLM tarda) para responderle YA a Evolution.
+      if (direction === 'inbound' && channel.auto_reply && channel.agent_id && conv.agent_active !== false) {
+        const fire = fetch(`${FUNCTIONS_URL}/functions/v1/cs-agent-reply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Engine-Key': ENGINE_KEY },
+          body: JSON.stringify({ conversation_id: conv.id }),
+        }).catch((e) => console.error('[cs-webhook→agent]', e instanceof Error ? e.message : e))
+        // @ts-ignore EdgeRuntime es global en Supabase Edge
+        if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) EdgeRuntime.waitUntil(fire)
+      }
       return new Response('ok')
     }
 

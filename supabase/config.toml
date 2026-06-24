@@ -38,3 +38,7 @@ verify_jwt = false
 # cs-webhook lo llama Evolution (sin JWT); verifica ?key=CS_WEBHOOK_SECRET en código.
 [functions.cs-webhook]
 verify_jwt = false
+
+# cs-agent-reply lo llama cs-webhook (m2m); verifica X-Engine-Key en código (requireEngineKey).
+[functions.cs-agent-reply]
+verify_jwt = false

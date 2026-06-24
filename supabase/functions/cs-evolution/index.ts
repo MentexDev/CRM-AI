@@ -107,6 +107,8 @@ Deno.serve(async (req) => {
       if (r.status >= 400) return json({ error: `Evolution: ${JSON.stringify(r.json).slice(0, 200)}` }, 502)
       const waId = r.json?.key?.id ?? null
       await db.from('cs_messages').insert({ brand_id: ch.brand_id, conversation_id, direction: 'outbound', sender_type: 'operator', sender_id: u.user.id, type: 'text', content: text, wa_message_id: waId, status: 'sent' })
+      // Handoff humano: si el operador responde a mano, se pausa la auto-respuesta del agente en esta conversación.
+      await db.from('cs_conversations').update({ agent_active: false }).eq('id', conversation_id)
       return json({ ok: true, wa_message_id: waId })
     }
 
