@@ -1719,7 +1719,7 @@ function ImageComposer({ onGenerate, sending }) {
     setPrompt('')
   }
   return (
-    <div className="mx-auto w-full max-w-xl rounded-2xl border border-nina-line bg-nina-panel/95 backdrop-blur shadow-2xl shadow-black/40 px-3 pt-2 pb-2">
+    <div className="mx-auto w-full max-w-[432px] rounded-2xl border border-nina-line bg-nina-panel/95 backdrop-blur shadow-2xl shadow-black/40 px-3 pt-2 pb-2">
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
