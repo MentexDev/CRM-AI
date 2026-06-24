@@ -1323,7 +1323,8 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
     e.preventDefault()
     setDragging(true)
     const onMove = (ev) => {
-      const w = window.innerWidth - ev.clientX
+      // En modo flotante el panel está anclado 12px adentro (right-3) → compensar el offset.
+      const w = window.innerWidth - ev.clientX - (canvasFloating ? 12 : 0)
       setCanvasWidth(Math.max(420, Math.min(w, window.innerWidth - 460)))
     }
     const onUp = () => {
