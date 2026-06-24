@@ -1696,41 +1696,59 @@ const ASPECT_OPTIONS = [
   { value: '3:2', label: '3:2', icon: <AspectIcon ratio="3:2" /> },
 ]
 
-// Composer del Image Studio: describe la imagen + elige modelo (fal) y proporción → genera en el panel.
+// Composer del Image Studio: caja FLOTANTE centrada (estilo NeuralOS) con textarea + modelo + proporción
+// + micrófono (dictado por voz, el MISMO hook del chat) → genera en el panel.
 function ImageComposer({ onGenerate, sending }) {
   const [prompt, setPrompt] = useState('')
   const [model, setModel] = useState('flux-pro')
   const [aspect, setAspect] = useState('1:1')
+  const voice = useVoiceTranscription({
+    lang: 'es-ES',
+    onFinalResult: (t) => setPrompt((prev) => (prev ? `${prev} ${t}`.trim() : t)),
+    onError: (m) => toast.error(m),
+  })
+  const toggleMic = () => {
+    if (!voice.isSupported) { toast.error('Tu navegador no soporta Web Speech API. Prueba Chrome o Edge.'); return }
+    voice.toggle()
+  }
   const submit = () => {
     const p = prompt.trim()
     if (!p || sending) return
+    if (voice.status === 'listening') voice.stopListening()
     onGenerate?.(p, { model, aspect })
     setPrompt('')
   }
   return (
-    <div className="shrink-0 p-2.5 border-t border-nina-line/60">
-      <div className="rounded-2xl border border-nina-line bg-nina-ink/60 px-3 pt-2 pb-2">
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-          rows={1}
-          placeholder="Describe la imagen que quieres generar…"
-          className="w-full bg-transparent text-[13px] text-nina-chrome placeholder:text-nina-mute/60 outline-none resize-none max-h-28"
-        />
-        <div className="flex items-center gap-2 mt-1.5">
-          <ImageModelPill value={model} onChange={setModel} />
-          <Select value={aspect} onChange={setAspect} options={ASPECT_OPTIONS} className="w-[116px]" />
-          <div className="flex-1" />
-          <button
-            onClick={submit}
-            disabled={!prompt.trim() || sending}
-            className="w-8 h-8 grid place-items-center rounded-full bg-silver-gradient text-nina-black disabled:opacity-40 shrink-0 transition"
-            title="Generar imagen"
-          >
-            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
-          </button>
-        </div>
+    <div className="mx-auto w-full max-w-xl rounded-2xl border border-nina-line bg-nina-panel/95 backdrop-blur shadow-2xl shadow-black/40 px-3 pt-2 pb-2">
+      <textarea
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+        rows={1}
+        placeholder="Describe la imagen que quieres generar…"
+        className="w-full bg-transparent text-[13px] text-nina-chrome placeholder:text-nina-mute/60 outline-none resize-none max-h-28"
+      />
+      <div className="flex items-center gap-2 mt-1.5">
+        <ImageModelPill value={model} onChange={setModel} />
+        <Select value={aspect} onChange={setAspect} options={ASPECT_OPTIONS} className="w-[116px]" />
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={toggleMic}
+          disabled={!voice.isSupported}
+          className={`w-8 h-8 grid place-items-center rounded-lg transition shrink-0 ${voice.status === 'listening' ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30' : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40'} disabled:opacity-40`}
+          title={voice.status === 'listening' ? 'Detener dictado' : 'Dictar por voz'}
+        >
+          {voice.isSupported ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+        </button>
+        <button
+          onClick={submit}
+          disabled={!prompt.trim() || sending}
+          className="w-8 h-8 grid place-items-center rounded-full bg-silver-gradient text-nina-black disabled:opacity-40 shrink-0 transition"
+          title="Generar imagen"
+        >
+          {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
+        </button>
       </div>
     </div>
   )
@@ -1988,11 +2006,12 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         ) : active?.type === 'calendar' ? (
           <CalendarView events={active.events} />
         ) : active?.type === 'gallery' ? (
-          <div className="w-full h-full flex flex-col">
-            <div className="flex-1 min-h-0 overflow-auto p-1">
+          <div className="relative w-full h-full">
+            <div className="absolute inset-0 overflow-auto p-1">
               {/* Masonry: cada imagen conserva su proporción real (1:1, 9:16, 16:9…) y las columnas
-                  acomodan alturas variables — no se recorta todo a cuadrado. */}
-              <div className="columns-2 lg:columns-3 gap-2">
+                  acomodan alturas variables — no se recorta todo a cuadrado. pb-24 para que el composer
+                  flotante no tape las últimas miniaturas. */}
+              <div className="columns-2 lg:columns-3 gap-2 pb-24">
                 {(active.images || []).map((img) => (
                   <button
                     key={img.key}
@@ -2008,7 +2027,14 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
                 ))}
               </div>
             </div>
-            {onGenerateImage && <ImageComposer onGenerate={onGenerateImage} sending={sending} />}
+            {/* Composer FLOTANTE centrado abajo (estilo NeuralOS) — a su medida, no ocupa todo el ancho. */}
+            {onGenerateImage && (
+              <div className="absolute inset-x-0 bottom-3 px-3 pointer-events-none">
+                <div className="pointer-events-auto">
+                  <ImageComposer onGenerate={onGenerateImage} sending={sending} />
+                </div>
+              </div>
+            )}
           </div>
         ) : active?.type === 'image' ? (
           <div className="w-full h-full grid place-items-center overflow-auto">
