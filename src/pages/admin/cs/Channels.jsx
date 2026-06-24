@@ -2,10 +2,11 @@
 // con diseño NINA). Fase 1: CRUD de la ficha del canal (crear/renombrar/editar/eliminar) + estado.
 // La CONEXIÓN real por QR llega en Fase 2 (Evolution API) — aquí el botón "Conectar" queda preparado.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, Loader2, MessageCircle, Pencil, Plus, QrCode, Search, Trash2, Unplug } from 'lucide-react'
+import { Bot, Check, Loader2, MessageCircle, Pencil, Plus, QrCode, Search, Trash2, Unplug, Zap, ZapOff } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../../../lib/supabase'
 import Modal from '../../../components/Modal'
+import { useAgents } from '../../../hooks/useAgents'
 import { CsShell, CsEmpty, useCsBrand } from './CsShell'
 
 const STATUS = {
@@ -16,6 +17,8 @@ const STATUS = {
 
 export default function CsChannels() {
   const { brands, brandId, setBrandId } = useCsBrand()
+  const { agents } = useAgents()
+  const brandAgents = agents.filter((a) => a.brand_id === brandId || !a.brand_id)
   const [channels, setChannels] = useState([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
@@ -28,7 +31,7 @@ export default function CsChannels() {
     setLoading(true)
     const { data, error } = await supabase
       .from('cs_channels')
-      .select('id, name, description, status, phone, created_at')
+      .select('id, name, description, status, phone, agent_id, auto_reply, created_at')
       .eq('brand_id', brandId)
       .order('created_at', { ascending: false })
     if (error) toast.error('No pude cargar los canales: ' + error.message)
@@ -52,6 +55,18 @@ export default function CsChannels() {
     const n = q.trim().toLowerCase()
     return !n || (c.name || '').toLowerCase().includes(n) || (c.phone || '').includes(n)
   })
+
+  // Asignar el agente IA del canal + toggle de respuesta automática.
+  const setChannelAgent = async (id, agentId) => {
+    const patch = agentId ? { agent_id: agentId } : { agent_id: null, auto_reply: false }
+    const { error } = await supabase.from('cs_channels').update(patch).eq('id', id)
+    if (error) toast.error(error.message)
+  }
+  const toggleAuto = async (c) => {
+    if (!c.agent_id) { toast('Asigna un agente primero', { icon: '🤖' }); return }
+    const { error } = await supabase.from('cs_channels').update({ auto_reply: !c.auto_reply }).eq('id', c.id)
+    if (error) toast.error(error.message)
+  }
 
   const save = async (form) => {
     const name = (form.name || '').trim()
@@ -131,6 +146,27 @@ export default function CsChannels() {
                     </span>
                   </div>
                   <div className="text-[12.5px] text-nina-mute truncate">{c.phone || c.description || 'Sin descripción'}</div>
+                  {/* Agente IA del canal + respuesta automática */}
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <Bot className="w-3.5 h-3.5 text-nina-mute shrink-0" />
+                    <select
+                      value={c.agent_id || ''}
+                      onChange={(e) => setChannelAgent(c.id, e.target.value || null)}
+                      className="bg-nina-ink border border-nina-line rounded-md px-2 py-1 text-[11.5px] text-nina-chrome outline-none focus:border-nina-silver/40 max-w-[180px]"
+                      title="Agente que responde automáticamente en este canal"
+                    >
+                      <option value="">Sin agente</option>
+                      {brandAgents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                    <button
+                      onClick={() => toggleAuto(c)}
+                      disabled={!c.agent_id}
+                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition disabled:opacity-40 ${c.auto_reply && c.agent_id ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-nina-line/40 text-nina-mute hover:text-nina-chrome'}`}
+                      title={c.agent_id ? 'Respuesta automática del agente' : 'Asigna un agente primero'}
+                    >
+                      {c.auto_reply && c.agent_id ? <><Zap className="w-3 h-3" /> Auto ON</> : <><ZapOff className="w-3 h-3" /> Auto OFF</>}
+                    </button>
+                  </div>
                 </div>
                 <div className="text-right shrink-0 hidden sm:block">
                   <div className="text-[11px] text-nina-mute">ID: #{c.id.slice(0, 6)}</div>
