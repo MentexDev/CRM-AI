@@ -353,6 +353,9 @@ function AgentWorkspace({
   // que se vea de inmediato (sin el flash de "Sin mensajes todavía") mientras
   // llega por realtime. El dedup de MessagesTab lo reemplaza por el real.
   const [pendingMsg, setPendingMsg] = useState(null)
+  // Turno iniciado desde el HOME/perfil del agente: sigue corriendo durante la navegación al chat.
+  // Sirve para que MessagesTab muestre "en curso" desde el primer momento (sobrevive el remount).
+  const [homeTurnInFlight, setHomeTurnInFlight] = useState(false)
   const { tasks } = useAgentTasks(agent.id)
   const { conversations } = useConversations({ agentId: agent.id })
   const activeConv = conversations.find((c) => c.id === conversationId) ?? null
@@ -456,9 +459,16 @@ function AgentWorkspace({
               onGoHome={onGoHome}
               seedMessage={pendingMsg}
               onSeedConsumed={() => setPendingMsg(null)}
+              homeInFlight={homeTurnInFlight}
+              onHomeSettled={() => setHomeTurnInFlight(false)}
             />
           ) : (
-            <AgentHome agent={agent} onOpenConversation={onOpenConversation} onUserSend={(content, meta) => setPendingMsg({ content, meta })} />
+            <AgentHome
+              agent={agent}
+              onOpenConversation={onOpenConversation}
+              onUserSend={(content, meta) => { setPendingMsg({ content, meta }); setHomeTurnInFlight(true) }}
+              onTurnSettled={() => setHomeTurnInFlight(false)}
+            />
           ))}
         {view === 'tasks' && <TasksBoard agentId={agent.id} embedded />}
         {view === 'instructions' && (
@@ -479,7 +489,7 @@ function AgentWorkspace({
 // Home del agente — composer para iniciar + historial de conversaciones
 // (réplica del "project view" de Manus, pero por perfil de agente).
 // =====================================================================
-function AgentHome({ agent, onOpenConversation, onUserSend }) {
+function AgentHome({ agent, onOpenConversation, onUserSend, onTurnSettled }) {
   const { conversations, loading } = useConversations({ agentId: agent.id })
   const Icon = agentIcon(agent)
 
@@ -508,6 +518,7 @@ function AgentHome({ agent, onOpenConversation, onUserSend }) {
           conversationId={null}
           onConversationCreated={onOpenConversation}
           onUserSend={onUserSend}
+          onSettled={onTurnSettled}
           bare
         />
 
@@ -612,7 +623,7 @@ function sheetToMarkdown(title, columns, rows, sub) {
   return lines.join('\n')
 }
 
-function MessagesTab({ agent, conversationId, conversation, onConversationCreated, onGoHome, seedMessage, onSeedConsumed }) {
+function MessagesTab({ agent, conversationId, conversation, onConversationCreated, onGoHome, seedMessage, onSeedConsumed, homeInFlight, onHomeSettled }) {
   const { messages, loading } = useAgentMessages(agent.id, conversationId, 200)
   const [optimistic, setOptimistic] = useState([])
   const [thinking, setThinking] = useState(false)
@@ -632,8 +643,10 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // perfil) el mensaje del usuario como optimista, para verlo al instante sin el
   // flash de "Sin mensajes todavía". El dedup de arriba lo reemplaza por el real.
   useEffect(() => {
-    setThinking(false)
     if (seedMessage) {
+      // Venimos del HOME/perfil: el turno YA se está ejecutando (lo lanzó el composer del home) →
+      // mostramos "en curso" desde el primer momento, hasta que ese turno termine (onHomeSettled).
+      setThinking(!!homeInFlight)
       // seedMessage puede ser string (legacy) u objeto { content, meta } → así la primera burbuja
       // del perfil también pinta los chips de adjuntos (no el muro de texto con [Documento: …]).
       const sm = typeof seedMessage === 'string' ? { content: seedMessage } : seedMessage
@@ -649,10 +662,15 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
       ])
       onSeedConsumed?.()
     } else {
+      setThinking(false)
       setOptimistic([])
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId])
+  // El turno iniciado desde el home terminó (su invoke resolvió → homeInFlight pasó a false) → apagar "en curso".
+  useEffect(() => {
+    if (homeInFlight === false) setThinking(false)
+  }, [homeInFlight])
 
   const addOptimistic = (content, meta) => {
     setOptimistic((prev) => [
