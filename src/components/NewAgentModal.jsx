@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Modal from './Modal'
+import Select from './Select'
 import { AGENT_TEMPLATES, TEMPLATE_LIST } from '../lib/agentTemplates'
 import { useAgents } from '../hooks/useAgents'
 import { useBrands } from '../hooks/useBrands'
@@ -393,17 +394,18 @@ function DetailsStep({ form, setForm, tplId, isEdit, agentId, onBack, onClose, b
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="label">Rol jerárquico</label>
-            <select
-              className="input"
+            <Select
+              className="w-full"
               value={form.role}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, role: e.target.value, parent_agent_id: '' }))
+              onChange={(v) =>
+                setForm((f) => ({ ...f, role: v, parent_agent_id: '' }))
               }
-            >
-              <option value="specialist">Especialista</option>
-              <option value="brand_manager">Brand Manager</option>
-              <option value="ceo_global">CEO Global</option>
-            </select>
+              options={[
+                { value: 'specialist', label: 'Especialista' },
+                { value: 'brand_manager', label: 'Brand Manager' },
+                { value: 'ceo_global', label: 'CEO Global' },
+              ]}
+            />
           </div>
           <div>
             <label className="label">Especialidad / etiqueta</label>
@@ -422,38 +424,36 @@ function DetailsStep({ form, setForm, tplId, isEdit, agentId, onBack, onClose, b
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="label">Marca asignada</label>
-            <select
-              className="input"
+            <Select
+              className="w-full"
               value={form.brand_id}
-              onChange={(e) => setForm((f) => ({ ...f, brand_id: e.target.value }))}
-            >
-              <option value="">— Global / sin marca —</option>
-              {brands.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setForm((f) => ({ ...f, brand_id: v }))}
+              options={[
+                { value: '', label: '— Global / sin marca —' },
+                ...brands.map((b) => ({ value: b.id, label: b.name })),
+              ]}
+            />
           </div>
           <div>
             <label className="label">
               Reporta a (padre){form.role !== 'ceo_global' && ' *'}
             </label>
-            <select
-              className="input"
+            <Select
+              className="w-full"
               value={form.parent_agent_id}
-              onChange={(e) => setForm((f) => ({ ...f, parent_agent_id: e.target.value }))}
+              onChange={(v) => setForm((f) => ({ ...f, parent_agent_id: v }))}
               disabled={form.role === 'ceo_global'}
-            >
-              <option value="">
-                {form.role === 'ceo_global' ? 'Sin padre (CEO Global)' : '— Selecciona un padre —'}
-              </option>
-              {possibleParents.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+              options={[
+                {
+                  value: '',
+                  label:
+                    form.role === 'ceo_global'
+                      ? 'Sin padre (CEO Global)'
+                      : '— Selecciona un padre —',
+                },
+                ...possibleParents.map((p) => ({ value: p.id, label: p.name })),
+              ]}
+            />
           </div>
         </div>
       </section>
@@ -477,17 +477,16 @@ function DetailsStep({ form, setForm, tplId, isEdit, agentId, onBack, onClose, b
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label className="label">Modelo</label>
-            <select
-              className="input"
+            <Select
+              className="w-full"
               value={form.model}
-              onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-            >
-              <optgroup label="Groq (rápido y barato)">
-                <option value="llama-3.3-70b-versatile">Llama 3.3 70B Versatile</option>
-                <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant</option>
-                <option value="qwen-2.5-72b">Qwen 2.5 72B</option>
-              </optgroup>
-            </select>
+              onChange={(v) => setForm((f) => ({ ...f, model: v }))}
+              options={[
+                { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile' },
+                { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant' },
+                { value: 'qwen-2.5-72b', label: 'Qwen 2.5 72B' },
+              ]}
+            />
           </div>
           <div>
             <label className="label">

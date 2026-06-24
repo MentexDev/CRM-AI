@@ -19,6 +19,7 @@ import {
 import toast from 'react-hot-toast'
 import EmptyState from '../../components/EmptyState'
 import Modal from '../../components/Modal'
+import Select from '../../components/Select'
 import { useBrands } from '../../hooks/useBrands'
 import { useBrain } from '../../hooks/useBrain'
 import { formatTimeAgo } from '../../lib/format'
@@ -120,18 +121,12 @@ export default function Cerebro() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <select
-            className="input !w-auto"
+          <Select
+            className="w-44"
             value={brandId}
-            onChange={(e) => setBrandId(e.target.value)}
-            title="Marca"
-          >
-            {brands.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setBrandId(v)}
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
           <button
             onClick={refresh}
             className="btn-ghost shrink-0"
@@ -522,13 +517,12 @@ function IngestDocumentModal({ open, onClose, onIngest, brandName }) {
             </div>
             <div>
               <label className="label">Tipo</label>
-              <select className="input" value={sourceKind} onChange={(e) => setSourceKind(e.target.value)}>
-                {KIND_OPTIONS.filter((o) => o.value !== 'web').map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+              <Select
+                className="w-full"
+                value={sourceKind}
+                onChange={(v) => setSourceKind(v)}
+                options={KIND_OPTIONS.filter((o) => o.value !== 'web')}
+              />
             </div>
           </>
         ) : (

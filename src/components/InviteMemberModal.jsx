@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AtSign, Loader2, Mail } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Modal from './Modal'
+import Select from './Select'
 import { supabase } from '../lib/supabase'
 import { useBrands } from '../hooks/useBrands'
 
@@ -177,17 +178,11 @@ export default function InviteMemberModal({ open, onClose }) {
                 </div>
                 <div>
                   <label className="label">Rol dentro de cada marca</label>
-                  <select
-                    className="input"
+                  <Select
                     value={brandRole}
-                    onChange={(e) => setBrandRole(e.target.value)}
-                  >
-                    {BRAND_ROLES.map((r) => (
-                      <option key={r.value} value={r.value}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => setBrandRole(v)}
+                    options={BRAND_ROLES}
+                  />
                 </div>
               </>
             )}

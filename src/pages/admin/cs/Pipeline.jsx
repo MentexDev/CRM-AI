@@ -6,6 +6,7 @@ import { Loader2, Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../../../lib/supabase'
 import Modal from '../../../components/Modal'
+import Select from '../../../components/Select'
 import { normPhone, useCsBrand } from './CsShell'
 
 export default function CsPipeline() {
@@ -84,9 +85,7 @@ export default function CsPipeline() {
           <p className="text-[13px] text-nina-mute mt-1">Arrastra los leads entre etapas. {leads.length} lead{leads.length !== 1 ? 's' : ''}.</p>
         </div>
         {brands.length > 1 && (
-          <select value={brandId} onChange={(e) => setBrandId(e.target.value)} className="bg-nina-ink border border-nina-line rounded-lg px-3 py-2 text-[13px] text-nina-chrome outline-none focus:border-nina-silver/40">
-            {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
+          <Select className="w-44" value={brandId} onChange={(v) => setBrandId(v)} options={brands.map((b) => ({ value: b.id, label: b.name }))} />
         )}
       </div>
 

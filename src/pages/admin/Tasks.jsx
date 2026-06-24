@@ -43,6 +43,7 @@ import {
 import toast from 'react-hot-toast'
 import EmptyState from '../../components/EmptyState'
 import Modal from '../../components/Modal'
+import Select from '../../components/Select'
 import { useAuth } from '../../context/AuthContext'
 import { useConfirm } from '../../components/ConfirmDialog'
 import { supabase } from '../../lib/supabase'
@@ -1421,47 +1422,40 @@ function NewTaskModal({ open, onClose, agents, brands, defaultAgentId = null }) 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="label">Asignar a</label>
-            <select
+            <Select
               value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              className="input"
-            >
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setAgentId(v)}
+              options={agents.map((a) => ({ value: a.id, label: a.name }))}
+              className="w-full"
+            />
           </div>
           <div>
             <label className="label">Prioridad</label>
-            <select
+            <Select
               value={priority}
-              onChange={(e) => setPriority(Number(e.target.value))}
-              className="input"
-            >
-              <option value={1}>1 · Crítica</option>
-              <option value={2}>2 · Alta</option>
-              <option value={3}>3 · Normal</option>
-              <option value={4}>4 · Baja</option>
-              <option value={5}>5 · Eventual</option>
-            </select>
+              onChange={(v) => setPriority(v)}
+              options={[
+                { value: 1, label: '1 · Crítica' },
+                { value: 2, label: '2 · Alta' },
+                { value: 3, label: '3 · Normal' },
+                { value: 4, label: '4 · Baja' },
+                { value: 5, label: '5 · Eventual' },
+              ]}
+              className="w-full"
+            />
           </div>
         </div>
         <div>
           <label className="label">Marca (opcional)</label>
-          <select
+          <Select
             value={brandId}
-            onChange={(e) => setBrandId(e.target.value)}
-            className="input"
-          >
-            <option value="">— Usar la marca del agente —</option>
-            {brands.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setBrandId(v)}
+            options={[
+              { value: '', label: '— Usar la marca del agente —' },
+              ...brands.map((b) => ({ value: b.id, label: b.name })),
+            ]}
+            className="w-full"
+          />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="btn-ghost" disabled={busy}>

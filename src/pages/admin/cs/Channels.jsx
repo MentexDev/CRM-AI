@@ -6,6 +6,7 @@ import { Bot, Check, Loader2, MessageCircle, Pencil, Plus, QrCode, Search, Trash
 import toast from 'react-hot-toast'
 import { supabase } from '../../../lib/supabase'
 import Modal from '../../../components/Modal'
+import Select from '../../../components/Select'
 import { useAgents } from '../../../hooks/useAgents'
 import { CsShell, CsEmpty, useCsBrand } from './CsShell'
 
@@ -149,15 +150,12 @@ export default function CsChannels() {
                   {/* Agente IA del canal + respuesta automática */}
                   <div className="flex items-center gap-1.5 mt-2">
                     <Bot className="w-3.5 h-3.5 text-nina-mute shrink-0" />
-                    <select
+                    <Select
                       value={c.agent_id || ''}
-                      onChange={(e) => setChannelAgent(c.id, e.target.value || null)}
-                      className="bg-nina-ink border border-nina-line rounded-md px-2 py-1 text-[11.5px] text-nina-chrome outline-none focus:border-nina-silver/40 max-w-[180px]"
-                      title="Agente que responde automáticamente en este canal"
-                    >
-                      <option value="">Sin agente</option>
-                      {brandAgents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                    </select>
+                      onChange={(v) => setChannelAgent(c.id, v || null)}
+                      options={[{ value: '', label: 'Sin agente' }, ...brandAgents.map((a) => ({ value: a.id, label: a.name }))]}
+                      className="max-w-[180px]"
+                    />
                     <button
                       onClick={() => toggleAuto(c)}
                       disabled={!c.agent_id}

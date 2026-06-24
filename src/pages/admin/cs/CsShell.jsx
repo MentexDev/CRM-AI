@@ -3,6 +3,7 @@
 // - CsShell: cabecera estándar (título + subtítulo + selector de marca + acciones) con diseño NINA.
 import { useEffect, useState } from 'react'
 import { useBrands } from '../../../hooks/useBrands'
+import Select from '../../../components/Select'
 
 const KEY = 'nina:cs:brand'
 
@@ -37,14 +38,12 @@ export function CsShell({ title, subtitle, brands = [], brandId, onBrand, action
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {brands.length > 1 && (
-            <select
+            <Select
+              className="w-44"
               value={brandId}
-              onChange={(e) => onBrand(e.target.value)}
-              className="bg-nina-ink border border-nina-line rounded-lg px-3 py-2 text-[13px] text-nina-chrome outline-none focus:border-nina-silver/40"
-              title="Marca / workspace"
-            >
-              {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+              onChange={(v) => onBrand(v)}
+              options={brands.map((b) => ({ value: b.id, label: b.name }))}
+            />
           )}
           {actions}
         </div>

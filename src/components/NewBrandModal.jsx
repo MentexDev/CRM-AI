@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Loader2, Sparkles } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Modal from './Modal'
+import Select from './Select'
 import { buildBrandManagerPrompt } from '../lib/agentTemplates'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -233,15 +234,15 @@ export default function NewBrandModal({ open, onClose, brandId = null }) {
             {isEdit && (
               <div>
                 <label className="label">Estado</label>
-                <select
-                  className="input"
+                <Select
                   value={form.status}
-                  onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-                >
-                  <option value="active">Activa</option>
-                  <option value="paused">En pausa</option>
-                  <option value="archived">Archivada</option>
-                </select>
+                  onChange={(v) => setForm((f) => ({ ...f, status: v }))}
+                  options={[
+                    { value: 'active', label: 'Activa' },
+                    { value: 'paused', label: 'En pausa' },
+                    { value: 'archived', label: 'Archivada' },
+                  ]}
+                />
               </div>
             )}
           </section>

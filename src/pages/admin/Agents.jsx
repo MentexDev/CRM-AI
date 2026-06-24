@@ -80,6 +80,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useConfirm } from '../../components/ConfirmDialog'
 import EmptyState from '../../components/EmptyState'
 import Modal from '../../components/Modal'
+import Select from '../../components/Select'
 import NewAgentModal from '../../components/NewAgentModal'
 import AgentActionsMenu from '../../components/AgentActionsMenu'
 import ToolResultBubble from '../../components/ToolResultBubble'
@@ -3848,17 +3849,18 @@ function NewTaskModal({ open, onClose, agent }) {
         </div>
         <div>
           <label className="label">Prioridad</label>
-          <select
+          <Select
             value={priority}
-            onChange={(e) => setPriority(Number(e.target.value))}
-            className="input"
-          >
-            <option value={1}>1 · Crítica</option>
-            <option value={2}>2 · Alta</option>
-            <option value={3}>3 · Normal</option>
-            <option value={4}>4 · Baja</option>
-            <option value={5}>5 · Eventual</option>
-          </select>
+            onChange={(v) => setPriority(v)}
+            options={[
+              { value: 1, label: '1 · Crítica' },
+              { value: 2, label: '2 · Alta' },
+              { value: 3, label: '3 · Normal' },
+              { value: 4, label: '4 · Baja' },
+              { value: 5, label: '5 · Eventual' },
+            ]}
+            className="w-full"
+          />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="btn-ghost" disabled={busy}>
