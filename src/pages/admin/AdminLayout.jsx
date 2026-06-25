@@ -548,14 +548,15 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
   // El activo PRIMERO, el resto en su orden → "de primeras", justo después de módulos publicados.
   const ordered = [current, ...WORKSPACES.filter((s) => s.id !== current.id)]
   // Flechas SIN cuadro: sólo el ícono sobre un fondo desvanecido (degradado glass, sin borde).
+  // Cada flecha aparece SOLO al pasar el mouse sobre ella (hover propio), con fondo vidrioso REDONDO.
   const arrowBase =
-    'absolute top-0 bottom-0 z-10 w-7 flex items-center text-nina-silver/80 hover:text-nina-chrome opacity-0 group-hover:opacity-100 transition backdrop-blur-[2px]'
+    'absolute top-1/2 -translate-y-1/2 z-10 w-7 h-7 grid place-items-center rounded-full bg-nina-panel/55 backdrop-blur-md text-nina-silver hover:text-nina-chrome opacity-0 hover:opacity-100 transition'
 
   return (
     <div className="px-3 pt-3 flex items-center gap-1.5">
       <ModulesButton modules={modules} removeModule={removeModule} collapsed={false} onSelect={onSelect} />
       <div className="w-px h-6 bg-nina-line/60 shrink-0 mx-0.5" />
-      <div className="relative flex-1 min-w-0 group">
+      <div className="relative flex-1 min-w-0">
         <div ref={scrollRef} onScroll={updateArrows} className="overflow-x-auto flex items-center gap-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {ordered.map((s) => {
             const Icon = s.icon
@@ -579,12 +580,12 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
         </div>
         {/* Flechas FLOTANTES (absolute, sólo en hover) → no ocupan espacio en el menú. */}
         {arrows.left && (
-          <button onClick={() => nudge(-1)} aria-label="Ver secciones anteriores" className={`${arrowBase} left-0 justify-start bg-gradient-to-r from-nina-panel/70 to-transparent`}>
+          <button onClick={() => nudge(-1)} aria-label="Ver secciones anteriores" className={`${arrowBase} left-1`}>
             <ChevronLeft className="w-4 h-4" />
           </button>
         )}
         {arrows.right && (
-          <button onClick={() => nudge(1)} aria-label="Ver más secciones" className={`${arrowBase} right-0 justify-end bg-gradient-to-l from-nina-panel/70 to-transparent`}>
+          <button onClick={() => nudge(1)} aria-label="Ver más secciones" className={`${arrowBase} right-1`}>
             <ChevronRight className="w-4 h-4" />
           </button>
         )}
