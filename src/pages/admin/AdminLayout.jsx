@@ -9,7 +9,6 @@ import {
   Calculator,
   Check,
   CheckCircle2,
-  ChevronRight,
   Clapperboard,
   Code2,
   Crown,
@@ -41,6 +40,7 @@ import SettingsModal from '../../components/SettingsModal'
 import { useAuth } from '../../context/AuthContext'
 import { useAgents } from '../../hooks/useAgents'
 import { useModulosPublicados } from '../../hooks/useModulosPublicados'
+import { kindMeta } from '../../lib/artifactKinds'
 import { useConversations } from '../../hooks/useConversations'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase'
 import { useConnectionStatus } from '../../lib/useConnectionStatus'
@@ -372,14 +372,15 @@ function SidebarTip({ label, children, disabled = false }) {
   )
 }
 
-// Botón de OVERFLOW (flecha →) al final del switcher: despliega un menú flotante con los MÓDULOS
-// publicados (plantillas de Code publicadas). Cada item navega a su vista a pantalla completa; al pasar
-// el mouse aparece el botón para quitarlo. Portal+fixed para escapar del overflow del sidebar.
-function ModulesOverflow({ modules, removeModule, collapsed, onSelect }) {
+// Botón + card de MÓDULOS PUBLICADOS (plantillas de Code publicadas). Acceso fijo en un extremo del
+// switcher; abre una card flotante (sistema NINA) con la lista: navegar + quitar. Portal+fixed para
+// escapar del overflow del sidebar; cierra al click-fuera, Escape, scroll o resize. Badge con el conteo.
+function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
   const navigate = useNavigate()
   const btnRef = useRef(null)
   const [open, setOpen] = useState(false)
   const [coords, setCoords] = useState(null)
+  const count = modules?.length || 0
 
   const toggle = () => {
     if (open) {
@@ -387,7 +388,7 @@ function ModulesOverflow({ modules, removeModule, collapsed, onSelect }) {
       return
     }
     const r = btnRef.current?.getBoundingClientRect()
-    if (r) setCoords({ top: r.bottom + 6, left: Math.max(8, r.left) })
+    if (r) setCoords({ top: r.bottom + 8, left: Math.max(8, r.left) })
     setOpen(true)
   }
 
@@ -429,31 +430,50 @@ function ModulesOverflow({ modules, removeModule, collapsed, onSelect }) {
     }
   }
 
-  const btnCls = collapsed
-    ? 'w-full h-9 grid place-items-center rounded-xl transition text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'
-    : 'w-9 h-9 grid place-items-center rounded-xl border border-transparent bg-nina-line/15 text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35 transition shrink-0'
-
   return (
     <>
-      <button ref={btnRef} onClick={toggle} title="Módulos publicados" aria-label="Módulos publicados" className={btnCls}>
-        <ChevronRight className={`w-4 h-4 transition-transform ${open ? 'rotate-90' : ''}`} />
+      <button
+        ref={btnRef}
+        onClick={toggle}
+        title="Módulos publicados"
+        aria-label="Módulos publicados"
+        className={`relative shrink-0 grid place-items-center rounded-xl border transition ${collapsed ? 'w-full h-9' : 'w-9 h-9'} ${
+          open ? 'bg-nina-line/50 border-nina-line text-nina-chrome' : 'bg-nina-line/15 border-transparent text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35'
+        }`}
+      >
+        <LayoutTemplate className="w-4 h-4" />
+        {count > 0 && (
+          <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 grid place-items-center rounded-full bg-nina-silver text-nina-black text-[9px] font-semibold">{count}</span>
+        )}
       </button>
       {open &&
         coords &&
         createPortal(
-          <div style={{ top: coords.top, left: coords.left }} className="fixed z-[200] w-60 max-h-[60vh] overflow-y-auto rounded-xl border border-nina-line bg-[#0b0c10] shadow-2xl p-1">
-            <div className="px-2.5 py-1.5 text-[10px] uppercase tracking-wide text-nina-mute">Módulos publicados</div>
-            {modules.map((m) => (
-              <div key={m.id} className="group flex items-center gap-1 rounded-lg hover:bg-nina-line/30 transition">
-                <button onClick={() => goModule(m.id)} className="flex-1 min-w-0 flex items-center gap-2 px-2.5 py-2 text-left">
-                  <LayoutTemplate className="w-4 h-4 shrink-0 text-nina-silver" />
-                  <span className="flex-1 min-w-0 truncate text-[13px] text-nina-chrome">{m.title}</span>
-                </button>
-                <button onClick={(e) => del(e, m)} title="Quitar módulo" className="shrink-0 w-7 h-7 grid place-items-center rounded text-nina-mute hover:text-red-300 opacity-0 group-hover:opacity-100 transition mr-0.5">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+          <div style={{ top: coords.top, left: coords.left }} className="fixed z-[200] w-64 max-h-[60vh] overflow-y-auto rounded-xl border border-nina-line bg-nina-panel shadow-2xl p-1.5">
+            <div className="px-2 py-1.5 text-[10px] uppercase tracking-[0.15em] text-nina-mute flex items-center gap-1.5">
+              <LayoutTemplate className="w-3.5 h-3.5" /> Módulos publicados
+            </div>
+            {count === 0 ? (
+              <div className="px-2.5 py-4 text-[12px] text-nina-mute text-center leading-relaxed">
+                Aún no hay módulos.<br />Publica una plantilla desde el agente Code.
               </div>
-            ))}
+            ) : (
+              modules.map((m) => {
+                const meta = kindMeta(m.kind)
+                const Icon = meta.Icon
+                return (
+                  <div key={m.id} className="group flex items-center gap-1 rounded-lg hover:bg-nina-line/40 transition">
+                    <button onClick={() => goModule(m.id)} className="flex-1 min-w-0 flex items-center gap-2 px-2 py-2 text-left">
+                      <Icon className={`w-4 h-4 shrink-0 ${meta.color}`} />
+                      <span className="flex-1 min-w-0 truncate text-[13px] text-nina-chrome">{m.title}</span>
+                    </button>
+                    <button onClick={(e) => del(e, m)} title="Quitar módulo" className="shrink-0 w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-red-300 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition mr-0.5">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )
+              })
+            )}
           </div>,
           document.body,
         )}
@@ -461,6 +481,10 @@ function ModulesOverflow({ modules, removeModule, collapsed, onSelect }) {
   )
 }
 
+// Switcher de secciones de alto nivel.
+// EXPANDIDO = carrusel: [card módulos] | [ícono anterior] [cápsula central: ícono + nombre del activo]
+//   [ícono siguiente]. Clic en un lateral navega a esa sección (pasa al centro). Circular (envuelve).
+// COLAPSADO = columna de íconos (icon-only) de las secciones + card de módulos al final.
 function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule }) {
   const navigate = useNavigate()
   const go = (to) => {
@@ -486,29 +510,41 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
             </button>
           </SidebarTip>
         ))}
-        {modules?.length > 0 && <ModulesOverflow modules={modules} removeModule={removeModule} collapsed onSelect={onSelect} />}
+        <SidebarTip label="Módulos publicados">
+          <ModulesButton modules={modules} removeModule={removeModule} collapsed onSelect={onSelect} />
+        </SidebarTip>
       </div>
     )
   }
 
+  const n = WORKSPACES.length
+  const idx = Math.max(0, WORKSPACES.findIndex((s) => s.id === active))
+  const current = WORKSPACES[idx]
+  const prev = WORKSPACES[(idx - 1 + n) % n]
+  const next = WORKSPACES[(idx + 1) % n]
+  const CurIcon = current.icon
+  const PrevIcon = prev.icon
+  const NextIcon = next.icon
+  const sideCls = 'w-9 h-9 shrink-0 grid place-items-center rounded-xl bg-nina-line/15 text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35 transition'
+
   return (
-    <div className="px-3 pt-3 flex gap-1.5">
-      {WORKSPACES.map((s) => (
-        <button
-          key={s.id}
-          onClick={() => go(s.to)}
-          title={s.label}
-          className={`flex items-center justify-center gap-2 h-9 rounded-xl overflow-hidden border transition-all duration-300 ease-out ${
-            active === s.id
-              ? 'flex-1 px-3 bg-nina-line/50 border-nina-line text-nina-chrome'
-              : 'w-9 px-0 bg-nina-line/15 border-transparent text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35'
-          }`}
-        >
-          <s.icon className="w-4 h-4 shrink-0" />
-          {active === s.id && <span className="text-[13px] font-medium whitespace-nowrap">{s.label}</span>}
+    <div className="px-3 pt-3 flex items-center gap-1.5">
+      <ModulesButton modules={modules} removeModule={removeModule} collapsed={false} onSelect={onSelect} />
+      <div className="w-px h-6 bg-nina-line/60 shrink-0 mx-0.5" />
+      {n > 1 && (
+        <button onClick={() => go(prev.to)} title={`Anterior: ${prev.label}`} aria-label={`Anterior: ${prev.label}`} className={sideCls}>
+          <PrevIcon className="w-4 h-4" />
         </button>
-      ))}
-      {modules?.length > 0 && <ModulesOverflow modules={modules} removeModule={removeModule} collapsed={false} onSelect={onSelect} />}
+      )}
+      <button onClick={() => go(current.to)} title={current.label} className="flex-1 min-w-0 h-9 flex items-center justify-center gap-2 rounded-xl bg-nina-line/50 border border-nina-line text-nina-chrome px-3">
+        <CurIcon className="w-4 h-4 shrink-0" />
+        <span className="text-[13px] font-medium truncate">{current.label}</span>
+      </button>
+      {n > 1 && (
+        <button onClick={() => go(next.to)} title={`Siguiente: ${next.label}`} aria-label={`Siguiente: ${next.label}`} className={sideCls}>
+          <NextIcon className="w-4 h-4" />
+        </button>
+      )}
     </div>
   )
 }
