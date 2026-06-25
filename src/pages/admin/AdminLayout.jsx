@@ -485,8 +485,17 @@ function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
 // EXPANDIDO = carrusel: [card módulos] | [ícono anterior] [cápsula central: ícono + nombre del activo]
 //   [ícono siguiente]. Clic en un lateral navega a esa sección (pasa al centro). Circular (envuelve).
 // COLAPSADO = columna de íconos (icon-only) de las secciones + card de módulos al final.
+// Switcher de secciones.
+// EXPANDIDO = [card módulos] | tira con SCROLL HORIZONTAL de secciones. El activo va PRIMERO (justo
+//   después de módulos) y resaltado; los chips muestran ícono + nombre COMPLETO (sin truncar); se
+//   hace scroll lateral para llegar a las demás. COLAPSADO = columna de íconos + card de módulos.
 function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule }) {
   const navigate = useNavigate()
+  const scrollRef = useRef(null)
+  // Al cambiar de sección, vuelve el scroll al inicio (el activo, que va primero, queda a la vista).
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollLeft = 0
+  }, [active])
   const go = (to) => {
     navigate(to)
     onSelect?.()
@@ -517,34 +526,36 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
     )
   }
 
-  const n = WORKSPACES.length
   const idx = Math.max(0, WORKSPACES.findIndex((s) => s.id === active))
   const current = WORKSPACES[idx]
-  const prev = WORKSPACES[(idx - 1 + n) % n]
-  const next = WORKSPACES[(idx + 1) % n]
-  const CurIcon = current.icon
-  const PrevIcon = prev.icon
-  const NextIcon = next.icon
-  const sideCls = 'w-9 h-9 shrink-0 grid place-items-center rounded-xl bg-nina-line/15 text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35 transition'
+  // El activo PRIMERO, el resto en su orden → "de primeras", justo después de módulos publicados.
+  const ordered = [current, ...WORKSPACES.filter((s) => s.id !== current.id)]
 
   return (
     <div className="px-3 pt-3 flex items-center gap-1.5">
       <ModulesButton modules={modules} removeModule={removeModule} collapsed={false} onSelect={onSelect} />
       <div className="w-px h-6 bg-nina-line/60 shrink-0 mx-0.5" />
-      {n > 1 && (
-        <button onClick={() => go(prev.to)} title={`Anterior: ${prev.label}`} aria-label={`Anterior: ${prev.label}`} className={sideCls}>
-          <PrevIcon className="w-4 h-4" />
-        </button>
-      )}
-      <button onClick={() => go(current.to)} title={current.label} className="flex-1 min-w-0 h-9 flex items-center justify-center gap-2 rounded-xl bg-nina-line/50 border border-nina-line text-nina-chrome px-3">
-        <CurIcon className="w-4 h-4 shrink-0" />
-        <span className="text-[13px] font-medium truncate">{current.label}</span>
-      </button>
-      {n > 1 && (
-        <button onClick={() => go(next.to)} title={`Siguiente: ${next.label}`} aria-label={`Siguiente: ${next.label}`} className={sideCls}>
-          <NextIcon className="w-4 h-4" />
-        </button>
-      )}
+      <div ref={scrollRef} className="flex-1 min-w-0 overflow-x-auto flex items-center gap-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {ordered.map((s) => {
+          const Icon = s.icon
+          const on = s.id === active
+          return (
+            <button
+              key={s.id}
+              onClick={() => go(s.to)}
+              title={s.label}
+              className={`shrink-0 flex items-center gap-2 h-9 px-3 rounded-xl border transition ${
+                on
+                  ? 'bg-nina-line/50 border-nina-line text-nina-chrome'
+                  : 'bg-nina-line/15 border-transparent text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35'
+              }`}
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              <span className="text-[13px] font-medium whitespace-nowrap">{s.label}</span>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
