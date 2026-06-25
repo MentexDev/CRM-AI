@@ -331,22 +331,34 @@ function AgentsDashboard({ agents, isJunta, onNewAgent }) {
   const [loadingExtra, setLoadingExtra] = useState(true)
   const { conversations } = useConversations({})
 
+  // Carga tareas activas + aprobaciones pendientes de TODO el equipo. Con realtime (igual que
+  // useConversations) para que las métricas/listas no queden obsoletas si algo cambia con el panel abierto.
   useEffect(() => {
     let alive = true
-    ;(async () => {
+    const load = async () => {
       try {
         const [tRes, aRes] = await Promise.all([
-          supabase.from('tasks').select('id, title, status, priority, due_at, agent_id').in('status', ['to_do', 'in_progress', 'blocked']).order('priority', { ascending: true }).order('created_at', { ascending: false }).limit(60),
+          supabase.from('tasks').select('id, title, status, priority, due_at, agent_id').in('status', ['to_do', 'in_progress', 'blocked']).order('priority', { ascending: true }).order('created_at', { ascending: false }).limit(200),
           supabase.from('approvals').select('*').eq('status', 'pending').order('created_at', { ascending: false }).limit(20),
         ])
         if (!alive) return
+        if (tRes.error) console.error('[CRM-AI] dashboard tasks error:', tRes.error)
+        if (aRes.error) console.error('[CRM-AI] dashboard approvals error:', aRes.error)
         setTasks(tRes.data ?? [])
         setApprovals(aRes.data ?? [])
+      } catch (e) {
+        if (alive) console.error('[CRM-AI] dashboard load error:', e)
       } finally {
         if (alive) setLoadingExtra(false)
       }
-    })()
-    return () => { alive = false }
+    }
+    load()
+    const ch = supabase
+      .channel(`agents-dashboard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'approvals' }, load)
+      .subscribe()
+    return () => { alive = false; try { supabase.removeChannel(ch) } catch { /* */ } }
   }, [])
 
   const agentsById = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a])), [agents])
@@ -364,8 +376,8 @@ function AgentsDashboard({ agents, isJunta, onNewAgent }) {
   const metrics = [
     { label: 'Agentes', value: agents.length, hint: pausados ? `${pausados} en pausa` : 'todos activos' },
     { label: 'Trabajando', value: activos, accent: 'text-emerald-300' },
-    { label: 'Tareas activas', value: tasks.length, accent: tasks.length ? 'text-amber-300' : undefined },
-    { label: 'Aprobaciones', value: approvals.length, accent: approvals.length ? 'text-amber-300' : undefined },
+    { label: 'Tareas activas', value: tasks.length, accent: tasks.length ? 'text-amber-300' : undefined, pending: loadingExtra },
+    { label: 'Aprobaciones', value: approvals.length, accent: approvals.length ? 'text-amber-300' : undefined, pending: loadingExtra },
   ]
 
   return (
@@ -387,7 +399,7 @@ function AgentsDashboard({ agents, isJunta, onNewAgent }) {
           {metrics.map((m) => (
             <div key={m.label} className="rounded-2xl border border-nina-line bg-nina-panel/40 px-4 py-3.5">
               <div className="text-[12px] text-nina-mute">{m.label}</div>
-              <div className={`text-2xl font-semibold mt-0.5 ${m.accent || 'text-nina-chrome'}`}>{m.value}</div>
+              <div className={`text-2xl font-semibold mt-0.5 ${m.accent || 'text-nina-chrome'}`}>{m.pending ? '·' : m.value}</div>
               {m.hint && <div className="text-[11px] text-nina-mute/70 mt-0.5">{m.hint}</div>}
             </div>
           ))}
