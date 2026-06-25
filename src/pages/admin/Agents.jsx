@@ -123,6 +123,7 @@ function agentIcon(agent) {
   const bySpecialty = agent.specialty && SPECIALTY_ICON[agent.specialty]
   if (bySpecialty) return bySpecialty
   const k = `${agent.name ?? ''} ${agent.specialty ?? ''}`.toLowerCase()
+  if (/whatsapp|\bwpp\b|\bwsp\b/.test(k)) return MessageSquare
   if (/venta|sales|\bcrm\b|kpi|report/.test(k)) return TrendingUp
   if (/contad|finan|conta\b/.test(k)) return Calculator
   if (/content|conteni|market|campañ|redact/.test(k)) return Clapperboard
@@ -426,11 +427,6 @@ function AgentsDashboard({ agents, isJunta, onNewAgent }) {
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-6xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-display text-nina-chrome">Agentes</h1>
-          <p className="text-[13px] text-nina-mute mt-1">Tu equipo de IA — habla con tu CEO o entra a cualquier agente.</p>
-        </div>
 
         {/* Dos columnas: chat del CEO (principal) · equipo + tareas (derecha) */}
         <div className="flex flex-col lg:flex-row gap-6">

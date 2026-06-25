@@ -19,6 +19,7 @@ import {
   ListFilter,
   ListTodo,
   LogOut,
+  MessageSquare,
   MessagesSquare,
   Package,
   PanelLeft,
@@ -79,6 +80,7 @@ function sidebarAgentIcon(a) {
   if (bySpecialty) return bySpecialty
   // Fallback por palabras clave (especialidades libres/sin mapear, p.ej. "Inventarista CRM").
   const k = `${a.name ?? ''} ${a.specialty ?? ''}`.toLowerCase()
+  if (/whatsapp|\bwpp\b|\bwsp\b/.test(k)) return MessageSquare
   if (/venta|sales|\bcrm\b|kpi|report/.test(k)) return TrendingUp
   if (/contad|finan|conta\b/.test(k)) return Calculator
   if (/content|conteni|market|campañ|redact/.test(k)) return Clapperboard
