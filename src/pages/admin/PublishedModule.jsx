@@ -1,13 +1,10 @@
 // Vista a PANTALLA COMPLETA de un módulo publicado. Monta EL MISMO viewer del canvas (SheetView,
 // DocumentEditor, BoardView, SlideDeck) con los datos del snapshot → se ve y funciona idéntico a la
-// pestaña (sin duplicar código). Es una foto: no se pasa onChange/getContentRef, así que las ediciones
-// no se persisten; para guardar cambios, "Abrir en Code".
+// pestaña (sin duplicar código). Es una foto: sin onChange/getContentRef, las ediciones no se persisten.
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { Download, Loader2, Sparkles, LayoutTemplate } from 'lucide-react'
-import toast from 'react-hot-toast'
+import { useParams } from 'react-router-dom'
+import { Loader2, LayoutTemplate } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { artifactToFile } from '../../lib/artifactKinds'
 import EmptyState from '../../components/EmptyState'
 import SheetView from '../../components/SheetView'
 import DocumentEditor from '../../components/DocumentEditor'
@@ -16,7 +13,6 @@ import SlideDeck from '../../components/SlideDeck'
 
 export default function PublishedModule() {
   const { id } = useParams()
-  const navigate = useNavigate()
   const [mod, setMod] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -26,7 +22,7 @@ export default function PublishedModule() {
     ;(async () => {
       const { data, error } = await supabase
         .from('published_modules')
-        .select('id, title, kind, data, source_conversation_id, source_artifact_key, created_at')
+        .select('id, title, kind, data')
         .eq('id', id)
         .maybeSingle()
       if (!active) return
@@ -56,27 +52,6 @@ export default function PublishedModule() {
 
   const d = mod.data || {}
 
-  const download = () => {
-    const f = artifactToFile({ type: mod.kind, ...d, title: mod.title })
-    if (f.url) {
-      window.open(f.url, '_blank', 'noreferrer')
-      return
-    }
-    const el = document.createElement('a')
-    el.href = URL.createObjectURL(new Blob([f.text], { type: `${f.mime};charset=utf-8` }))
-    el.download = f.name
-    el.click()
-    setTimeout(() => URL.revokeObjectURL(el.href), 1000)
-    toast.success('Descargada')
-  }
-
-  const openInCode = () =>
-    navigate(
-      mod.source_conversation_id && mod.source_artifact_key
-        ? `/admin/agentes/code?c=${mod.source_conversation_id}&tab=${encodeURIComponent(mod.source_artifact_key)}`
-        : '/admin/agentes/code',
-    )
-
   // El MISMO componente que usa el canvas, con los datos del snapshot (sin onChange → no persiste).
   let viewer
   if (mod.kind === 'document') {
@@ -91,17 +66,5 @@ export default function PublishedModule() {
     viewer = <div className="p-6 text-nina-mute text-sm">Tipo de módulo no soportado.</div>
   }
 
-  return (
-    <div className="h-full flex flex-col min-h-0">
-      <div className="shrink-0 flex items-center justify-end gap-2 px-4 py-2 border-b border-nina-line/60">
-        <button onClick={download} className="btn-ghost text-xs flex items-center gap-1.5">
-          <Download className="w-3.5 h-3.5" /> Descargar
-        </button>
-        <button onClick={openInCode} className="btn-primary text-xs flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5" /> Abrir en Code
-        </button>
-      </div>
-      <div className="flex-1 min-h-0 overflow-hidden">{viewer}</div>
-    </div>
-  )
+  return <div className="h-full min-h-0 overflow-hidden">{viewer}</div>
 }
