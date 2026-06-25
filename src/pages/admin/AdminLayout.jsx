@@ -392,7 +392,11 @@ function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
       return
     }
     const r = btnRef.current?.getBoundingClientRect()
-    if (r) setCoords({ top: r.bottom + 8, left: Math.max(8, r.left) })
+    if (r) {
+      // Expandido (botón a la derecha): alinear la card por su borde derecho. Colapsado: a la derecha del ícono.
+      const left = collapsed ? r.right + 6 : Math.max(8, r.right - 256)
+      setCoords({ top: r.bottom + 8, left })
+    }
     setOpen(true)
   }
 
@@ -554,8 +558,6 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
 
   return (
     <div className="px-3 pt-3 flex items-center gap-1.5">
-      <ModulesButton modules={modules} removeModule={removeModule} collapsed={false} onSelect={onSelect} />
-      <div className="w-px h-6 bg-nina-line/60 shrink-0 mx-0.5" />
       <div className="relative flex-1 min-w-0">
         <div ref={scrollRef} onScroll={updateArrows} className="overflow-x-auto flex items-center gap-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {ordered.map((s) => {
@@ -590,6 +592,8 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
           </button>
         )}
       </div>
+      <div className="w-px h-6 bg-nina-line/60 shrink-0 mx-0.5" />
+      <ModulesButton modules={modules} removeModule={removeModule} collapsed={false} onSelect={onSelect} />
     </div>
   )
 }
