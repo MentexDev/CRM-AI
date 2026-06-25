@@ -566,14 +566,14 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
                 key={s.id}
                 onClick={() => go(s.to)}
                 title={s.label}
-                className={`shrink-0 flex items-center gap-2 h-9 px-3 rounded-xl border transition ${
+                className={`shrink-0 flex items-center gap-2 h-9 rounded-xl border transition ${
                   on
-                    ? 'bg-nina-line/50 border-nina-line text-nina-chrome'
-                    : 'bg-nina-line/15 border-transparent text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35'
+                    ? 'px-3 bg-nina-line/50 border-nina-line text-nina-chrome'
+                    : 'w-9 justify-center bg-nina-line/15 border-transparent text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35'
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                <span className="text-[13px] font-medium whitespace-nowrap">{s.label}</span>
+                {on && <span className="text-[13px] font-medium whitespace-nowrap">{s.label}</span>}
               </button>
             )
           })}
