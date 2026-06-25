@@ -547,43 +547,47 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
   const current = WORKSPACES[idx]
   // El activo PRIMERO, el resto en su orden → "de primeras", justo después de módulos publicados.
   const ordered = [current, ...WORKSPACES.filter((s) => s.id !== current.id)]
-  // Flecha clicable + indicador: activa si hay más secciones ocultas hacia ese lado; atenuada si no.
-  const arrowCls = (on) =>
-    `shrink-0 w-6 h-9 grid place-items-center rounded-lg text-nina-mute transition ${
-      on ? 'hover:text-nina-chrome hover:bg-nina-line/30' : 'opacity-25 pointer-events-none'
-    }`
+  const arrowCls =
+    'absolute top-1/2 -translate-y-1/2 z-10 w-7 h-7 grid place-items-center rounded-lg bg-nina-panel/90 backdrop-blur-sm border border-nina-line text-nina-mute hover:text-nina-chrome shadow-md opacity-0 group-hover:opacity-100 transition'
 
   return (
-    <div className="px-3 pt-3 flex items-center gap-1">
+    <div className="px-3 pt-3 flex items-center gap-1.5">
       <ModulesButton modules={modules} removeModule={removeModule} collapsed={false} onSelect={onSelect} />
       <div className="w-px h-6 bg-nina-line/60 shrink-0 mx-0.5" />
-      <button onClick={() => nudge(-1)} aria-label="Ver secciones anteriores" className={arrowCls(arrows.left)}>
-        <ChevronLeft className="w-4 h-4" />
-      </button>
-      <div ref={scrollRef} onScroll={updateArrows} className="flex-1 min-w-0 overflow-x-auto flex items-center gap-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {ordered.map((s) => {
-          const Icon = s.icon
-          const on = s.id === active
-          return (
-            <button
-              key={s.id}
-              onClick={() => go(s.to)}
-              title={s.label}
-              className={`shrink-0 flex items-center gap-2 h-9 px-3 rounded-xl border transition ${
-                on
-                  ? 'bg-nina-line/50 border-nina-line text-nina-chrome'
-                  : 'bg-nina-line/15 border-transparent text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35'
-              }`}
-            >
-              <Icon className="w-4 h-4 shrink-0" />
-              <span className="text-[13px] font-medium whitespace-nowrap">{s.label}</span>
-            </button>
-          )
-        })}
+      <div className="relative flex-1 min-w-0 group">
+        <div ref={scrollRef} onScroll={updateArrows} className="overflow-x-auto flex items-center gap-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {ordered.map((s) => {
+            const Icon = s.icon
+            const on = s.id === active
+            return (
+              <button
+                key={s.id}
+                onClick={() => go(s.to)}
+                title={s.label}
+                className={`shrink-0 flex items-center gap-2 h-9 px-3 rounded-xl border transition ${
+                  on
+                    ? 'bg-nina-line/50 border-nina-line text-nina-chrome'
+                    : 'bg-nina-line/15 border-transparent text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35'
+                }`}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                <span className="text-[13px] font-medium whitespace-nowrap">{s.label}</span>
+              </button>
+            )
+          })}
+        </div>
+        {/* Flechas FLOTANTES (absolute, sólo en hover) → no ocupan espacio en el menú. */}
+        {arrows.left && (
+          <button onClick={() => nudge(-1)} aria-label="Ver secciones anteriores" className={`${arrowCls} left-0`}>
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        )}
+        {arrows.right && (
+          <button onClick={() => nudge(1)} aria-label="Ver más secciones" className={`${arrowCls} right-0`}>
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        )}
       </div>
-      <button onClick={() => nudge(1)} aria-label="Ver más secciones" className={arrowCls(arrows.right)}>
-        <ChevronRight className="w-4 h-4" />
-      </button>
     </div>
   )
 }
