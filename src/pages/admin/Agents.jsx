@@ -387,14 +387,9 @@ function AgentsDashboard({ agents, isJunta, onNewAgent }) {
     <div className="h-full overflow-y-auto">
       <div className="max-w-6xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
         {/* Header */}
-        <div className="flex items-end justify-between gap-3 flex-wrap mb-6">
-          <div>
-            <h1 className="text-2xl font-display text-nina-chrome">Agentes</h1>
-            <p className="text-[13px] text-nina-mute mt-1">Tu equipo de IA — habla con tu CEO o entra a cualquier agente.</p>
-          </div>
-          {isJunta && (
-            <button onClick={onNewAgent} className="btn-primary text-sm shrink-0"><UserPlus className="w-4 h-4" /> Crear agente</button>
-          )}
+        <div className="mb-6">
+          <h1 className="text-2xl font-display text-nina-chrome">Agentes</h1>
+          <p className="text-[13px] text-nina-mute mt-1">Tu equipo de IA — habla con tu CEO o entra a cualquier agente.</p>
         </div>
 
         {/* Dos columnas: chat del CEO (principal) · equipo + tareas (derecha) */}
@@ -440,12 +435,31 @@ function AgentsDashboard({ agents, isJunta, onNewAgent }) {
                 )}
               </div>
             </section>
+
+            {/* Banner de métricas — compacto, deslizable, con el ancho de Actividad reciente */}
+            <div className="flex items-center gap-2 overflow-x-auto rounded-2xl border border-nina-line bg-nina-panel/40 px-3 py-2.5">
+              {metrics.map((m) => (
+                <div key={m.label} className="flex items-baseline gap-1.5 px-3 py-1 rounded-xl bg-nina-ink/50 shrink-0">
+                  <span className={`text-[16px] font-semibold ${m.accent || 'text-nina-chrome'}`}>{m.pending ? '·' : m.value}</span>
+                  <span className="text-[11.5px] text-nina-mute whitespace-nowrap">{m.label}</span>
+                </div>
+              ))}
+              <div className="flex-1 min-w-2" />
+              <span className="text-[11px] text-nina-mute/60 hidden md:block pr-1 shrink-0">Resumen del equipo</span>
+            </div>
           </div>
 
           {/* Derecha: Equipo (lista) + tareas pendientes + aprobaciones */}
-          <aside className="lg:w-80 shrink-0 space-y-6">
+          <aside className="lg:w-80 shrink-0 space-y-6 lg:mt-10">
             <section>
-              <h2 className="text-[12px] uppercase tracking-wide text-nina-mute mb-2">Equipo ({agents.length})</h2>
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-[12px] uppercase tracking-wide text-nina-mute">Equipo ({agents.length})</h2>
+                {isJunta && (
+                  <button onClick={onNewAgent} title="Crear agente" className="w-6 h-6 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition">
+                    <UserPlus className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
               <div className="rounded-2xl border border-nina-line bg-nina-panel/40 p-1.5 space-y-0.5">
                 {sorted.map((a) => {
                   const Icon = agentIcon(a)
@@ -515,17 +529,6 @@ function AgentsDashboard({ agents, isJunta, onNewAgent }) {
           </aside>
         </div>
 
-        {/* Banner de métricas — compacto, abajo, deslizable (como anuncio/resumen) */}
-        <div className="mt-6 flex items-center gap-2 overflow-x-auto rounded-2xl border border-nina-line bg-nina-panel/40 px-3 py-2.5">
-          {metrics.map((m) => (
-            <div key={m.label} className="flex items-baseline gap-1.5 px-3 py-1 rounded-xl bg-nina-ink/50 shrink-0">
-              <span className={`text-[16px] font-semibold ${m.accent || 'text-nina-chrome'}`}>{m.pending ? '·' : m.value}</span>
-              <span className="text-[11.5px] text-nina-mute whitespace-nowrap">{m.label}</span>
-            </div>
-          ))}
-          <div className="flex-1 min-w-2" />
-          <span className="text-[11px] text-nina-mute/60 hidden md:block pr-1 shrink-0">Resumen del equipo</span>
-        </div>
       </div>
     </div>
   )
