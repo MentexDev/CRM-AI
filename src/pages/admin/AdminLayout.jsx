@@ -382,6 +382,7 @@ function SidebarTip({ label, children, disabled = false }) {
 function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
   const navigate = useNavigate()
   const btnRef = useRef(null)
+  const menuRef = useRef(null)
   const [open, setOpen] = useState(false)
   const [coords, setCoords] = useState(null)
   const count = modules?.length || 0
@@ -403,7 +404,10 @@ function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
   useEffect(() => {
     if (!open) return
     const onDoc = (e) => {
-      if (!btnRef.current?.contains(e.target)) setOpen(false)
+      // No cerrar si el clic es en el botón o DENTRO de la card (portal) — si no, el mousedown
+      // desmontaría el item antes de que su onClick (navegar/eliminar) llegue a ejecutarse.
+      if (btnRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return
+      setOpen(false)
     }
     const onKey = (e) => {
       if (e.key === 'Escape') setOpen(false)
@@ -457,7 +461,7 @@ function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
       {open &&
         coords &&
         createPortal(
-          <div style={{ top: coords.top, left: coords.left }} className="fixed z-[200] w-64 max-h-[60vh] overflow-y-auto rounded-xl border border-nina-line bg-nina-panel shadow-2xl p-1.5">
+          <div ref={menuRef} style={{ top: coords.top, left: coords.left }} className="fixed z-[200] w-64 max-h-[60vh] overflow-y-auto rounded-xl border border-nina-line bg-nina-panel shadow-2xl p-1.5">
             <div className="px-2 py-1.5 text-[10px] uppercase tracking-[0.15em] text-nina-mute flex items-center gap-1.5">
               <LayoutTemplate className="w-3.5 h-3.5" /> Módulos publicados
             </div>
@@ -489,14 +493,8 @@ function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
   )
 }
 
-// Switcher de secciones de alto nivel.
-// EXPANDIDO = carrusel: [card módulos] | [ícono anterior] [cápsula central: ícono + nombre del activo]
-//   [ícono siguiente]. Clic en un lateral navega a esa sección (pasa al centro). Circular (envuelve).
-// COLAPSADO = columna de íconos (icon-only) de las secciones + card de módulos al final.
-// Switcher de secciones.
-// EXPANDIDO = [card módulos] | tira con SCROLL HORIZONTAL de secciones. El activo va PRIMERO (justo
-//   después de módulos) y resaltado; los chips muestran ícono + nombre COMPLETO (sin truncar); se
-//   hace scroll lateral para llegar a las demás. COLAPSADO = columna de íconos + card de módulos.
+// Switcher de secciones de alto nivel. EXPANDIDO = carrusel de 3 (anterior · seleccionado · siguiente);
+// COLAPSADO = columna de íconos. El botón de módulos publicados va a la izquierda en ambos.
 function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule }) {
   const navigate = useNavigate()
   const go = (to) => {
