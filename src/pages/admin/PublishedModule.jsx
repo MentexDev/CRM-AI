@@ -1,14 +1,18 @@
-// Vista a PANTALLA COMPLETA (solo lectura) de un módulo publicado = una plantilla de Code publicada.
-// El contenido se renderiza con el mismo renderer read-only de la galería (TemplateBody). Para EDITAR,
-// el botón "Abrir en Code" lleva al chat del agente Code con esa pestaña/artefacto activo.
+// Vista a PANTALLA COMPLETA de un módulo publicado. Monta EL MISMO viewer del canvas (SheetView,
+// DocumentEditor, BoardView, SlideDeck) con los datos del snapshot → se ve y funciona idéntico a la
+// pestaña (sin duplicar código). Es una foto: no se pasa onChange/getContentRef, así que las ediciones
+// no se persisten; para guardar cambios, "Abrir en Code".
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Download, Loader2, Sparkles, LayoutTemplate } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../../lib/supabase'
-import { artifactToFile, kindMeta } from '../../lib/artifactKinds'
-import { TemplateBody } from '../../components/artifacts/TemplateRenderer'
+import { artifactToFile } from '../../lib/artifactKinds'
 import EmptyState from '../../components/EmptyState'
+import SheetView from '../../components/SheetView'
+import DocumentEditor from '../../components/DocumentEditor'
+import BoardView from '../../components/BoardView'
+import SlideDeck from '../../components/SlideDeck'
 
 export default function PublishedModule() {
   const { id } = useParams()
@@ -50,12 +54,10 @@ export default function PublishedModule() {
     )
   }
 
-  const m = kindMeta(mod.kind)
-  const Icon = m.Icon
-  const t = { kind: mod.kind, data: mod.data || {}, title: mod.title }
+  const d = mod.data || {}
 
   const download = () => {
-    const f = artifactToFile({ type: mod.kind, ...(mod.data || {}), title: mod.title })
+    const f = artifactToFile({ type: mod.kind, ...d, title: mod.title })
     if (f.url) {
       window.open(f.url, '_blank', 'noreferrer')
       return
@@ -75,25 +77,31 @@ export default function PublishedModule() {
         : '/admin/agentes/code',
     )
 
+  // El MISMO componente que usa el canvas, con los datos del snapshot (sin onChange → no persiste).
+  let viewer
+  if (mod.kind === 'document') {
+    viewer = <DocumentEditor title={mod.title} markdown={d.markdown ?? d.content} cover={d.cover} />
+  } else if (mod.kind === 'slides') {
+    viewer = <SlideDeck title={mod.title} subtitle={d.subtitle} slides={d.slides} theme={d.theme} />
+  } else if (mod.kind === 'sheet') {
+    viewer = <SheetView title={mod.title} columns={d.columns} rows={d.rows} sub={d.sub} />
+  } else if (mod.kind === 'board') {
+    viewer = <BoardView title={mod.title} nodes={d.nodes} edges={d.edges} />
+  } else {
+    viewer = <div className="p-6 text-nina-mute text-sm">Tipo de módulo no soportado.</div>
+  }
+
   return (
-    <div className="space-y-4 lg:px-6 lg:pt-4">
-      <header className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <h1 className="font-display text-2xl silver-text truncate flex items-center gap-2">
-            <Icon className={`w-5 h-5 ${m.color}`} /> {mod.title}
-          </h1>
-          <p className="text-[12.5px] text-nina-mute mt-0.5">Módulo publicado · {m.label} · solo lectura · para editar, ábrelo en Code</p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button onClick={download} className="btn-ghost text-sm flex items-center gap-1.5"><Download className="w-4 h-4" /> Descargar</button>
-          <button onClick={openInCode} className="btn-primary text-sm flex items-center gap-1.5"><Sparkles className="w-4 h-4" /> Abrir en Code</button>
-        </div>
-      </header>
-      <div className="rounded-2xl border border-nina-line bg-nina-ink/30 p-6">
-        <div className={mod.kind === 'document' ? 'max-w-3xl mx-auto' : ''}>
-          <TemplateBody t={t} />
-        </div>
+    <div className="h-full flex flex-col min-h-0">
+      <div className="shrink-0 flex items-center justify-end gap-2 px-4 py-2 border-b border-nina-line/60">
+        <button onClick={download} className="btn-ghost text-xs flex items-center gap-1.5">
+          <Download className="w-3.5 h-3.5" /> Descargar
+        </button>
+        <button onClick={openInCode} className="btn-primary text-xs flex items-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5" /> Abrir en Code
+        </button>
       </div>
+      <div className="flex-1 min-h-0 overflow-hidden">{viewer}</div>
     </div>
   )
 }
