@@ -323,6 +323,37 @@ const FALLBACK_AUTOMATIONS = [
   { id: 'fb-daily-sales', name: 'Reporte de ventas diario', schedule_human: 'Todos los días · 7:00 a.m. (Colombia)', _agentName: 'Inventarista CRM' },
 ]
 
+// Slider del "Resumen del equipo" — rota las métricas cada 5s (compacto, para la columna angosta).
+function MetricsSlider({ metrics }) {
+  const [idx, setIdx] = useState(0)
+  useEffect(() => {
+    if (!metrics || metrics.length < 2) return
+    const t = setInterval(() => setIdx((i) => (i + 1) % metrics.length), 5000)
+    return () => clearInterval(t)
+  }, [metrics?.length])
+  const m = (metrics && (metrics[idx] || metrics[0])) || null
+  if (!m) return null
+  return (
+    <div className="rounded-2xl border border-nina-line bg-nina-panel/40 px-4 py-3">
+      <div className="h-9 overflow-hidden">
+        <AnimatePresence mode="wait">
+          <motion.div key={m.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.3 }} className="flex items-baseline gap-2">
+            <span className={`text-2xl font-semibold ${m.accent || 'text-nina-chrome'}`}>{m.pending ? '·' : m.value}</span>
+            <span className="text-[12.5px] text-nina-mute">{m.label}</span>
+          </motion.div>
+        </AnimatePresence>
+      </div>
+      {metrics.length > 1 && (
+        <div className="flex items-center gap-1 mt-1.5">
+          {metrics.map((mm, i) => (
+            <button key={mm.label} onClick={() => setIdx(i)} title={mm.label} aria-label={mm.label} className={`h-1 rounded-full transition-all ${i === idx ? 'w-4 bg-nina-silver' : 'w-1.5 bg-nina-line hover:bg-nina-mute'}`} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // =====================================================================
 // Dashboard de la sección Agentes — home/overview del equipo de IA.
 // Se muestra al entrar a /agentes (sin agente seleccionado): métricas,
@@ -443,22 +474,14 @@ function AgentsDashboard({ agents, isJunta, onNewAgent }) {
                 )}
               </div>
             </section>
-
-            {/* Banner de métricas — compacto, deslizable, con el ancho de Actividad reciente */}
-            <div className="flex items-center gap-2 overflow-x-auto rounded-2xl border border-nina-line bg-nina-panel/40 px-3 py-2.5">
-              {metrics.map((m) => (
-                <div key={m.label} className="flex items-baseline gap-1.5 px-3 py-1 rounded-xl bg-nina-ink/50 shrink-0">
-                  <span className={`text-[16px] font-semibold ${m.accent || 'text-nina-chrome'}`}>{m.pending ? '·' : m.value}</span>
-                  <span className="text-[11.5px] text-nina-mute whitespace-nowrap">{m.label}</span>
-                </div>
-              ))}
-              <div className="flex-1 min-w-2" />
-              <span className="text-[11px] text-nina-mute/60 hidden md:block pr-1 shrink-0">Resumen del equipo</span>
-            </div>
           </div>
 
           {/* Derecha: Equipo (lista) + tareas pendientes + aprobaciones */}
           <aside className="lg:w-80 shrink-0 space-y-6 lg:mt-5">
+            <section>
+              <h2 className="text-[12px] uppercase tracking-wide text-nina-mute mb-2">Resumen del equipo</h2>
+              <MetricsSlider metrics={metrics} />
+            </section>
             <section>
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-[12px] uppercase tracking-wide text-nina-mute">Equipo ({agents.length})</h2>
