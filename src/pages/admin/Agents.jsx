@@ -318,6 +318,10 @@ export default function Agents() {
 }
 
 const ROLE_LABEL = { ceo_global: 'CEO Global', brand_manager: 'Brand Manager', specialist: 'Especialista' }
+// Respaldo si la tabla `automations` aún no existe (migración 20260625 sin aplicar): el cron del reporte diario.
+const FALLBACK_AUTOMATIONS = [
+  { id: 'fb-daily-sales', name: 'Reporte de ventas diario', schedule_human: 'Todos los días · 7:00 a.m. (Colombia)', _agentName: 'Inventarista CRM' },
+]
 
 // =====================================================================
 // Dashboard de la sección Agentes — home/overview del equipo de IA.
@@ -329,6 +333,7 @@ function AgentsDashboard({ agents, isJunta, onNewAgent }) {
   const [tasks, setTasks] = useState([])
   const [approvals, setApprovals] = useState([])
   const [loadingExtra, setLoadingExtra] = useState(true)
+  const [automations, setAutomations] = useState(null)
   const { conversations } = useConversations({})
 
   // Carga tareas activas + aprobaciones pendientes de TODO el equipo. Con realtime (igual que
@@ -337,15 +342,18 @@ function AgentsDashboard({ agents, isJunta, onNewAgent }) {
     let alive = true
     const load = async () => {
       try {
-        const [tRes, aRes] = await Promise.all([
+        const [tRes, aRes, autoRes] = await Promise.all([
           supabase.from('tasks').select('id, title, status, priority, due_at, agent_id').in('status', ['to_do', 'in_progress', 'blocked']).order('priority', { ascending: true }).order('created_at', { ascending: false }).limit(200),
           supabase.from('approvals').select('*').eq('status', 'pending').order('created_at', { ascending: false }).limit(20),
+          supabase.from('automations').select('id, name, description, schedule_human, agent_id').eq('active', true).order('created_at', { ascending: true }),
         ])
         if (!alive) return
         if (tRes.error) console.error('[CRM-AI] dashboard tasks error:', tRes.error)
         if (aRes.error) console.error('[CRM-AI] dashboard approvals error:', aRes.error)
         setTasks(tRes.data ?? [])
         setApprovals(aRes.data ?? [])
+        // Si la tabla `automations` aún no existe (migración sin aplicar) → respaldo con el cron conocido.
+        setAutomations(autoRes.error ? FALLBACK_AUTOMATIONS : (autoRes.data ?? []))
       } catch (e) {
         if (alive) console.error('[CRM-AI] dashboard load error:', e)
       } finally {
@@ -520,6 +528,28 @@ function AgentsDashboard({ agents, isJunta, onNewAgent }) {
                           <span className="block text-[10.5px] text-nina-mute truncate">{ag?.name || ''}</span>
                         </span>
                         <ChevronRight className="w-4 h-4 text-nina-mute/40 shrink-0" />
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* Automatizaciones — crons / tareas programadas (para estar al tanto de lo que corre solo) */}
+            {automations && automations.length > 0 && (
+              <section>
+                <h2 className="text-[12px] uppercase tracking-wide text-nina-mute mb-2 flex items-center gap-2"><Sparkles className="w-4 h-4" /> Automatizaciones</h2>
+                <div className="rounded-2xl border border-nina-line bg-nina-panel/40 divide-y divide-nina-line/40 overflow-hidden">
+                  {automations.map((au) => {
+                    const ag = au.agent_id ? agentsById[au.agent_id] : null
+                    const agentName = ag?.name || au._agentName || ''
+                    return (
+                      <button key={au.id} onClick={() => ag && navigate(`/admin/agentes/${ag.slug}`)} className="w-full text-left px-3 py-2 hover:bg-nina-line/20 transition flex items-start gap-2.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 mt-1.5" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[12.5px] text-nina-chrome truncate">{au.name}</span>
+                          <span className="block text-[10.5px] text-nina-mute truncate">{au.schedule_human || ''}{agentName ? ` · ${agentName}` : ''}</span>
+                        </span>
                       </button>
                     )
                   })}
