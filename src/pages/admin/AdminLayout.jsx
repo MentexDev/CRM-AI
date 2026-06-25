@@ -499,28 +499,10 @@ function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
 //   hace scroll lateral para llegar a las demás. COLAPSADO = columna de íconos + card de módulos.
 function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule }) {
   const navigate = useNavigate()
-  const scrollRef = useRef(null)
-  const [arrows, setArrows] = useState({ left: false, right: false })
-
-  // Muestra/atenúa las flechas según haya secciones ocultas a cada lado del scroll.
-  const updateArrows = () => {
-    const el = scrollRef.current
-    if (!el) return
-    setArrows({ left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 })
-  }
-  // Al cambiar de sección: scroll al inicio (el activo va primero) y recalcula las flechas.
-  useEffect(() => {
-    const el = scrollRef.current
-    if (el) el.scrollLeft = 0
-    updateArrows()
-    window.addEventListener('resize', updateArrows)
-    return () => window.removeEventListener('resize', updateArrows)
-  }, [active])
   const go = (to) => {
     navigate(to)
     onSelect?.()
   }
-  const nudge = (dir) => scrollRef.current?.scrollBy({ left: dir * 140, behavior: 'smooth' })
 
   if (collapsed) {
     return (
@@ -547,53 +529,40 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
     )
   }
 
+  // Carrusel de 3: [anterior] [SELECCIONADO en el medio, ícono+nombre] [siguiente]. Los laterales son
+  // cuadrados solo-ícono; al pasar el cursor encima, el ícono se transforma en flecha (‹ retrasa / › adelanta).
+  // Circular: el anterior del primero es el último y viceversa.
+  const n = WORKSPACES.length
   const idx = Math.max(0, WORKSPACES.findIndex((s) => s.id === active))
   const current = WORKSPACES[idx]
-  // El activo PRIMERO, el resto en su orden → "de primeras", justo después de módulos publicados.
-  const ordered = [current, ...WORKSPACES.filter((s) => s.id !== current.id)]
-  // Flechas SIN cuadro: sólo el ícono sobre un fondo desvanecido (degradado glass, sin borde).
-  // Cada flecha aparece SOLO al pasar el mouse sobre ella (hover propio), con fondo vidrioso REDONDO.
-  const arrowBase =
-    'absolute top-1/2 -translate-y-1/2 z-10 w-7 h-7 grid place-items-center rounded-full bg-nina-panel/55 backdrop-blur-md text-nina-silver hover:text-nina-chrome opacity-0 hover:opacity-100 transition'
+  const prev = WORKSPACES[(idx - 1 + n) % n]
+  const next = WORKSPACES[(idx + 1) % n]
+  const CurIcon = current.icon
+  const PrevIcon = prev.icon
+  const NextIcon = next.icon
+  const sideCls =
+    'group shrink-0 w-9 h-9 grid place-items-center rounded-xl bg-nina-line/15 text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35 transition'
 
   return (
     <div className="px-3 pt-3 flex items-center gap-1.5">
-      <div className="relative flex-1 min-w-0">
-        <div ref={scrollRef} onScroll={updateArrows} className="overflow-x-auto flex items-center gap-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {ordered.map((s) => {
-            const Icon = s.icon
-            const on = s.id === active
-            return (
-              <button
-                key={s.id}
-                onClick={() => go(s.to)}
-                title={s.label}
-                className={`shrink-0 flex items-center gap-2 h-9 rounded-xl border transition ${
-                  on
-                    ? 'px-3 bg-nina-line/50 border-nina-line text-nina-chrome'
-                    : 'w-9 justify-center bg-nina-line/15 border-transparent text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35'
-                }`}
-              >
-                <Icon className="w-4 h-4 shrink-0" />
-                {on && <span className="text-[13px] font-medium whitespace-nowrap">{s.label}</span>}
-              </button>
-            )
-          })}
-        </div>
-        {/* Flechas FLOTANTES (absolute, sólo en hover) → no ocupan espacio en el menú. */}
-        {arrows.left && (
-          <button onClick={() => nudge(-1)} aria-label="Ver secciones anteriores" className={`${arrowBase} left-0`}>
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-        )}
-        {arrows.right && (
-          <button onClick={() => nudge(1)} aria-label="Ver más secciones" className={`${arrowBase} right-0`}>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        )}
-      </div>
-      <div className="w-px h-6 bg-nina-line/60 shrink-0 mx-0.5" />
       <ModulesButton modules={modules} removeModule={removeModule} collapsed={false} onSelect={onSelect} />
+      <div className="w-px h-6 bg-nina-line/60 shrink-0 mx-0.5" />
+      {n > 1 && (
+        <button onClick={() => go(prev.to)} title={`Anterior: ${prev.label}`} aria-label={`Anterior: ${prev.label}`} className={sideCls}>
+          <PrevIcon className="w-4 h-4 group-hover:hidden" />
+          <ChevronLeft className="w-4 h-4 hidden group-hover:block" />
+        </button>
+      )}
+      <button onClick={() => go(current.to)} title={current.label} className="flex-1 min-w-0 h-9 flex items-center justify-center gap-2 rounded-xl bg-nina-line/50 border border-nina-line text-nina-chrome px-3">
+        <CurIcon className="w-4 h-4 shrink-0" />
+        <span className="text-[13px] font-medium truncate">{current.label}</span>
+      </button>
+      {n > 1 && (
+        <button onClick={() => go(next.to)} title={`Siguiente: ${next.label}`} aria-label={`Siguiente: ${next.label}`} className={sideCls}>
+          <NextIcon className="w-4 h-4 group-hover:hidden" />
+          <ChevronRight className="w-4 h-4 hidden group-hover:block" />
+        </button>
+      )}
     </div>
   )
 }
