@@ -9,6 +9,8 @@ import {
   Calculator,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clapperboard,
   Code2,
   Crown,
@@ -494,14 +496,27 @@ function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
 function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule }) {
   const navigate = useNavigate()
   const scrollRef = useRef(null)
-  // Al cambiar de sección, vuelve el scroll al inicio (el activo, que va primero, queda a la vista).
+  const [arrows, setArrows] = useState({ left: false, right: false })
+
+  // Muestra/atenúa las flechas según haya secciones ocultas a cada lado del scroll.
+  const updateArrows = () => {
+    const el = scrollRef.current
+    if (!el) return
+    setArrows({ left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 })
+  }
+  // Al cambiar de sección: scroll al inicio (el activo va primero) y recalcula las flechas.
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollLeft = 0
+    const el = scrollRef.current
+    if (el) el.scrollLeft = 0
+    updateArrows()
+    window.addEventListener('resize', updateArrows)
+    return () => window.removeEventListener('resize', updateArrows)
   }, [active])
   const go = (to) => {
     navigate(to)
     onSelect?.()
   }
+  const nudge = (dir) => scrollRef.current?.scrollBy({ left: dir * 140, behavior: 'smooth' })
 
   if (collapsed) {
     return (
@@ -532,12 +547,20 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
   const current = WORKSPACES[idx]
   // El activo PRIMERO, el resto en su orden → "de primeras", justo después de módulos publicados.
   const ordered = [current, ...WORKSPACES.filter((s) => s.id !== current.id)]
+  // Flecha clicable + indicador: activa si hay más secciones ocultas hacia ese lado; atenuada si no.
+  const arrowCls = (on) =>
+    `shrink-0 w-6 h-9 grid place-items-center rounded-lg text-nina-mute transition ${
+      on ? 'hover:text-nina-chrome hover:bg-nina-line/30' : 'opacity-25 pointer-events-none'
+    }`
 
   return (
-    <div className="px-3 pt-3 flex items-center gap-1.5">
+    <div className="px-3 pt-3 flex items-center gap-1">
       <ModulesButton modules={modules} removeModule={removeModule} collapsed={false} onSelect={onSelect} />
       <div className="w-px h-6 bg-nina-line/60 shrink-0 mx-0.5" />
-      <div ref={scrollRef} className="flex-1 min-w-0 overflow-x-auto flex items-center gap-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <button onClick={() => nudge(-1)} aria-label="Ver secciones anteriores" className={arrowCls(arrows.left)}>
+        <ChevronLeft className="w-4 h-4" />
+      </button>
+      <div ref={scrollRef} onScroll={updateArrows} className="flex-1 min-w-0 overflow-x-auto flex items-center gap-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {ordered.map((s) => {
           const Icon = s.icon
           const on = s.id === active
@@ -558,6 +581,9 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
           )
         })}
       </div>
+      <button onClick={() => nudge(1)} aria-label="Ver más secciones" className={arrowCls(arrows.right)}>
+        <ChevronRight className="w-4 h-4" />
+      </button>
     </div>
   )
 }
