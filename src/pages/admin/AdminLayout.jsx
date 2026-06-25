@@ -672,15 +672,17 @@ export default function AdminLayout() {
       >
         <SidebarHeader collapsed={collapsed} onToggle={toggleCollapsed} />
         <SectionSwitcher collapsed={collapsed} active={workspace} />
-        <NavItems items={navItems} collapsed={collapsed} />
-        {workspace === 'agentes' && !collapsed ? (
-          <div className="flex-1 min-h-0 overflow-y-auto border-t border-nina-line/60 mt-1">
-            <AgentsNav onNavigate={(to) => navigate(to)} isJunta={isJunta} />
-            <ConversationHistory onNavigate={(to) => navigate(to)} />
-          </div>
-        ) : (
-          <div className="flex-1" />
-        )}
+        {/* Scroll desde JUSTO debajo del menú horizontal: el nav vertical + agentes + conversaciones
+            scrollean juntos (antes el nav quedaba fijo y sólo scrolleaban los agentes). */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <NavItems items={navItems} collapsed={collapsed} />
+          {workspace === 'agentes' && !collapsed && (
+            <div className="border-t border-nina-line/60 mt-1">
+              <AgentsNav onNavigate={(to) => navigate(to)} isJunta={isJunta} />
+              <ConversationHistory onNavigate={(to) => navigate(to)} />
+            </div>
+          )}
+        </div>
         <SidebarUserBlock collapsed={collapsed} onOpenSettings={() => setSettingsOpen(true)} />
       </aside>
 
@@ -714,26 +716,26 @@ export default function AdminLayout() {
                 </button>
               </div>
               <SectionSwitcher collapsed={false} active={workspace} onSelect={() => setDrawerOpen(false)} />
-              <NavItems items={navItems} collapsed={false} onSelect={() => setDrawerOpen(false)} />
-              {workspace === 'agentes' ? (
-                <div className="flex-1 min-h-0 overflow-y-auto border-t border-nina-line/60 mt-1">
-                  <AgentsNav
-                    onNavigate={(to) => {
-                      navigate(to)
-                      setDrawerOpen(false)
-                    }}
-                    isJunta={isJunta}
-                  />
-                  <ConversationHistory
-                    onNavigate={(to) => {
-                      navigate(to)
-                      setDrawerOpen(false)
-                    }}
-                  />
-                </div>
-              ) : (
-                <div className="flex-1" />
-              )}
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                <NavItems items={navItems} collapsed={false} onSelect={() => setDrawerOpen(false)} />
+                {workspace === 'agentes' && (
+                  <div className="border-t border-nina-line/60 mt-1">
+                    <AgentsNav
+                      onNavigate={(to) => {
+                        navigate(to)
+                        setDrawerOpen(false)
+                      }}
+                      isJunta={isJunta}
+                    />
+                    <ConversationHistory
+                      onNavigate={(to) => {
+                        navigate(to)
+                        setDrawerOpen(false)
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
               <SidebarUserBlock
                 collapsed={false}
                 onOpenSettings={() => {
