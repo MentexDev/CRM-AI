@@ -8,6 +8,7 @@ import Tasks from './pages/admin/Tasks'
 import Approvals from './pages/admin/Approvals'
 import Biblioteca from './pages/admin/Biblioteca'
 import Plantillas from './pages/admin/Plantillas'
+import PublishedModule from './pages/admin/PublishedModule'
 import Cerebro from './pages/admin/Cerebro'
 import Brands from './pages/admin/Brands'
 import Produccion from './pages/admin/Produccion'
@@ -85,6 +86,7 @@ export default function App() {
         <Route path="aprobaciones" element={<Approvals />} />
         <Route path="biblioteca" element={<Biblioteca />} />
         <Route path="plantillas" element={<Plantillas />} />
+        <Route path="modulos/:id" element={<PublishedModule />} />
         <Route path="cerebro" element={<Cerebro />} />
         <Route path="produccion" element={<Produccion />} />
         <Route path="marcas" element={<Brands />} />

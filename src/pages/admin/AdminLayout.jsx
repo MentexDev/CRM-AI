@@ -9,6 +9,7 @@ import {
   Calculator,
   Check,
   CheckCircle2,
+  ChevronRight,
   Clapperboard,
   Code2,
   Crown,
@@ -27,6 +28,7 @@ import {
   Smartphone,
   Sparkles,
   Star,
+  Trash2,
   TrendingUp,
   UserPlus,
   Users,
@@ -38,6 +40,7 @@ import { AgentMenu } from '../../components/AgentMenu'
 import SettingsModal from '../../components/SettingsModal'
 import { useAuth } from '../../context/AuthContext'
 import { useAgents } from '../../hooks/useAgents'
+import { useModulosPublicados } from '../../hooks/useModulosPublicados'
 import { useConversations } from '../../hooks/useConversations'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase'
 import { useConnectionStatus } from '../../lib/useConnectionStatus'
@@ -367,7 +370,89 @@ function SidebarTip({ label, children, disabled = false }) {
   )
 }
 
-function SectionSwitcher({ collapsed, active, onSelect }) {
+// Botón de OVERFLOW (flecha →) al final del switcher: despliega un menú flotante con los MÓDULOS
+// publicados (plantillas de Code publicadas). Cada item navega a su vista a pantalla completa; al pasar
+// el mouse aparece el botón para quitarlo. Portal+fixed para escapar del overflow del sidebar.
+function ModulesOverflow({ modules, removeModule, collapsed, onSelect }) {
+  const navigate = useNavigate()
+  const btnRef = useRef(null)
+  const [open, setOpen] = useState(false)
+  const [coords, setCoords] = useState(null)
+
+  const toggle = () => {
+    if (open) {
+      setOpen(false)
+      return
+    }
+    const r = btnRef.current?.getBoundingClientRect()
+    if (r) setCoords({ top: r.bottom + 6, left: Math.max(8, r.left) })
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e) => {
+      if (!btnRef.current?.contains(e.target)) setOpen(false)
+    }
+    const onKey = (e) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const goModule = (id) => {
+    setOpen(false)
+    navigate(`/admin/modulos/${id}`)
+    onSelect?.()
+  }
+  const del = async (e, m) => {
+    e.stopPropagation()
+    if (!window.confirm(`¿Quitar el módulo "${m.title}" del menú?`)) return
+    try {
+      await removeModule(m.id)
+    } catch {
+      /* el hook ya loguea */
+    }
+  }
+
+  const btnCls = collapsed
+    ? 'w-full h-9 grid place-items-center rounded-xl transition text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'
+    : 'w-9 h-9 grid place-items-center rounded-xl border border-transparent bg-nina-line/15 text-nina-mute hover:text-nina-chrome hover:bg-nina-line/35 transition shrink-0'
+
+  return (
+    <>
+      <button ref={btnRef} onClick={toggle} title="Módulos publicados" aria-label="Módulos publicados" className={btnCls}>
+        <ChevronRight className={`w-4 h-4 transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+      {open &&
+        coords &&
+        createPortal(
+          <div style={{ top: coords.top, left: coords.left }} className="fixed z-[200] w-60 max-h-[60vh] overflow-y-auto rounded-xl border border-nina-line bg-[#0b0c10] shadow-2xl p-1">
+            <div className="px-2.5 py-1.5 text-[10px] uppercase tracking-wide text-nina-mute">Módulos publicados</div>
+            {modules.map((m) => (
+              <div key={m.id} className="group flex items-center gap-1 rounded-lg hover:bg-nina-line/30 transition">
+                <button onClick={() => goModule(m.id)} className="flex-1 min-w-0 flex items-center gap-2 px-2.5 py-2 text-left">
+                  <LayoutTemplate className="w-4 h-4 shrink-0 text-nina-silver" />
+                  <span className="flex-1 min-w-0 truncate text-[13px] text-nina-chrome">{m.title}</span>
+                </button>
+                <button onClick={(e) => del(e, m)} title="Quitar módulo" className="shrink-0 w-7 h-7 grid place-items-center rounded text-nina-mute hover:text-red-300 opacity-0 group-hover:opacity-100 transition mr-0.5">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </>
+  )
+}
+
+function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule }) {
   const navigate = useNavigate()
   const go = (to) => {
     navigate(to)
@@ -392,6 +477,7 @@ function SectionSwitcher({ collapsed, active, onSelect }) {
             </button>
           </SidebarTip>
         ))}
+        {modules?.length > 0 && <ModulesOverflow modules={modules} removeModule={removeModule} collapsed onSelect={onSelect} />}
       </div>
     )
   }
@@ -413,6 +499,7 @@ function SectionSwitcher({ collapsed, active, onSelect }) {
           {active === s.id && <span className="text-[13px] font-medium whitespace-nowrap">{s.label}</span>}
         </button>
       ))}
+      {modules?.length > 0 && <ModulesOverflow modules={modules} removeModule={removeModule} collapsed={false} onSelect={onSelect} />}
     </div>
   )
 }
@@ -645,6 +732,7 @@ export default function AdminLayout() {
   const workspace = getWorkspace(location.pathname)
   // F5: la entrada "Salud" del nav es solo para la Junta (un no-junta vería el panel vacío).
   const navItems = (WORKSPACE_NAV[workspace] ?? []).filter((it) => it.to !== '/admin/salud' || isJunta)
+  const { modules: publishedModules, removeModule } = useModulosPublicados()
   // El chat marca ?canvas=1 cuando abre el split-view → ocultamos el sidebar
   // para darle todo el espacio al canvas.
   const [searchParams] = useSearchParams()
@@ -671,7 +759,7 @@ export default function AdminLayout() {
         }`}
       >
         <SidebarHeader collapsed={collapsed} onToggle={toggleCollapsed} />
-        <SectionSwitcher collapsed={collapsed} active={workspace} />
+        <SectionSwitcher collapsed={collapsed} active={workspace} modules={publishedModules} removeModule={removeModule} />
         {/* Scroll desde JUSTO debajo del menú horizontal: el nav vertical + agentes + conversaciones
             scrollean juntos (antes el nav quedaba fijo y sólo scrolleaban los agentes). */}
         <div className="flex-1 min-h-0 overflow-y-auto">
@@ -715,7 +803,7 @@ export default function AdminLayout() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <SectionSwitcher collapsed={false} active={workspace} onSelect={() => setDrawerOpen(false)} />
+              <SectionSwitcher collapsed={false} active={workspace} onSelect={() => setDrawerOpen(false)} modules={publishedModules} removeModule={removeModule} />
               <div className="flex-1 min-h-0 overflow-y-auto">
                 <NavItems items={navItems} collapsed={false} onSelect={() => setDrawerOpen(false)} />
                 {workspace === 'agentes' && (

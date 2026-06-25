@@ -87,6 +87,7 @@ import ToolResultBubble from '../../components/ToolResultBubble'
 import ArtifactResultCard from '../../components/artifacts/ArtifactResultCard'
 import ArtifactProgressCard from '../../components/artifacts/ArtifactProgressCard'
 import ImageLightbox from '../../components/artifacts/ImageLightbox'
+import PublishModuleModal from '../../components/PublishModuleModal'
 import { artifactToFile } from '../../lib/artifactKinds'
 import Markdown from '../../components/Markdown'
 import VoiceOverlay from '../../components/VoiceOverlay'
@@ -477,7 +478,7 @@ function AgentsDashboard({ agents, isJunta, onNewAgent }) {
           </div>
 
           {/* Derecha: Equipo (lista) + tareas pendientes + aprobaciones */}
-          <aside className="lg:w-80 shrink-0 space-y-6 lg:mt-5">
+          <aside className="lg:w-80 shrink-0 space-y-6 lg:mt-6">
             <section>
               <h2 className="text-[12px] uppercase tracking-wide text-nina-mute mb-2">Resumen del equipo</h2>
               <MetricsSlider metrics={metrics} />
@@ -1174,6 +1175,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
   // Modal "Archivos de la conversación" (botón Files del header) — agrega TODOS los archivos del hilo:
   // artefactos del agente (allTabs), adjuntos del usuario (metadata.attachments) y enlaces (URLs).
   const [filesOpen, setFilesOpen] = useState(false)
+  const [publishArtifact, setPublishArtifact] = useState(null)
   const conversationFiles = useMemo(() => {
     const TYPE_LABEL = { document: 'Documento', slides: 'Presentación', sheet: 'Hoja de cálculo', board: 'Pizarra', pdf: 'PDF', image: 'Imagen', email: 'Correo', calendar: 'Agenda' }
     const CODE_EXT = /\.(js|jsx|ts|tsx|py|rb|go|rs|java|kt|c|cpp|h|hpp|cs|php|swift|sh|bash|zsh|sql|css|html?|xml|json|jsonl|ya?ml|toml|ini)$/i
@@ -1777,6 +1779,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
               onSelect={setActiveKey}
               onClose={() => setCanvasOpen(false)}
               onSave={() => saveToLibrary(activeArtifact)}
+              onPublish={() => setPublishArtifact(activeArtifact)}
               onDelete={() => deleteArtifact(activeArtifact)}
               saved={activeArtifact ? savedKeys.has(activeArtifact.key) : false}
               docContentRef={docContentRef}
@@ -1812,6 +1815,12 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         onAgentPrompt={sendAgentPrompt}
       />
       {filesOpen && <FilesModal files={conversationFiles} onClose={() => setFilesOpen(false)} />}
+      <PublishModuleModal
+        open={Boolean(publishArtifact)}
+        onClose={() => setPublishArtifact(null)}
+        artifact={publishArtifact}
+        conversationId={conversationId}
+      />
     </div>
   )
 }
@@ -2089,7 +2098,7 @@ function ImageComposer({ onGenerate, sending }) {
   )
 }
 
-function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave, onDelete, saved, docContentRef, onElementEdit, onOpenPalette, onDocChange, onCloseTab, onReopen, onImageZoom, floating, onToggleFloat, onGenerateImage, sending }) {
+function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave, onPublish, onDelete, saved, docContentRef, onElementEdit, onOpenPalette, onDocChange, onCloseTab, onReopen, onImageZoom, floating, onToggleFloat, onGenerateImage, sending }) {
   const label = (a) =>
     a.type === 'document' ? a.title || 'Documento'
       : a.type === 'slides' ? a.title || 'Presentación'
@@ -2244,6 +2253,16 @@ function ArtifactCanvas({ artifacts, history, active, onSelect, onClose, onSave,
         )}
         {active && active.type !== 'gallery' && (
           <>
+            {['document', 'sheet', 'board', 'slides'].includes(active.type) && (
+              <button
+                onClick={onPublish}
+                className="h-8 px-2.5 rounded-lg text-[11px] flex items-center gap-1.5 text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition shrink-0"
+                title="Publicar como módulo (vista a pantalla completa, accesible desde el menú de arriba)"
+              >
+                <Globe className="w-4 h-4" />
+                <span className="hidden lg:inline">Publicar</span>
+              </button>
+            )}
             <button
               onClick={onSave}
               disabled={saved}
