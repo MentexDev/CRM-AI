@@ -244,13 +244,7 @@ export default function Agents() {
     if (slug === agent.slug) navigate('/admin/agentes', { replace: true })
   }
 
-  // En lg+ siempre seleccionamos el primero por default si no hay slug.
-  useEffect(() => {
-    if (slug || agents.length === 0) return
-    if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
-      navigate(`/admin/agentes/${agents[0].slug}`, { replace: true })
-    }
-  }, [slug, agents, navigate])
+  // Al entrar a /agentes (sin slug) ya NO saltamos al primer agente: mostramos el DASHBOARD del equipo.
 
   if (loading) {
     return (
@@ -306,9 +300,11 @@ export default function Agents() {
             onNewTask={() => setTaskOpen(true)}
           />
         ) : (
-          <div className="h-full grid place-items-center text-nina-mute text-sm text-center px-6">
-            Selecciona un agente desde el menú de la izquierda.
-          </div>
+          <AgentsDashboard
+            agents={agents}
+            isJunta={isJunta}
+            onNewAgent={() => setAgentModal({ open: true, agentId: null })}
+          />
         )}
       </div>
 
@@ -317,6 +313,191 @@ export default function Agents() {
       )}
 
       <NewAgentModal open={agentModal.open} agentId={agentModal.agentId} onClose={closeAgentModal} />
+    </div>
+  )
+}
+
+const ROLE_LABEL = { ceo_global: 'CEO Global', brand_manager: 'Brand Manager', specialist: 'Especialista' }
+
+// =====================================================================
+// Dashboard de la sección Agentes — home/overview del equipo de IA.
+// Se muestra al entrar a /agentes (sin agente seleccionado): métricas,
+// grid de agentes (clic → abre), tareas pendientes, actividad y aprobaciones.
+// =====================================================================
+function AgentsDashboard({ agents, isJunta, onNewAgent }) {
+  const navigate = useNavigate()
+  const [tasks, setTasks] = useState([])
+  const [approvals, setApprovals] = useState([])
+  const [loadingExtra, setLoadingExtra] = useState(true)
+  const { conversations } = useConversations({})
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        const [tRes, aRes] = await Promise.all([
+          supabase.from('tasks').select('id, title, status, priority, due_at, agent_id').in('status', ['to_do', 'in_progress', 'blocked']).order('priority', { ascending: true }).order('created_at', { ascending: false }).limit(60),
+          supabase.from('approvals').select('*').eq('status', 'pending').order('created_at', { ascending: false }).limit(20),
+        ])
+        if (!alive) return
+        setTasks(tRes.data ?? [])
+        setApprovals(aRes.data ?? [])
+      } finally {
+        if (alive) setLoadingExtra(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [])
+
+  const agentsById = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a])), [agents])
+  const tasksByAgent = useMemo(() => {
+    const m = {}
+    for (const t of tasks) m[t.agent_id] = (m[t.agent_id] || 0) + 1
+    return m
+  }, [tasks])
+  const sorted = useMemo(
+    () => [...agents].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (a.sort_order ?? 999) - (b.sort_order ?? 999) || (a.name || '').localeCompare(b.name || '')),
+    [agents],
+  )
+  const activos = agents.filter((a) => a.status === 'running').length
+  const pausados = agents.filter((a) => a.status === 'disabled').length
+  const metrics = [
+    { label: 'Agentes', value: agents.length, hint: pausados ? `${pausados} en pausa` : 'todos activos' },
+    { label: 'Trabajando', value: activos, accent: 'text-emerald-300' },
+    { label: 'Tareas activas', value: tasks.length, accent: tasks.length ? 'text-amber-300' : undefined },
+    { label: 'Aprobaciones', value: approvals.length, accent: approvals.length ? 'text-amber-300' : undefined },
+  ]
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-6xl mx-auto px-4 sm:px-8 py-6 sm:py-10 space-y-8">
+        {/* Header */}
+        <div className="flex items-end justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-display text-nina-chrome">Agentes</h1>
+            <p className="text-[13px] text-nina-mute mt-1">Tu equipo de IA — estado, tareas y actividad de un vistazo.</p>
+          </div>
+          {isJunta && (
+            <button onClick={onNewAgent} className="btn-primary text-sm shrink-0"><UserPlus className="w-4 h-4" /> Crear agente</button>
+          )}
+        </div>
+
+        {/* Métricas */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {metrics.map((m) => (
+            <div key={m.label} className="rounded-2xl border border-nina-line bg-nina-panel/40 px-4 py-3.5">
+              <div className="text-[12px] text-nina-mute">{m.label}</div>
+              <div className={`text-2xl font-semibold mt-0.5 ${m.accent || 'text-nina-chrome'}`}>{m.value}</div>
+              {m.hint && <div className="text-[11px] text-nina-mute/70 mt-0.5">{m.hint}</div>}
+            </div>
+          ))}
+        </div>
+
+        {/* Grid de agentes */}
+        <section>
+          <h2 className="text-[12px] uppercase tracking-wide text-nina-mute mb-3">Equipo</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {sorted.map((a) => {
+              const Icon = agentIcon(a)
+              const dot = STATUS_DOT[a.status] ?? STATUS_DOT.idle
+              const nTasks = tasksByAgent[a.id] || 0
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => navigate(`/admin/agentes/${a.slug}`)}
+                  className="group text-left rounded-2xl border border-nina-line bg-nina-panel/40 hover:border-nina-silver/30 hover:bg-nina-panel/70 transition p-4"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="relative w-11 h-11 rounded-xl grid place-items-center bg-silver-gradient text-nina-black shrink-0">
+                      <Icon className="w-5 h-5" />
+                      <span className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-nina-panel ${dot}`} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[14px] font-semibold text-nina-chrome truncate">{a.name}</div>
+                      <div className="text-[11.5px] text-nina-mute truncate">{a.specialty || ROLE_LABEL[a.role] || a.role}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between mt-3 text-[11.5px]">
+                    <span className="text-nina-mute">{STATUS_LABEL[a.status] ?? a.status}</span>
+                    <span className="flex items-center gap-3 text-nina-mute">
+                      {nTasks > 0 && <span className="flex items-center gap-1"><ListTodo className="w-3.5 h-3.5" /> {nTasks}</span>}
+                      <ChevronRight className="w-4 h-4 text-nina-mute/50 group-hover:text-nina-chrome transition" />
+                    </span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+
+        {/* Tareas pendientes + Actividad reciente */}
+        <div className="grid lg:grid-cols-2 gap-6">
+          <section>
+            <h2 className="text-[12px] uppercase tracking-wide text-nina-mute mb-3 flex items-center gap-2"><ListTodo className="w-4 h-4" /> Tareas pendientes</h2>
+            <div className="rounded-2xl border border-nina-line bg-nina-panel/40 divide-y divide-nina-line/40 overflow-hidden">
+              {loadingExtra ? (
+                <div className="px-4 py-6 grid place-items-center"><Loader2 className="w-4 h-4 animate-spin text-nina-mute" /></div>
+              ) : tasks.length === 0 ? (
+                <div className="px-4 py-6 text-center text-[12.5px] text-nina-mute">Sin tareas pendientes 🎉</div>
+              ) : (
+                tasks.slice(0, 8).map((t) => {
+                  const ag = agentsById[t.agent_id]
+                  return (
+                    <button key={t.id} onClick={() => ag && navigate(`/admin/agentes/${ag.slug}`)} className="w-full text-left px-4 py-2.5 hover:bg-nina-line/20 transition flex items-center gap-3">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.status === 'blocked' ? 'bg-red-400' : 'bg-amber-400'}`} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] text-nina-chrome truncate">{t.title}</span>
+                        <span className="block text-[11px] text-nina-mute truncate">{ag?.name || 'Sin agente'}{t.due_at ? ` · vence ${fmtTime(t.due_at)}` : ''}</span>
+                      </span>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </section>
+
+          <section>
+            <h2 className="text-[12px] uppercase tracking-wide text-nina-mute mb-3 flex items-center gap-2"><MessageSquare className="w-4 h-4" /> Actividad reciente</h2>
+            <div className="rounded-2xl border border-nina-line bg-nina-panel/40 divide-y divide-nina-line/40 overflow-hidden">
+              {conversations.length === 0 ? (
+                <div className="px-4 py-6 text-center text-[12.5px] text-nina-mute">Sin conversaciones aún</div>
+              ) : (
+                conversations.slice(0, 8).map((c) => (
+                  <button key={c.id} onClick={() => c.agents?.slug && navigate(`/admin/agentes/${c.agents.slug}?c=${c.id}`)} className="w-full text-left px-4 py-2.5 hover:bg-nina-line/20 transition flex items-center gap-3">
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] text-nina-chrome truncate">{c.title || 'Conversación'}</span>
+                      <span className="block text-[11px] text-nina-mute truncate">{c.agents?.name || ''}{c.message_count ? ` · ${c.message_count} msj` : ''}</span>
+                    </span>
+                    <span className="text-[11px] text-nina-mute/70 shrink-0">{fmtTime(c.last_message_at)}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+
+        {/* Aprobaciones pendientes */}
+        {approvals.length > 0 && (
+          <section>
+            <h2 className="text-[12px] uppercase tracking-wide text-amber-300 mb-3 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Aprobaciones pendientes ({approvals.length})</h2>
+            <div className="rounded-2xl border border-amber-400/30 bg-amber-500/5 divide-y divide-nina-line/40 overflow-hidden">
+              {approvals.slice(0, 6).map((ap) => {
+                const ag = agentsById[ap.agent_id]
+                const desc = ap.summary || ap.title || ap.kind || ap.tool_name || 'Acción pendiente de aprobación'
+                return (
+                  <button key={ap.id} onClick={() => navigate('/admin/aprobaciones')} className="w-full text-left px-4 py-2.5 hover:bg-amber-500/10 transition flex items-center gap-3">
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] text-nina-chrome truncate">{desc}</span>
+                      <span className="block text-[11px] text-nina-mute truncate">{ag?.name || ''}{ap.created_at ? ` · ${fmtTime(ap.created_at)}` : ''}</span>
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-nina-mute/50 shrink-0" />
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        )}
+      </div>
     </div>
   )
 }
