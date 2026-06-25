@@ -450,7 +450,7 @@ function AgentsDashboard({ agents, isJunta, onNewAgent }) {
           </div>
 
           {/* Derecha: Equipo (lista) + tareas pendientes + aprobaciones */}
-          <aside className="lg:w-80 shrink-0 space-y-6 lg:mt-10">
+          <aside className="lg:w-80 shrink-0 space-y-6 lg:mt-5">
             <section>
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-[12px] uppercase tracking-wide text-nina-mute">Equipo ({agents.length})</h2>
