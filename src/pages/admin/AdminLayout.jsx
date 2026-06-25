@@ -547,8 +547,9 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
   const current = WORKSPACES[idx]
   // El activo PRIMERO, el resto en su orden → "de primeras", justo después de módulos publicados.
   const ordered = [current, ...WORKSPACES.filter((s) => s.id !== current.id)]
-  const arrowCls =
-    'absolute top-1/2 -translate-y-1/2 z-10 w-7 h-7 grid place-items-center rounded-lg bg-nina-panel/90 backdrop-blur-sm border border-nina-line text-nina-mute hover:text-nina-chrome shadow-md opacity-0 group-hover:opacity-100 transition'
+  // Flechas SIN cuadro: sólo el ícono sobre un fondo desvanecido (degradado glass, sin borde).
+  const arrowBase =
+    'absolute top-0 bottom-0 z-10 w-10 grid place-items-center text-nina-silver/80 hover:text-nina-chrome opacity-0 group-hover:opacity-100 transition backdrop-blur-[2px]'
 
   return (
     <div className="px-3 pt-3 flex items-center gap-1.5">
@@ -578,12 +579,12 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
         </div>
         {/* Flechas FLOTANTES (absolute, sólo en hover) → no ocupan espacio en el menú. */}
         {arrows.left && (
-          <button onClick={() => nudge(-1)} aria-label="Ver secciones anteriores" className={`${arrowCls} left-0`}>
+          <button onClick={() => nudge(-1)} aria-label="Ver secciones anteriores" className={`${arrowBase} left-0 bg-gradient-to-r from-nina-panel/75 via-nina-panel/25 to-transparent`}>
             <ChevronLeft className="w-4 h-4" />
           </button>
         )}
         {arrows.right && (
-          <button onClick={() => nudge(1)} aria-label="Ver más secciones" className={`${arrowCls} right-0`}>
+          <button onClick={() => nudge(1)} aria-label="Ver más secciones" className={`${arrowBase} right-0 bg-gradient-to-l from-nina-panel/75 via-nina-panel/25 to-transparent`}>
             <ChevronRight className="w-4 h-4" />
           </button>
         )}
