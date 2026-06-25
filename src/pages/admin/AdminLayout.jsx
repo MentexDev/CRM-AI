@@ -580,12 +580,12 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
         </div>
         {/* Flechas FLOTANTES (absolute, sólo en hover) → no ocupan espacio en el menú. */}
         {arrows.left && (
-          <button onClick={() => nudge(-1)} aria-label="Ver secciones anteriores" className={`${arrowBase} left-1`}>
+          <button onClick={() => nudge(-1)} aria-label="Ver secciones anteriores" className={`${arrowBase} left-0`}>
             <ChevronLeft className="w-4 h-4" />
           </button>
         )}
         {arrows.right && (
-          <button onClick={() => nudge(1)} aria-label="Ver más secciones" className={`${arrowBase} right-1`}>
+          <button onClick={() => nudge(1)} aria-label="Ver más secciones" className={`${arrowBase} right-0`}>
             <ChevronRight className="w-4 h-4" />
           </button>
         )}
