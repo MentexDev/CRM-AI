@@ -546,7 +546,6 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
   return (
     <div className="px-3 pt-3 flex items-center gap-1.5">
       <ModulesButton modules={modules} removeModule={removeModule} collapsed={false} onSelect={onSelect} />
-      <div className="w-px h-6 bg-nina-line/60 shrink-0 mx-0.5" />
       {n > 1 && (
         <button onClick={() => go(prev.to)} title={`Anterior: ${prev.label}`} aria-label={`Anterior: ${prev.label}`} className={sideCls}>
           <PrevIcon className="w-4 h-4 group-hover:hidden" />
