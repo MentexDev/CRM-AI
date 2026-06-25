@@ -1820,6 +1820,7 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
         onClose={() => setPublishArtifact(null)}
         artifact={publishArtifact}
         conversationId={conversationId}
+        agentId={agent?.id}
       />
     </div>
   )

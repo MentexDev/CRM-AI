@@ -130,6 +130,16 @@ export function artifactToFile(a) {
         .join('\n\n')
       return { name: `${base}.md`, text: `# ${a.title || 'Presentación'}\n\n${body}`, mime: 'text/markdown' }
     }
+    case 'board': {
+      const md = (a.nodes || [])
+        .map((n, i) => {
+          const head = n?.title || n?.label || n?.heading || `Tarjeta ${i + 1}`
+          const body = String(n?.text || n?.body || '').trim()
+          return `- **${head}**${body ? `\n  ${body}` : ''}`
+        })
+        .join('\n')
+      return { name: `${base}.md`, text: `# ${a.title || 'Pizarra'}\n\n${md}`, mime: 'text/markdown' }
+    }
     case 'image':
       return { name: `${base}.png`, url: a.url }
     default:

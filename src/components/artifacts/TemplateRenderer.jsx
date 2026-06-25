@@ -92,17 +92,26 @@ function BoardPreview({ d }) {
 function SlidesPreview({ d }) {
   const slides = d.slides || []
   if (!slides.length) return <div className="text-nina-mute text-sm">Sin diapositivas.</div>
+  // Honra el tema (fondo/colores) que el usuario configuró en Code, para que el módulo publicado
+  // coincida con lo que ve en el canvas. Sin tema → estilo NINA por defecto.
+  const theme = d.theme && typeof d.theme === 'object' ? d.theme : null
   return (
     <div className="space-y-2">
       {slides.map((s, i) => (
-        <div key={i} className="rounded-lg border border-nina-line bg-nina-panel/50 px-3 py-2">
-          <div className="text-[13px] font-semibold text-nina-chrome">{s?.heading || s?.title || `Diapositiva ${i + 1}`}</div>
+        <div
+          key={i}
+          style={theme ? { background: theme.background, color: theme.text } : undefined}
+          className={`rounded-lg border px-3 py-2 ${theme ? 'border-black/10' : 'border-nina-line bg-nina-panel/50'}`}
+        >
+          <div className={`text-[13px] font-semibold ${theme ? '' : 'text-nina-chrome'}`} style={theme ? { color: theme.accent || theme.text } : undefined}>
+            {s?.heading || s?.title || `Diapositiva ${i + 1}`}
+          </div>
           {Array.isArray(s?.bullets) && s.bullets.length > 0 && (
-            <ul className="mt-1 space-y-0.5 text-[12px] text-nina-mute list-disc pl-4">
+            <ul className={`mt-1 space-y-0.5 text-[12px] list-disc pl-4 ${theme ? 'opacity-90' : 'text-nina-mute'}`}>
               {s.bullets.map((b, bi) => <li key={bi}>{b}</li>)}
             </ul>
           )}
-          {(s?.body || s?.content) && <div className="text-[12px] text-nina-mute mt-1">{s.body || s.content}</div>}
+          {(s?.body || s?.content) && <div className={`text-[12px] mt-1 ${theme ? 'opacity-90' : 'text-nina-mute'}`}>{s.body || s.content}</div>}
         </div>
       ))}
     </div>

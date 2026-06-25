@@ -9,7 +9,7 @@ import Modal from './Modal'
 // nombre del módulo, guarda un SNAPSHOT del artefacto en public.published_modules y navega al módulo.
 const PUBLISHABLE = ['document', 'sheet', 'board', 'slides']
 
-export default function PublishModuleModal({ open, onClose, artifact, conversationId }) {
+export default function PublishModuleModal({ open, onClose, artifact, conversationId, agentId }) {
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
@@ -27,8 +27,9 @@ export default function PublishModuleModal({ open, onClose, artifact, conversati
     if (!title || saving || !ok) return
     setSaving(true)
     try {
-      // Snapshot del payload del artefacto (todo menos los campos internos del canvas: type/key/messageId).
-      const { type, key, messageId, ...data } = artifact
+      // Snapshot del payload del artefacto (sin los campos internos del canvas ni el title duplicado:
+      // el título canónico vive en la columna `title`).
+      const { type, key, messageId, title: _omitTitle, ...data } = artifact
       const {
         data: { user },
       } = await supabase.auth.getUser()
@@ -40,6 +41,7 @@ export default function PublishModuleModal({ open, onClose, artifact, conversati
           data,
           source_conversation_id: conversationId || null,
           source_artifact_key: key || null,
+          agent_id: agentId || null,
           created_by: user?.id || null,
         })
         .select('id')

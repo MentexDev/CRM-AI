@@ -311,6 +311,8 @@ const WORKSPACE_ROUTES = {
 }
 
 export function getWorkspace(pathname) {
+  // Un módulo publicado NO es un workspace: no resaltar ninguno ni montar el sub-nav de Agentes.
+  if (pathname.startsWith('/admin/modulos')) return null
   for (const [id, routes] of Object.entries(WORKSPACE_ROUTES)) {
     if (routes.some((r) => pathname.startsWith(r))) return id
   }
@@ -397,11 +399,16 @@ function ModulesOverflow({ modules, removeModule, collapsed, onSelect }) {
     const onKey = (e) => {
       if (e.key === 'Escape') setOpen(false)
     }
+    const close = () => setOpen(false)
     document.addEventListener('mousedown', onDoc)
     document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
     return () => {
       document.removeEventListener('mousedown', onDoc)
       document.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
     }
   }, [open])
 
@@ -415,6 +422,8 @@ function ModulesOverflow({ modules, removeModule, collapsed, onSelect }) {
     if (!window.confirm(`¿Quitar el módulo "${m.title}" del menú?`)) return
     try {
       await removeModule(m.id)
+      // Si estabas viendo ese módulo, sal de la vista fantasma.
+      if (window.location.pathname === `/admin/modulos/${m.id}`) navigate('/admin/agentes')
     } catch {
       /* el hook ya loguea */
     }
