@@ -47,7 +47,7 @@ export default function PublishedModule() {
     let active = true
     setLoading(true)
     setSaveState('idle')
-    dirtyRef.current = false
+    pendingRef.current = new Map()
     ;(async () => {
       const { data, error } = await supabase.from('published_modules').select('id, title, kind, data, sections').eq('id', id).maybeSingle()
       if (!active) return
