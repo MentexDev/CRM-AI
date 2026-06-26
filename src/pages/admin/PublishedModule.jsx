@@ -36,6 +36,7 @@ export default function PublishedModule() {
   const [saveState, setSaveState] = useState('idle') // idle | saving | saved
   const sectionsRef = useRef([])
   const timerRef = useRef(null)
+  const hideTimerRef = useRef(null)
   const dirtyRef = useRef(false)
   const idRef = useRef(id)
   idRef.current = id
@@ -74,6 +75,9 @@ export default function PublishedModule() {
           setSaveState('idle')
         } else {
           setSaveState('saved')
+          // El "Guardado" se oculta solo tras un momento (no se queda flotando).
+          clearTimeout(hideTimerRef.current)
+          hideTimerRef.current = setTimeout(() => setSaveState('idle'), 1800)
         }
       })
   }
@@ -82,6 +86,7 @@ export default function PublishedModule() {
   useEffect(() => {
     return () => {
       clearTimeout(timerRef.current)
+      clearTimeout(hideTimerRef.current)
       flush()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,7 +124,7 @@ export default function PublishedModule() {
   return (
     <div className="relative h-full min-h-0 overflow-hidden">
       {editable && saveState !== 'idle' && (
-        <div className="absolute top-2.5 right-3 z-20 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-nina-panel/90 border border-nina-line text-[11px] text-nina-mute shadow backdrop-blur-sm">
+        <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-nina-panel/90 border border-nina-line text-[11px] text-nina-mute shadow backdrop-blur-sm">
           {saveState === 'saving' ? (
             <>
               <RefreshCw className="w-3 h-3 animate-spin" /> Guardando…
