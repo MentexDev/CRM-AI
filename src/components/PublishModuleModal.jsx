@@ -29,11 +29,16 @@ export default function PublishModuleModal({ open, onClose, tabs, activeKey, con
     let alive = true
     ;(async () => {
       let found = null
-      if (conversationId) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      // Solo MI módulo de esta conversación → re-publicar nunca intenta sobrescribir el de otro usuario.
+      if (conversationId && user) {
         const { data } = await supabase
           .from('published_modules')
           .select('id, title')
           .eq('source_conversation_id', conversationId)
+          .eq('created_by', user.id)
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle()
@@ -78,15 +83,21 @@ export default function PublishModuleModal({ open, onClose, tabs, activeKey, con
         title,
         kind: sections[0].kind, // kind representativo (para el ícono del menú)
         sections,
-        data: {}, // los módulos nuevos usan `sections`; `data` queda vacío (compat con filas viejas)
         source_conversation_id: conversationId || null,
         source_artifact_key: chosen[0]?.key || null,
         agent_id: agentId || null,
       }
       let id = existing?.id
+      let updated = false
       if (id) {
-        const { error } = await supabase.from('published_modules').update(base).eq('id', id)
+        // Intenta ACTUALIZAR mi módulo. El .select() confirma si realmente aplicó: si RLS lo filtra
+        // (0 filas) o ya no existe, caemos a crear uno nuevo en vez de reportar un éxito falso.
+        const { data: upd, error } = await supabase.from('published_modules').update(base).eq('id', id).select('id')
         if (error) throw error
+        updated = Boolean(upd && upd.length)
+        if (!updated) id = null
+      }
+      if (updated) {
         toast.success('Módulo actualizado')
       } else {
         const { data: row, error } = await supabase

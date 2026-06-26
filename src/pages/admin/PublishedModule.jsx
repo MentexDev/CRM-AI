@@ -68,7 +68,7 @@ export default function PublishedModule() {
 
   return (
     <div className="h-full min-h-0 overflow-hidden">
-      <SectionViewer key={section?.id || idx} section={section} />
+      <SectionViewer key={idx} section={section} />
     </div>
   )
 }

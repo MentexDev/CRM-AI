@@ -499,8 +499,10 @@ function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
 function ModuleSectionsNav({ moduleId, sections, collapsed, onSelect }) {
   const navigate = useNavigate()
   const [sp] = useSearchParams()
-  const active = Math.max(0, parseInt(sp.get('section') ?? '0', 10) || 0)
   if (!sections?.length) return null
+  const raw = parseInt(sp.get('section') ?? '0', 10)
+  // Mismo clamp que PublishedModule → el resaltado nunca diverge del visor.
+  const active = Math.min(Math.max(0, Number.isFinite(raw) ? raw : 0), sections.length - 1)
   const go = (i) => {
     navigate(`/admin/modulos/${moduleId}?section=${i}`)
     onSelect?.()
@@ -526,9 +528,9 @@ function ModuleSectionsNav({ moduleId, sections, collapsed, onSelect }) {
           </button>
         )
         return collapsed ? (
-          <SidebarTip key={s.id || i} label={s.title}>{btn}</SidebarTip>
+          <SidebarTip key={i} label={s.title}>{btn}</SidebarTip>
         ) : (
-          <div key={s.id || i}>{btn}</div>
+          <div key={i}>{btn}</div>
         )
       })}
     </nav>
@@ -869,7 +871,7 @@ export default function AdminLayout() {
         {/* Scroll desde JUSTO debajo del menú horizontal: el nav vertical + agentes + conversaciones
             scrollean juntos (antes el nav quedaba fijo y sólo scrolleaban los agentes). */}
         <div className="flex-1 min-h-0 overflow-y-auto">
-          {moduleSecs.length > 1 ? (
+          {moduleSecs.length > 0 ? (
             <ModuleSectionsNav moduleId={moduleId} sections={moduleSecs} collapsed={collapsed} />
           ) : (
             <NavItems items={navItems} collapsed={collapsed} />
@@ -915,7 +917,7 @@ export default function AdminLayout() {
               </div>
               <SectionSwitcher collapsed={false} active={workspace} onSelect={() => setDrawerOpen(false)} modules={publishedModules} removeModule={removeModule} />
               <div className="flex-1 min-h-0 overflow-y-auto">
-                {moduleSecs.length > 1 ? (
+                {moduleSecs.length > 0 ? (
                   <ModuleSectionsNav moduleId={moduleId} sections={moduleSecs} collapsed={false} onSelect={() => setDrawerOpen(false)} />
                 ) : (
                   <NavItems items={navItems} collapsed={false} onSelect={() => setDrawerOpen(false)} />
