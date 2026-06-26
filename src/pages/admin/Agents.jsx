@@ -366,7 +366,7 @@ function AgentsDashboard({ agents }) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-5xl mx-auto px-4 pt-12 pb-10 sm:pt-14 space-y-8">
+      <div className="max-w-3xl mx-auto px-4 pt-12 pb-10 sm:pt-14 space-y-8">
         {/* Saludo */}
         <div className="text-center space-y-1.5">
           <h1 className="font-display text-3xl sm:text-[2.4rem] leading-tight silver-text">{greeting} ☀</h1>
@@ -375,14 +375,12 @@ function AgentsDashboard({ agents }) {
 
         {/* Chat del CEO — ARRIBA, debajo del saludo */}
         {ceo && (
-          <div className="max-w-3xl mx-auto">
-            <ChatComposer
-              agent={ceo}
-              conversationId={null}
-              onConversationCreated={(convId) => navigate(`/admin/agentes/${ceo.slug}?c=${convId}`)}
-              bare
-            />
-          </div>
+          <ChatComposer
+            agent={ceo}
+            conversationId={null}
+            onConversationCreated={(convId) => navigate(`/admin/agentes/${ceo.slug}?c=${convId}`)}
+            bare
+          />
         )}
 
         {/* Plantillas para empezar — grilla de 3 columnas, ABAJO */}
