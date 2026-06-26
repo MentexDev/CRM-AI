@@ -342,39 +342,6 @@ function FeaturedTemplate({ t, onOpen }) {
   )
 }
 
-// Slider de plantillas destacadas — muestra 2 a la vez y rota automáticamente cada 5s (estilo NeuralOS).
-function TemplateSlider({ templates, onOpen }) {
-  const n = templates.length
-  const [start, setStart] = useState(0)
-  // Ventana deslizante: SIEMPRE muestra 2 (con wrap circular), avanza de a 1 cada 5s. Con número impar
-  // la última vista repite la 1ª (preferible a dejar una tarjeta sola). Un dot por posición de inicio.
-  useEffect(() => {
-    if (n <= 2) return
-    const t = setInterval(() => setStart((s) => (s + 1) % n), 5000)
-    return () => clearInterval(t)
-  }, [n])
-  if (!n) return null
-  const visible = n <= 2 ? templates : [templates[start], templates[(start + 1) % n]]
-  return (
-    <div>
-      <AnimatePresence mode="wait">
-        <motion.div key={start} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="grid grid-cols-2 gap-3">
-          {visible.map((t, i) => (
-            <FeaturedTemplate key={`${t.id}-${i}`} t={t} onOpen={() => onOpen(t)} />
-          ))}
-        </motion.div>
-      </AnimatePresence>
-      {n > 2 && (
-        <div className="flex items-center justify-center gap-1.5 mt-3">
-          {templates.map((_, i) => (
-            <button key={i} onClick={() => setStart(i)} aria-label={`Plantilla ${i + 1}`} className={`h-1.5 rounded-full transition-all ${i === start ? 'w-5 bg-nina-silver' : 'w-1.5 bg-nina-line hover:bg-nina-mute'}`} />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // =====================================================================
 // Inicio de la sección Agentes — home estilo NeuralOS (centrado): saludo,
 // plantillas destacadas (slider) y el composer del CEO.
@@ -387,7 +354,7 @@ function AgentsDashboard({ agents }) {
   const ceo = useMemo(() => agents.find((a) => a.role === 'ceo_global') || agents[0] || null, [agents])
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches'
-  const featured = templates.slice(0, 6)
+  const featured = templates.slice(0, 9)
 
   // Clic en una plantilla destacada → la abre en Code (su pestaña), o la galería si no tiene origen.
   const openTemplate = (t) =>
@@ -398,31 +365,16 @@ function AgentsDashboard({ agents }) {
     )
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-4 pt-12 pb-8 sm:pt-16 space-y-9">
-          {/* Saludo */}
-          <div className="text-center space-y-1.5">
-            <h1 className="font-display text-3xl sm:text-[2.4rem] leading-tight silver-text">{greeting} ☀</h1>
-            <p className="text-lg text-nina-mute">¿Qué construimos hoy?</p>
-          </div>
-
-          {/* Plantillas para empezar — slider que rota cada 5s */}
-          {featured.length > 0 && (
-            <section>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-[12px] uppercase tracking-wide text-nina-mute">Plantillas para empezar</h2>
-                <button onClick={() => navigate('/admin/plantillas')} className="text-[12px] text-nina-silver hover:text-nina-chrome transition">Ver todas</button>
-              </div>
-              <TemplateSlider templates={featured} onOpen={openTemplate} />
-            </section>
-          )}
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-5xl mx-auto px-4 pt-12 pb-10 sm:pt-14 space-y-8">
+        {/* Saludo */}
+        <div className="text-center space-y-1.5">
+          <h1 className="font-display text-3xl sm:text-[2.4rem] leading-tight silver-text">{greeting} ☀</h1>
+          <p className="text-lg text-nina-mute">¿Qué construimos hoy?</p>
         </div>
-      </div>
 
-      {/* Composer del CEO — abajo, contenido (no tan amplio) */}
-      {ceo && (
-        <div className="shrink-0 px-4 py-4">
+        {/* Chat del CEO — ARRIBA, debajo del saludo */}
+        {ceo && (
           <div className="max-w-3xl mx-auto">
             <ChatComposer
               agent={ceo}
@@ -431,8 +383,23 @@ function AgentsDashboard({ agents }) {
               bare
             />
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Plantillas para empezar — grilla de 3 columnas, ABAJO */}
+        {featured.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-[12px] uppercase tracking-wide text-nina-mute">Plantillas para empezar</h2>
+              <button onClick={() => navigate('/admin/plantillas')} className="text-[12px] text-nina-silver hover:text-nina-chrome transition">Ver todas</button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {featured.map((t) => (
+                <FeaturedTemplate key={t.id} t={t} onOpen={() => openTemplate(t)} />
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
     </div>
   )
 }
