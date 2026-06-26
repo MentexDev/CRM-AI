@@ -65,6 +65,7 @@ import { useAgentDetail } from '../../hooks/useAgentDetail'
 import { useAgentMessages } from '../../hooks/useAgentMessages'
 import { useAgentTasks } from '../../hooks/useAgentTasks'
 import { useConversations } from '../../hooks/useConversations'
+import { useCodeTemplates } from '../../hooks/useCodeTemplates'
 import { ConversationMenu } from '../../components/ConversationMenu'
 import { TasksBoard } from './Tasks'
 import DocumentEditor from '../../components/DocumentEditor'
@@ -88,7 +89,8 @@ import ArtifactResultCard from '../../components/artifacts/ArtifactResultCard'
 import ArtifactProgressCard from '../../components/artifacts/ArtifactProgressCard'
 import ImageLightbox from '../../components/artifacts/ImageLightbox'
 import PublishModuleModal from '../../components/PublishModuleModal'
-import { artifactToFile } from '../../lib/artifactKinds'
+import { artifactToFile, coverBg, kindMeta } from '../../lib/artifactKinds'
+import { TemplateBody } from '../../components/artifacts/TemplateRenderer'
 import Markdown from '../../components/Markdown'
 import VoiceOverlay from '../../components/VoiceOverlay'
 import { supabase } from '../../lib/supabase'
@@ -302,11 +304,7 @@ export default function Agents() {
             onNewTask={() => setTaskOpen(true)}
           />
         ) : (
-          <AgentsDashboard
-            agents={agents}
-            isJunta={isJunta}
-            onNewAgent={() => setAgentModal({ open: true, agentId: null })}
-          />
+          <AgentsDashboard agents={agents} />
         )}
       </div>
 
@@ -320,266 +318,114 @@ export default function Agents() {
 }
 
 const ROLE_LABEL = { ceo_global: 'CEO Global', brand_manager: 'Brand Manager', specialist: 'Especialista' }
-// Respaldo si la tabla `automations` aún no existe (migración 20260625 sin aplicar): el cron del reporte diario.
-const FALLBACK_AUTOMATIONS = [
-  { id: 'fb-daily-sales', name: 'Reporte de ventas diario', schedule_human: 'Todos los días · 7:00 a.m. (Colombia)', _agentName: 'Inventarista CRM' },
-]
-
-// Slider del "Resumen del equipo" — rota las métricas cada 5s (compacto, para la columna angosta).
-function MetricsSlider({ metrics }) {
-  const [idx, setIdx] = useState(0)
-  useEffect(() => {
-    if (!metrics || metrics.length < 2) return
-    const t = setInterval(() => setIdx((i) => (i + 1) % metrics.length), 5000)
-    return () => clearInterval(t)
-  }, [metrics?.length])
-  const m = (metrics && (metrics[idx] || metrics[0])) || null
-  if (!m) return null
+// Tarjeta de plantilla destacada en el home (estilo NeuralOS): preview + título. Clic → abre en Code.
+function FeaturedTemplate({ t, onOpen }) {
+  const m = kindMeta(t.kind)
+  const Icon = m.Icon
   return (
-    <div className="rounded-2xl border border-nina-line bg-nina-panel/40 px-4 py-3">
-      <div className="h-9 overflow-hidden">
-        <AnimatePresence mode="wait">
-          <motion.div key={m.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.3 }} className="flex items-baseline gap-2">
-            <span className={`text-2xl font-semibold ${m.accent || 'text-nina-chrome'}`}>{m.pending ? '·' : m.value}</span>
-            <span className="text-[12.5px] text-nina-mute">{m.label}</span>
-          </motion.div>
-        </AnimatePresence>
+    <button onClick={onOpen} className="rounded-2xl border border-nina-line bg-nina-panel/40 overflow-hidden text-left group hover:border-nina-silver/40 transition">
+      <div className="aspect-[16/9] relative overflow-hidden bg-nina-ink/40 border-b border-nina-line/40">
+        <span className={`absolute top-2 left-2 z-20 chip !px-2 !py-0.5 text-[10px] bg-nina-ink/80 border-nina-line ${m.color}`}>{m.label}</span>
+        {t.cover_url ? (
+          <div className="absolute inset-0" style={{ background: coverBg(t.cover_url) }} />
+        ) : (
+          <div className="absolute inset-0 overflow-hidden pointer-events-none" style={{ maskImage: 'linear-gradient(to bottom, black 60%, transparent)', WebkitMaskImage: 'linear-gradient(to bottom, black 60%, transparent)' }}>
+            <div className="absolute top-0 left-0 origin-top-left scale-[0.55] w-[182%] p-3 pt-9"><TemplateBody t={t} mini /></div>
+          </div>
+        )}
       </div>
-      {metrics.length > 1 && (
-        <div className="flex items-center gap-1 mt-1.5">
-          {metrics.map((mm, i) => (
-            <button key={mm.label} onClick={() => setIdx(i)} title={mm.label} aria-label={mm.label} className={`h-1 rounded-full transition-all ${i === idx ? 'w-4 bg-nina-silver' : 'w-1.5 bg-nina-line hover:bg-nina-mute'}`} />
-          ))}
-        </div>
-      )}
-    </div>
+      <div className="p-3">
+        <div className="text-[13px] text-nina-chrome font-medium truncate flex items-center gap-1.5"><Icon className={`w-3.5 h-3.5 shrink-0 ${m.color}`} />{t.title}</div>
+        <div className="text-[11px] text-nina-mute truncate mt-0.5">{t.description || t.category || 'Plantilla de trabajo · Code'}</div>
+      </div>
+    </button>
   )
 }
 
 // =====================================================================
-// Dashboard de la sección Agentes — home/overview del equipo de IA.
-// Se muestra al entrar a /agentes (sin agente seleccionado): métricas,
-// grid de agentes (clic → abre), tareas pendientes, actividad y aprobaciones.
+// Inicio de la sección Agentes — home estilo NeuralOS (centrado): saludo,
+// plantillas destacadas, conversaciones recientes y el composer del CEO.
 // =====================================================================
-function AgentsDashboard({ agents, isJunta, onNewAgent }) {
+function AgentsDashboard({ agents }) {
   const navigate = useNavigate()
-  const [tasks, setTasks] = useState([])
-  const [approvals, setApprovals] = useState([])
-  const [loadingExtra, setLoadingExtra] = useState(true)
-  const [automations, setAutomations] = useState(null)
   const { conversations } = useConversations({})
+  const { templates } = useCodeTemplates()
 
-  // Carga tareas activas + aprobaciones pendientes de TODO el equipo. Con realtime (igual que
-  // useConversations) para que las métricas/listas no queden obsoletas si algo cambia con el panel abierto.
-  useEffect(() => {
-    let alive = true
-    const load = async () => {
-      try {
-        const [tRes, aRes, autoRes] = await Promise.all([
-          supabase.from('tasks').select('id, title, status, priority, due_at, agent_id').in('status', ['to_do', 'in_progress', 'blocked']).order('priority', { ascending: true }).order('created_at', { ascending: false }).limit(200),
-          supabase.from('approvals').select('*').eq('status', 'pending').order('created_at', { ascending: false }).limit(20),
-          supabase.from('automations').select('id, name, description, schedule_human, agent_id').eq('active', true).order('created_at', { ascending: true }),
-        ])
-        if (!alive) return
-        if (tRes.error) console.error('[CRM-AI] dashboard tasks error:', tRes.error)
-        if (aRes.error) console.error('[CRM-AI] dashboard approvals error:', aRes.error)
-        setTasks(tRes.data ?? [])
-        setApprovals(aRes.data ?? [])
-        // Si la tabla `automations` aún no existe (migración sin aplicar) → respaldo con el cron conocido.
-        setAutomations(autoRes.error ? FALLBACK_AUTOMATIONS : (autoRes.data ?? []))
-      } catch (e) {
-        if (alive) console.error('[CRM-AI] dashboard load error:', e)
-      } finally {
-        if (alive) setLoadingExtra(false)
-      }
-    }
-    load()
-    const ch = supabase
-      .channel(`agents-dashboard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'approvals' }, load)
-      .subscribe()
-    return () => { alive = false; try { supabase.removeChannel(ch) } catch { /* */ } }
-  }, [])
-
-  const agentsById = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a])), [agents])
-  const tasksByAgent = useMemo(() => {
-    const m = {}
-    for (const t of tasks) m[t.agent_id] = (m[t.agent_id] || 0) + 1
-    return m
-  }, [tasks])
-  const sorted = useMemo(
-    () => [...agents].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (a.sort_order ?? 999) - (b.sort_order ?? 999) || (a.name || '').localeCompare(b.name || '')),
-    [agents],
-  )
   // Agente principal (CEO Global) → su chat es el composer central del home.
   const ceo = useMemo(() => agents.find((a) => a.role === 'ceo_global') || agents[0] || null, [agents])
-  const CeoIcon = agentIcon(ceo)
-  const activos = agents.filter((a) => a.status === 'running').length
-  const pausados = agents.filter((a) => a.status === 'disabled').length
-  const metrics = [
-    { label: 'Agentes', value: agents.length, hint: pausados ? `${pausados} en pausa` : 'todos activos' },
-    { label: 'Trabajando', value: activos, accent: 'text-emerald-300' },
-    { label: 'Tareas activas', value: tasks.length, accent: tasks.length ? 'text-amber-300' : undefined, pending: loadingExtra },
-    { label: 'Aprobaciones', value: approvals.length, accent: approvals.length ? 'text-amber-300' : undefined, pending: loadingExtra },
-  ]
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches'
+  const featured = templates.slice(0, 4)
+
+  // Clic en una plantilla destacada → la abre en Code (su pestaña), o la galería si no tiene origen.
+  const openTemplate = (t) =>
+    navigate(
+      t.source_conversation_id && t.source_artifact_key
+        ? `/admin/agentes/code?c=${t.source_conversation_id}&tab=${encodeURIComponent(t.source_artifact_key)}`
+        : '/admin/plantillas',
+    )
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-6xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
-
-        {/* Dos columnas: chat del CEO (principal) · equipo + tareas (derecha) */}
-        <div className="flex flex-col lg:flex-row gap-6">
-          {/* Principal: chat del CEO Global + actividad reciente */}
-          <div className="flex-1 min-w-0 space-y-6">
-            {ceo && (
-              <section>
-                <div className="flex items-center gap-2.5 mb-3">
-                  <span className="w-9 h-9 rounded-xl grid place-items-center bg-silver-gradient text-nina-black shrink-0">
-                    <CeoIcon className="w-5 h-5" />
-                  </span>
-                  <div className="min-w-0">
-                    <div className="text-[14px] font-semibold text-nina-chrome truncate">{ceo.name}</div>
-                    <div className="text-[11.5px] text-nina-mute truncate">{ROLE_LABEL[ceo.role] || ceo.specialty || 'Agente principal'} · escríbele para arrancar</div>
-                  </div>
-                </div>
-                <ChatComposer
-                  agent={ceo}
-                  conversationId={null}
-                  onConversationCreated={(convId) => navigate(`/admin/agentes/${ceo.slug}?c=${convId}`)}
-                  bare
-                />
-              </section>
-            )}
-
-            {/* Actividad reciente — debajo del chat */}
-            <section>
-              <h2 className="text-[12px] uppercase tracking-wide text-nina-mute mb-3 flex items-center gap-2"><MessageSquare className="w-4 h-4" /> Actividad reciente</h2>
-              <div className="rounded-2xl border border-nina-line bg-nina-panel/40 divide-y divide-nina-line/40 overflow-hidden">
-                {conversations.length === 0 ? (
-                  <div className="px-4 py-6 text-center text-[12.5px] text-nina-mute">Sin conversaciones aún</div>
-                ) : (
-                  conversations.slice(0, 6).map((c) => (
-                    <button key={c.id} onClick={() => c.agents?.slug && navigate(`/admin/agentes/${c.agents.slug}?c=${c.id}`)} className="w-full text-left px-4 py-2.5 hover:bg-nina-line/20 transition flex items-center gap-3">
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] text-nina-chrome truncate">{c.title || 'Conversación'}</span>
-                        <span className="block text-[11px] text-nina-mute truncate">{c.agents?.name || ''}{c.message_count ? ` · ${c.message_count} msj` : ''}</span>
-                      </span>
-                      <span className="text-[11px] text-nina-mute/70 shrink-0">{fmtTime(c.last_message_at)}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            </section>
+    <div className="h-full flex flex-col">
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-4 pt-12 pb-8 sm:pt-16 space-y-9">
+          {/* Saludo */}
+          <div className="text-center space-y-1.5">
+            <h1 className="font-display text-3xl sm:text-[2.4rem] leading-tight silver-text">{greeting} ☀</h1>
+            <p className="text-lg text-nina-mute">¿Qué construimos hoy?</p>
           </div>
 
-          {/* Derecha: Equipo (lista) + tareas pendientes + aprobaciones */}
-          <aside className="lg:w-80 shrink-0 space-y-6 lg:mt-6">
+          {/* Plantillas para empezar (destacadas) */}
+          {featured.length > 0 && (
             <section>
-              <h2 className="text-[12px] uppercase tracking-wide text-nina-mute mb-2">Resumen del equipo</h2>
-              <MetricsSlider metrics={metrics} />
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-[12px] uppercase tracking-wide text-nina-mute">Plantillas para empezar</h2>
+                <button onClick={() => navigate('/admin/plantillas')} className="text-[12px] text-nina-silver hover:text-nina-chrome transition">Ver todas</button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {featured.map((t) => (
+                  <FeaturedTemplate key={t.id} t={t} onOpen={() => openTemplate(t)} />
+                ))}
+              </div>
             </section>
-            <section>
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-[12px] uppercase tracking-wide text-nina-mute">Equipo ({agents.length})</h2>
-                {isJunta && (
-                  <button onClick={onNewAgent} title="Crear agente" className="w-6 h-6 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 transition">
-                    <UserPlus className="w-4 h-4" />
+          )}
+
+          {/* Conversaciones recientes */}
+          <section>
+            <h2 className="text-[12px] uppercase tracking-wide text-nina-mute mb-3">Conversaciones recientes</h2>
+            <div className="rounded-2xl border border-nina-line bg-nina-panel/40 divide-y divide-nina-line/40 overflow-hidden">
+              {conversations.length === 0 ? (
+                <div className="px-4 py-6 text-center text-[12.5px] text-nina-mute">Sin conversaciones aún</div>
+              ) : (
+                conversations.slice(0, 5).map((c) => (
+                  <button key={c.id} onClick={() => c.agents?.slug && navigate(`/admin/agentes/${c.agents.slug}?c=${c.id}`)} className="w-full text-left px-4 py-2.5 hover:bg-nina-line/20 transition flex items-center gap-3">
+                    <MessageSquare className="w-4 h-4 text-nina-mute/60 shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] text-nina-chrome truncate">{c.title || 'Conversación'}</span>
+                      <span className="block text-[11px] text-nina-mute truncate">{c.agents?.name || ''}{c.message_count ? ` · ${c.message_count} msj` : ''}</span>
+                    </span>
+                    <span className="text-[11px] text-nina-mute/70 shrink-0">{fmtTime(c.last_message_at)}</span>
                   </button>
-                )}
-              </div>
-              <div className="rounded-2xl border border-nina-line bg-nina-panel/40 p-1.5 space-y-0.5">
-                {sorted.map((a) => {
-                  const Icon = agentIcon(a)
-                  const dot = STATUS_DOT[a.status] ?? STATUS_DOT.idle
-                  const nTasks = tasksByAgent[a.id] || 0
-                  return (
-                    <button key={a.id} onClick={() => navigate(`/admin/agentes/${a.slug}`)} className="group w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-nina-line/40 transition text-left">
-                      <span className="relative w-8 h-8 rounded-lg grid place-items-center bg-silver-gradient text-nina-black shrink-0">
-                        <Icon className="w-4 h-4" />
-                        <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-nina-panel ${dot}`} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] text-nina-chrome truncate">{a.name}</span>
-                        <span className="block text-[11px] text-nina-mute truncate">{STATUS_LABEL[a.status] ?? a.status}{nTasks ? ` · ${nTasks} tarea${nTasks === 1 ? '' : 's'}` : ''}</span>
-                      </span>
-                      <ChevronRight className="w-4 h-4 text-nina-mute/40 group-hover:text-nina-chrome transition shrink-0" />
-                    </button>
-                  )
-                })}
-              </div>
-            </section>
-
-            <section>
-              <h2 className="text-[12px] uppercase tracking-wide text-nina-mute mb-2 flex items-center gap-2"><ListTodo className="w-4 h-4" /> Tareas pendientes</h2>
-              <div className="rounded-2xl border border-nina-line bg-nina-panel/40 divide-y divide-nina-line/40 overflow-hidden">
-                {loadingExtra ? (
-                  <div className="px-4 py-5 grid place-items-center"><Loader2 className="w-4 h-4 animate-spin text-nina-mute" /></div>
-                ) : tasks.length === 0 ? (
-                  <div className="px-4 py-5 text-center text-[12px] text-nina-mute">Sin tareas pendientes 🎉</div>
-                ) : (
-                  tasks.slice(0, 6).map((t) => {
-                    const ag = agentsById[t.agent_id]
-                    return (
-                      <button key={t.id} onClick={() => ag && navigate(`/admin/agentes/${ag.slug}`)} className="w-full text-left px-3 py-2 hover:bg-nina-line/20 transition flex items-center gap-2.5">
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.status === 'blocked' ? 'bg-red-400' : 'bg-amber-400'}`} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[12.5px] text-nina-chrome truncate">{t.title}</span>
-                          <span className="block text-[10.5px] text-nina-mute truncate">{ag?.name || 'Sin agente'}</span>
-                        </span>
-                      </button>
-                    )
-                  })
-                )}
-              </div>
-            </section>
-
-            {approvals.length > 0 && (
-              <section>
-                <h2 className="text-[12px] uppercase tracking-wide text-amber-300 mb-2 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Aprobaciones ({approvals.length})</h2>
-                <div className="rounded-2xl border border-amber-400/30 bg-amber-500/5 divide-y divide-nina-line/40 overflow-hidden">
-                  {approvals.slice(0, 5).map((ap) => {
-                    const ag = agentsById[ap.agent_id]
-                    const desc = ap.summary || ap.title || ap.kind || ap.tool_name || 'Acción pendiente'
-                    return (
-                      <button key={ap.id} onClick={() => navigate('/admin/aprobaciones')} className="w-full text-left px-3 py-2 hover:bg-amber-500/10 transition flex items-center gap-2.5">
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[12.5px] text-nina-chrome truncate">{desc}</span>
-                          <span className="block text-[10.5px] text-nina-mute truncate">{ag?.name || ''}</span>
-                        </span>
-                        <ChevronRight className="w-4 h-4 text-nina-mute/40 shrink-0" />
-                      </button>
-                    )
-                  })}
-                </div>
-              </section>
-            )}
-
-            {/* Automatizaciones — crons / tareas programadas (para estar al tanto de lo que corre solo) */}
-            {automations && automations.length > 0 && (
-              <section>
-                <h2 className="text-[12px] uppercase tracking-wide text-nina-mute mb-2 flex items-center gap-2"><Sparkles className="w-4 h-4" /> Automatizaciones</h2>
-                <div className="rounded-2xl border border-nina-line bg-nina-panel/40 divide-y divide-nina-line/40 overflow-hidden">
-                  {automations.map((au) => {
-                    const ag = au.agent_id ? agentsById[au.agent_id] : null
-                    const agentName = ag?.name || au._agentName || ''
-                    return (
-                      <button key={au.id} onClick={() => ag && navigate(`/admin/agentes/${ag.slug}`)} className="w-full text-left px-3 py-2 hover:bg-nina-line/20 transition flex items-start gap-2.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 mt-1.5" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[12.5px] text-nina-chrome truncate">{au.name}</span>
-                          <span className="block text-[10.5px] text-nina-mute truncate">{au.schedule_human || ''}{agentName ? ` · ${agentName}` : ''}</span>
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </section>
-            )}
-          </aside>
+                ))
+              )}
+            </div>
+          </section>
         </div>
-
       </div>
+
+      {/* Composer del CEO — abajo, contenido (no tan amplio) */}
+      {ceo && (
+        <div className="shrink-0 border-t border-nina-line/40 bg-nina-ink/20 px-4 py-4">
+          <div className="max-w-3xl mx-auto">
+            <ChatComposer
+              agent={ceo}
+              conversationId={null}
+              onConversationCreated={(convId) => navigate(`/admin/agentes/${ceo.slug}?c=${convId}`)}
+              bare
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
