@@ -344,29 +344,30 @@ function FeaturedTemplate({ t, onOpen }) {
 
 // Slider de plantillas destacadas — muestra 2 a la vez y rota automáticamente cada 5s (estilo NeuralOS).
 function TemplateSlider({ templates, onOpen }) {
-  const pages = []
-  for (let i = 0; i < templates.length; i += 2) pages.push(templates.slice(i, i + 2))
-  const [page, setPage] = useState(0)
+  const n = templates.length
+  const [start, setStart] = useState(0)
+  // Ventana deslizante: SIEMPRE muestra 2 (con wrap circular), avanza de a 1 cada 5s. Con número impar
+  // la última vista repite la 1ª (preferible a dejar una tarjeta sola). Un dot por posición de inicio.
   useEffect(() => {
-    if (pages.length < 2) return
-    const t = setInterval(() => setPage((p) => (p + 1) % pages.length), 5000)
+    if (n <= 2) return
+    const t = setInterval(() => setStart((s) => (s + 1) % n), 5000)
     return () => clearInterval(t)
-  }, [pages.length])
-  if (!pages.length) return null
-  const current = pages[page] || pages[0]
+  }, [n])
+  if (!n) return null
+  const visible = n <= 2 ? templates : [templates[start], templates[(start + 1) % n]]
   return (
     <div>
       <AnimatePresence mode="wait">
-        <motion.div key={page} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="grid grid-cols-2 gap-3">
-          {current.map((t) => (
-            <FeaturedTemplate key={t.id} t={t} onOpen={() => onOpen(t)} />
+        <motion.div key={start} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="grid grid-cols-2 gap-3">
+          {visible.map((t, i) => (
+            <FeaturedTemplate key={`${t.id}-${i}`} t={t} onOpen={() => onOpen(t)} />
           ))}
         </motion.div>
       </AnimatePresence>
-      {pages.length > 1 && (
+      {n > 2 && (
         <div className="flex items-center justify-center gap-1.5 mt-3">
-          {pages.map((_, i) => (
-            <button key={i} onClick={() => setPage(i)} aria-label={`Página ${i + 1}`} className={`h-1.5 rounded-full transition-all ${i === page ? 'w-5 bg-nina-silver' : 'w-1.5 bg-nina-line hover:bg-nina-mute'}`} />
+          {templates.map((_, i) => (
+            <button key={i} onClick={() => setStart(i)} aria-label={`Plantilla ${i + 1}`} className={`h-1.5 rounded-full transition-all ${i === start ? 'w-5 bg-nina-silver' : 'w-1.5 bg-nina-line hover:bg-nina-mute'}`} />
           ))}
         </div>
       )}
@@ -421,7 +422,7 @@ function AgentsDashboard({ agents }) {
 
       {/* Composer del CEO — abajo, contenido (no tan amplio) */}
       {ceo && (
-        <div className="shrink-0 border-t border-nina-line/40 bg-nina-ink/20 px-4 py-4">
+        <div className="shrink-0 px-4 py-4">
           <div className="max-w-3xl mx-auto">
             <ChatComposer
               agent={ceo}
