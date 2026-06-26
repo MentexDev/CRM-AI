@@ -14,7 +14,7 @@ export function useModulosPublicados() {
     const load = async () => {
       const { data, error } = await supabase
         .from('published_modules')
-        .select('id, title, kind, data, source_conversation_id, source_artifact_key, agent_id, created_at')
+        .select('id, title, kind, data, sections, source_conversation_id, source_artifact_key, agent_id, created_at')
         .order('created_at', { ascending: false })
       if (!active) return
       if (error) console.error('[CRM-AI] published_modules fetch:', error)

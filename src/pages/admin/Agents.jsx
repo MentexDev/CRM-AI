@@ -1667,7 +1667,8 @@ function MessagesTab({ agent, conversationId, conversation, onConversationCreate
       <PublishModuleModal
         open={Boolean(publishArtifact)}
         onClose={() => setPublishArtifact(null)}
-        artifact={publishArtifact}
+        tabs={openTabs}
+        activeKey={activeArtifact?.key}
         conversationId={conversationId}
         agentId={agent?.id}
       />

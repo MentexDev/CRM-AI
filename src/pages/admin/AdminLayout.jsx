@@ -44,6 +44,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useAgents } from '../../hooks/useAgents'
 import { useModulosPublicados } from '../../hooks/useModulosPublicados'
 import { kindMeta } from '../../lib/artifactKinds'
+import { moduleSections } from '../../lib/publishedModules'
 import { useConversations } from '../../hooks/useConversations'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase'
 import { useConnectionStatus } from '../../lib/useConnectionStatus'
@@ -493,6 +494,47 @@ function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
   )
 }
 
+// Menú de SECCIONES del módulo publicado actual (cuando estás en /admin/modulos/:id). Ocupa el lugar
+// del sub-nav vertical; cada item navega a ?section=<índice> y se resalta la sección activa.
+function ModuleSectionsNav({ moduleId, sections, collapsed, onSelect }) {
+  const navigate = useNavigate()
+  const [sp] = useSearchParams()
+  const active = Math.max(0, parseInt(sp.get('section') ?? '0', 10) || 0)
+  if (!sections?.length) return null
+  const go = (i) => {
+    navigate(`/admin/modulos/${moduleId}?section=${i}`)
+    onSelect?.()
+  }
+  return (
+    <nav className={`shrink-0 ${collapsed ? 'px-2' : 'px-2.5'} py-3 space-y-0.5`}>
+      {!collapsed && <div className="px-3 pb-1.5 text-[10px] uppercase tracking-[0.18em] text-nina-mute">Secciones</div>}
+      {sections.map((s, i) => {
+        const m = kindMeta(s.kind)
+        const Icon = m.Icon
+        const on = i === active
+        const btn = (
+          <button
+            onClick={() => go(i)}
+            aria-label={s.title}
+            className={`relative w-full flex items-center ${collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'} rounded-xl text-sm font-medium transition ${on ? 'text-nina-black' : 'text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'}`}
+          >
+            {on && <span className="absolute inset-0 rounded-xl bg-silver-gradient shadow-chrome" />}
+            <span className={`relative flex items-center min-w-0 ${collapsed ? 'justify-center' : 'gap-3'}`}>
+              <Icon className="w-4 h-4 shrink-0" />
+              {!collapsed && <span className="truncate">{s.title}</span>}
+            </span>
+          </button>
+        )
+        return collapsed ? (
+          <SidebarTip key={s.id || i} label={s.title}>{btn}</SidebarTip>
+        ) : (
+          <div key={s.id || i}>{btn}</div>
+        )
+      })}
+    </nav>
+  )
+}
+
 // Switcher de secciones de alto nivel. EXPANDIDO = carrusel de 3 (anterior · seleccionado · siguiente);
 // COLAPSADO = columna de íconos. El botón de módulos publicados va a la izquierda en ambos.
 function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule }) {
@@ -793,6 +835,10 @@ export default function AdminLayout() {
   // F5: la entrada "Salud" del nav es solo para la Junta (un no-junta vería el panel vacío).
   const navItems = (WORKSPACE_NAV[workspace] ?? []).filter((it) => it.to !== '/admin/salud' || isJunta)
   const { modules: publishedModules, removeModule } = useModulosPublicados()
+  // Si estás viendo un módulo publicado, el sub-nav muestra SUS secciones (menú en el sidebar).
+  const moduleId = location.pathname.match(/^\/admin\/modulos\/([^/?]+)/)?.[1] || null
+  const currentModule = moduleId ? publishedModules.find((m) => m.id === moduleId) : null
+  const moduleSecs = currentModule ? moduleSections(currentModule) : []
   // El chat marca ?canvas=1 cuando abre el split-view → ocultamos el sidebar
   // para darle todo el espacio al canvas.
   const [searchParams] = useSearchParams()
@@ -823,7 +869,11 @@ export default function AdminLayout() {
         {/* Scroll desde JUSTO debajo del menú horizontal: el nav vertical + agentes + conversaciones
             scrollean juntos (antes el nav quedaba fijo y sólo scrolleaban los agentes). */}
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <NavItems items={navItems} collapsed={collapsed} />
+          {moduleSecs.length > 1 ? (
+            <ModuleSectionsNav moduleId={moduleId} sections={moduleSecs} collapsed={collapsed} />
+          ) : (
+            <NavItems items={navItems} collapsed={collapsed} />
+          )}
           {workspace === 'agentes' && !collapsed && (
             <div className="border-t border-nina-line/60 mt-1">
               <AgentsNav onNavigate={(to) => navigate(to)} isJunta={isJunta} />
@@ -865,7 +915,11 @@ export default function AdminLayout() {
               </div>
               <SectionSwitcher collapsed={false} active={workspace} onSelect={() => setDrawerOpen(false)} modules={publishedModules} removeModule={removeModule} />
               <div className="flex-1 min-h-0 overflow-y-auto">
-                <NavItems items={navItems} collapsed={false} onSelect={() => setDrawerOpen(false)} />
+                {moduleSecs.length > 1 ? (
+                  <ModuleSectionsNav moduleId={moduleId} sections={moduleSecs} collapsed={false} onSelect={() => setDrawerOpen(false)} />
+                ) : (
+                  <NavItems items={navItems} collapsed={false} onSelect={() => setDrawerOpen(false)} />
+                )}
                 {workspace === 'agentes' && (
                   <div className="border-t border-nina-line/60 mt-1">
                     <AgentsNav
