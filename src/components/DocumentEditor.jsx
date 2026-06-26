@@ -152,8 +152,10 @@ export default function DocumentEditor({ title: initialTitle, markdown, cover: i
   // para que cambiar de pestaña / cerrar el browser NO pierda lo escrito.
   const titleRef = useRef(initialTitle || 'Sin título')
   const fireTimer = useRef(null)
+  const dirtyRef = useRef(false)
   const fireChangeRef = useRef(() => {})
   const scheduleFire = () => {
+    dirtyRef.current = true
     clearTimeout(fireTimer.current)
     fireTimer.current = setTimeout(() => fireChangeRef.current(), 400)
   }
@@ -243,7 +245,7 @@ export default function DocumentEditor({ title: initialTitle, markdown, cover: i
   }
   // Al desmontar (cambio de pestaña / cierre del browser) volcamos el contenido YA, para no
   // perder los últimos cambios dentro de la ventana del debounce.
-  useEffect(() => () => { clearTimeout(fireTimer.current); fireChangeRef.current() }, [])
+  useEffect(() => () => { clearTimeout(fireTimer.current); if (dirtyRef.current) fireChangeRef.current() }, [])
 
   useEffect(() => {
     if (editor) setWordCount(editor.state.doc.textContent.trim().split(/\s+/).filter(Boolean).length)

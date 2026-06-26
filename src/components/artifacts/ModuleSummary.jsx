@@ -6,8 +6,14 @@ import { BarChart3 } from 'lucide-react'
 
 const colName = (c) => (typeof c === 'string' || typeof c === 'number' ? String(c) : c?.name ?? '')
 const colType = (c) => (typeof c === 'object' && c ? c.type || 'text' : 'text')
+// Mismo criterio que SheetView (formato COP: "." de miles, "," decimal) → los totales del Resumen
+// coinciden con los que muestra la propia hoja. Devuelve 0 si la celda no es un número.
 const parseNum = (v) => {
-  const n = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, ''))
+  const s = String(v ?? '').trim()
+  if (!s) return 0
+  const cleaned = s.replace(/[$\s%]/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(/,/g, '.')
+  if (!/^-?\d*\.?\d+$/.test(cleaned)) return 0
+  const n = Number(cleaned)
   return Number.isFinite(n) ? n : 0
 }
 const fmtNum = (n) => n.toLocaleString('es-CO', { maximumFractionDigits: 2 })

@@ -4,7 +4,7 @@
 // todo el equipo. La sección "Resumen" se calcula sola (ModuleSummary) a partir de las hojas.
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import { Loader2, LayoutTemplate, Check, RefreshCw } from 'lucide-react'
+import { Loader2, LayoutTemplate, Check, RefreshCw, AlertTriangle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { moduleSections } from '../../lib/publishedModules'
 import EmptyState from '../../components/EmptyState'
@@ -14,8 +14,10 @@ import BoardView from '../../components/BoardView'
 import SlideDeck from '../../components/SlideDeck'
 import ModuleSummary from '../../components/artifacts/ModuleSummary'
 
+// La sección Resumen se marca EXPLÍCITAMENTE con kind 'summary' (no por título) → no secuestra un
+// documento titulado "Resumen…".
 export function isSummarySection(section) {
-  return section?.kind === 'summary' || /^resumen/i.test(String(section?.title || ''))
+  return section?.kind === 'summary'
 }
 
 function SectionViewer({ section, sections, onChange }) {
@@ -35,9 +37,9 @@ export default function PublishedModule() {
   const [loading, setLoading] = useState(true)
   const [saveState, setSaveState] = useState('idle') // idle | saving | saved
   const sectionsRef = useRef([])
+  const pendingRef = useRef(new Map()) // idx -> data pendiente de guardar (por sección)
   const timerRef = useRef(null)
   const hideTimerRef = useRef(null)
-  const dirtyRef = useRef(false)
   const idRef = useRef(id)
   idRef.current = id
 
@@ -59,27 +61,27 @@ export default function PublishedModule() {
     }
   }, [id])
 
-  // Guarda los datos actuales del módulo (fire-and-forget). Se usa con debounce y al salir.
+  // Guarda SÓLO las secciones editadas, cada una con la RPC update_module_section_data (toca su `data`,
+  // no la autoría ni las otras secciones). Verifica que la RPC devolvió el id (si no, fue 0 filas/sin
+  // permiso → muestra error en vez de un "Guardado" falso). Fire-and-forget con debounce.
   const flush = () => {
-    if (!dirtyRef.current) return
-    dirtyRef.current = false
+    const pend = pendingRef.current
+    if (pend.size === 0) return
+    const entries = [...pend.entries()]
+    pendingRef.current = new Map()
     const mid = idRef.current
     setSaveState('saving')
-    supabase
-      .from('published_modules')
-      .update({ sections: sectionsRef.current })
-      .eq('id', mid)
-      .then(({ error }) => {
-        if (error) {
-          console.error('[CRM-AI] module autosave:', error)
-          setSaveState('idle')
-        } else {
-          setSaveState('saved')
-          // El "Guardado" se oculta solo tras un momento (no se queda flotando).
-          clearTimeout(hideTimerRef.current)
-          hideTimerRef.current = setTimeout(() => setSaveState('idle'), 1800)
-        }
-      })
+    Promise.all(entries.map(([i, data]) => supabase.rpc('update_module_section_data', { p_id: mid, p_index: i, p_data: data }))).then((results) => {
+      const failed = results.find((r) => r.error || !r.data)
+      if (failed) {
+        console.error('[CRM-AI] module autosave:', failed.error || 'no se afectó ninguna fila')
+        setSaveState('error')
+      } else {
+        setSaveState('saved')
+        clearTimeout(hideTimerRef.current)
+        hideTimerRef.current = setTimeout(() => setSaveState('idle'), 1800)
+      }
+    })
   }
 
   // Guardar lo pendiente al salir del módulo o cambiar de id.
@@ -115,7 +117,7 @@ export default function PublishedModule() {
 
   const onSectionChange = (payload) => {
     sectionsRef.current = sectionsRef.current.map((s, i) => (i === idx ? { ...s, data: payload } : s))
-    dirtyRef.current = true
+    pendingRef.current.set(idx, payload)
     setSaveState('saving')
     clearTimeout(timerRef.current)
     timerRef.current = setTimeout(flush, 800)
@@ -124,10 +126,14 @@ export default function PublishedModule() {
   return (
     <div className="relative h-full min-h-0 overflow-hidden">
       {editable && saveState !== 'idle' && (
-        <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-nina-panel/90 border border-nina-line text-[11px] text-nina-mute shadow backdrop-blur-sm">
+        <div className={`absolute bottom-3 right-3 z-20 flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] shadow backdrop-blur-sm ${saveState === 'error' ? 'bg-red-500/15 border-red-400/40 text-red-200' : 'bg-nina-panel/90 border-nina-line text-nina-mute'}`}>
           {saveState === 'saving' ? (
             <>
               <RefreshCw className="w-3 h-3 animate-spin" /> Guardando…
+            </>
+          ) : saveState === 'error' ? (
+            <>
+              <AlertTriangle className="w-3 h-3" /> No se pudo guardar
             </>
           ) : (
             <>
