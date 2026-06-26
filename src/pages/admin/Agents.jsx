@@ -342,20 +342,51 @@ function FeaturedTemplate({ t, onOpen }) {
   )
 }
 
+// Slider de plantillas destacadas — muestra 2 a la vez y rota automáticamente cada 5s (estilo NeuralOS).
+function TemplateSlider({ templates, onOpen }) {
+  const pages = []
+  for (let i = 0; i < templates.length; i += 2) pages.push(templates.slice(i, i + 2))
+  const [page, setPage] = useState(0)
+  useEffect(() => {
+    if (pages.length < 2) return
+    const t = setInterval(() => setPage((p) => (p + 1) % pages.length), 5000)
+    return () => clearInterval(t)
+  }, [pages.length])
+  if (!pages.length) return null
+  const current = pages[page] || pages[0]
+  return (
+    <div>
+      <AnimatePresence mode="wait">
+        <motion.div key={page} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="grid grid-cols-2 gap-3">
+          {current.map((t) => (
+            <FeaturedTemplate key={t.id} t={t} onOpen={() => onOpen(t)} />
+          ))}
+        </motion.div>
+      </AnimatePresence>
+      {pages.length > 1 && (
+        <div className="flex items-center justify-center gap-1.5 mt-3">
+          {pages.map((_, i) => (
+            <button key={i} onClick={() => setPage(i)} aria-label={`Página ${i + 1}`} className={`h-1.5 rounded-full transition-all ${i === page ? 'w-5 bg-nina-silver' : 'w-1.5 bg-nina-line hover:bg-nina-mute'}`} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // =====================================================================
 // Inicio de la sección Agentes — home estilo NeuralOS (centrado): saludo,
-// plantillas destacadas, conversaciones recientes y el composer del CEO.
+// plantillas destacadas (slider) y el composer del CEO.
 // =====================================================================
 function AgentsDashboard({ agents }) {
   const navigate = useNavigate()
-  const { conversations } = useConversations({})
   const { templates } = useCodeTemplates()
 
   // Agente principal (CEO Global) → su chat es el composer central del home.
   const ceo = useMemo(() => agents.find((a) => a.role === 'ceo_global') || agents[0] || null, [agents])
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches'
-  const featured = templates.slice(0, 4)
+  const featured = templates.slice(0, 6)
 
   // Clic en una plantilla destacada → la abre en Code (su pestaña), o la galería si no tiene origen.
   const openTemplate = (t) =>
@@ -375,41 +406,16 @@ function AgentsDashboard({ agents }) {
             <p className="text-lg text-nina-mute">¿Qué construimos hoy?</p>
           </div>
 
-          {/* Plantillas para empezar (destacadas) */}
+          {/* Plantillas para empezar — slider que rota cada 5s */}
           {featured.length > 0 && (
             <section>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-[12px] uppercase tracking-wide text-nina-mute">Plantillas para empezar</h2>
                 <button onClick={() => navigate('/admin/plantillas')} className="text-[12px] text-nina-silver hover:text-nina-chrome transition">Ver todas</button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                {featured.map((t) => (
-                  <FeaturedTemplate key={t.id} t={t} onOpen={() => openTemplate(t)} />
-                ))}
-              </div>
+              <TemplateSlider templates={featured} onOpen={openTemplate} />
             </section>
           )}
-
-          {/* Conversaciones recientes */}
-          <section>
-            <h2 className="text-[12px] uppercase tracking-wide text-nina-mute mb-3">Conversaciones recientes</h2>
-            <div className="rounded-2xl border border-nina-line bg-nina-panel/40 divide-y divide-nina-line/40 overflow-hidden">
-              {conversations.length === 0 ? (
-                <div className="px-4 py-6 text-center text-[12.5px] text-nina-mute">Sin conversaciones aún</div>
-              ) : (
-                conversations.slice(0, 5).map((c) => (
-                  <button key={c.id} onClick={() => c.agents?.slug && navigate(`/admin/agentes/${c.agents.slug}?c=${c.id}`)} className="w-full text-left px-4 py-2.5 hover:bg-nina-line/20 transition flex items-center gap-3">
-                    <MessageSquare className="w-4 h-4 text-nina-mute/60 shrink-0" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] text-nina-chrome truncate">{c.title || 'Conversación'}</span>
-                      <span className="block text-[11px] text-nina-mute truncate">{c.agents?.name || ''}{c.message_count ? ` · ${c.message_count} msj` : ''}</span>
-                    </span>
-                    <span className="text-[11px] text-nina-mute/70 shrink-0">{fmtTime(c.last_message_at)}</span>
-                  </button>
-                ))
-              )}
-            </div>
-          </section>
         </div>
       </div>
 
