@@ -45,6 +45,7 @@ import { useAgents } from '../../hooks/useAgents'
 import { useModulosPublicados } from '../../hooks/useModulosPublicados'
 import { kindMeta } from '../../lib/artifactKinds'
 import { moduleSections } from '../../lib/publishedModules'
+import { sectionIconComp } from '../../lib/sectionIcons'
 import { useConversations } from '../../hooks/useConversations'
 import { isSupabaseConfigured, supabase } from '../../lib/supabase'
 import { useConnectionStatus } from '../../lib/useConnectionStatus'
@@ -511,8 +512,7 @@ function ModuleSectionsNav({ moduleId, sections, collapsed, onSelect }) {
     <nav className={`shrink-0 ${collapsed ? 'px-2' : 'px-2.5'} py-3 space-y-0.5`}>
       {!collapsed && <div className="px-3 pb-1.5 text-[10px] uppercase tracking-[0.18em] text-nina-mute">Secciones</div>}
       {sections.map((s, i) => {
-        const m = kindMeta(s.kind)
-        const Icon = m.Icon
+        const Icon = sectionIconComp(s)
         const on = i === active
         const btn = (
           <button

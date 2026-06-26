@@ -1,30 +1,33 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Check, Loader2, Send } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, Loader2, Send } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../lib/supabase'
 import { kindMeta } from '../lib/artifactKinds'
+import { SECTION_ICONS, SECTION_ICON_KEYS, SECTION_ICON_LABEL, suggestIcon } from '../lib/sectionIcons'
 import Modal from './Modal'
 
-// Modal para PUBLICAR una plantilla del canvas como MÓDULO multi-sección. Eliges qué pestañas
-// (document/sheet/board/slides) entran como secciones; se guardan en public.published_modules.sections.
-// Re-publicar la misma conversación ACTUALIZA el mismo módulo (mismo id/URL) en vez de duplicar.
+// Modal para PUBLICAR una plantilla del canvas como MÓDULO multi-sección. Eliges qué pestañas entran,
+// en qué ORDEN (↑↓) y con qué ÍCONO; se guardan en public.published_modules.sections. Re-publicar la
+// misma conversación ACTUALIZA el mismo módulo (mismo id/URL) en vez de duplicar.
 const PUBLISHABLE = ['document', 'sheet', 'board', 'slides']
 
 export default function PublishModuleModal({ open, onClose, tabs, activeKey, conversationId, agentId }) {
   const navigate = useNavigate()
   const publishable = (tabs || []).filter((t) => PUBLISHABLE.includes(t.type))
   const [name, setName] = useState('')
-  const [selected, setSelected] = useState(() => new Set())
+  const [rows, setRows] = useState([]) // [{key, title, kind, included, icon}] en ORDEN
   const [saving, setSaving] = useState(false)
-  const [existing, setExisting] = useState(null) // { id, title } si esta conversación ya tiene módulo
+  const [existing, setExisting] = useState(null)
+  const [pickerFor, setPickerFor] = useState(null)
 
-  // Al abrir: marca todas las pestañas, propone nombre, y detecta si esta conversación ya está publicada
-  // (para ACTUALIZAR el mismo módulo en vez de crear otro).
+  // Al abrir: arma las filas (todas marcadas, ícono sugerido), propone nombre y detecta MI módulo de
+  // esta conversación (para actualizarlo en vez de crear otro).
   useEffect(() => {
     if (!open) return
     const pub = (tabs || []).filter((t) => PUBLISHABLE.includes(t.type))
-    setSelected(new Set(pub.map((t) => t.key)))
+    setRows(pub.map((t) => ({ key: t.key, title: t.title || kindMeta(t.type).label, kind: t.type, included: true, icon: suggestIcon(t.title, t.type) })))
+    setPickerFor(null)
     const active = pub.find((t) => t.key === activeKey)
     let alive = true
     ;(async () => {
@@ -32,7 +35,6 @@ export default function PublishModuleModal({ open, onClose, tabs, activeKey, con
       const {
         data: { user },
       } = await supabase.auth.getUser()
-      // Solo MI módulo de esta conversación → re-publicar nunca intenta sobrescribir el de otro usuario.
       if (conversationId && user) {
         const { data } = await supabase
           .from('published_modules')
@@ -56,32 +58,40 @@ export default function PublishModuleModal({ open, onClose, tabs, activeKey, con
 
   if (!open) return null
 
-  const toggle = (key) =>
-    setSelected((prev) => {
-      const n = new Set(prev)
-      if (n.has(key)) n.delete(key)
-      else n.add(key)
-      return n
+  const toggle = (key) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, included: !r.included } : r)))
+  const setIcon = (key, icon) => {
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, icon } : r)))
+    setPickerFor(null)
+  }
+  const move = (key, dir) =>
+    setRows((rs) => {
+      const i = rs.findIndex((r) => r.key === key)
+      const j = i + dir
+      if (i < 0 || j < 0 || j >= rs.length) return rs
+      const next = [...rs]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
     })
 
-  const chosen = publishable.filter((t) => selected.has(t.key))
+  const chosen = rows.filter((r) => r.included)
 
   const publish = async () => {
     const title = name.trim()
     if (!title || saving || chosen.length === 0) return
     setSaving(true)
     try {
-      // Cada pestaña elegida → una sección (sin los campos internos del canvas: type/key/messageId/title).
-      const sections = chosen.map((a, i) => {
-        const { type, key, messageId, title: _t, ...payload } = a
-        return { id: String(key || `s${i}`), title: a.title || kindMeta(type).label, kind: type, data: payload }
+      const byKey = Object.fromEntries(publishable.map((t) => [t.key, t]))
+      const sections = chosen.map((r, i) => {
+        const a = byKey[r.key] || {}
+        const { type, key, messageId, title: _t, ...data } = a
+        return { id: String(r.key || `s${i}`), title: r.title, kind: r.kind, icon: r.icon, data }
       })
       const {
         data: { user },
       } = await supabase.auth.getUser()
       const base = {
         title,
-        kind: sections[0].kind, // kind representativo (para el ícono del menú)
+        kind: sections[0].kind,
         sections,
         source_conversation_id: conversationId || null,
         source_artifact_key: chosen[0]?.key || null,
@@ -90,8 +100,6 @@ export default function PublishModuleModal({ open, onClose, tabs, activeKey, con
       let id = existing?.id
       let updated = false
       if (id) {
-        // Intenta ACTUALIZAR mi módulo. El .select() confirma si realmente aplicó: si RLS lo filtra
-        // (0 filas) o ya no existe, caemos a crear uno nuevo en vez de reportar un éxito falso.
         const { data: upd, error } = await supabase.from('published_modules').update(base).eq('id', id).select('id')
         if (error) throw error
         updated = Boolean(upd && upd.length)
@@ -139,28 +147,59 @@ export default function PublishModuleModal({ open, onClose, tabs, activeKey, con
           />
         </div>
         <div>
-          <label className="block text-[12px] text-nina-mute mb-1.5">Secciones a incluir ({chosen.length})</label>
-          {publishable.length === 0 ? (
+          <label className="block text-[12px] text-nina-mute mb-1.5">Secciones — marca, ordena (↑↓) y elige su ícono ({chosen.length})</label>
+          {rows.length === 0 ? (
             <div className="text-[12.5px] text-nina-mute px-1 py-2">No hay pestañas publicables en esta plantilla.</div>
           ) : (
-            <div className="space-y-1 max-h-60 overflow-y-auto">
-              {publishable.map((t) => {
-                const m = kindMeta(t.type)
-                const Icon = m.Icon
-                const on = selected.has(t.key)
+            <div className="space-y-1 max-h-72 overflow-y-auto">
+              {rows.map((r, i) => {
+                const Icon = SECTION_ICONS[r.icon] || SECTION_ICONS.doc
                 return (
-                  <button
-                    key={t.key}
-                    onClick={() => toggle(t.key)}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg border text-left transition ${on ? 'border-nina-line bg-nina-line/30' : 'border-transparent hover:bg-nina-line/20'}`}
-                  >
-                    <span className={`w-4 h-4 rounded grid place-items-center shrink-0 border ${on ? 'bg-nina-silver border-nina-silver text-nina-black' : 'border-nina-line text-transparent'}`}>
-                      <Check className="w-3 h-3" />
-                    </span>
-                    <Icon className={`w-4 h-4 shrink-0 ${m.color}`} />
-                    <span className="flex-1 min-w-0 truncate text-[13px] text-nina-chrome">{t.title || m.label}</span>
-                    <span className="text-[10px] text-nina-mute shrink-0">{m.label}</span>
-                  </button>
+                  <div key={r.key} className={`rounded-lg border transition ${r.included ? 'border-nina-line bg-nina-line/20' : 'border-transparent opacity-55'}`}>
+                    <div className="flex items-center gap-2 px-2 py-1.5">
+                      <button
+                        onClick={() => toggle(r.key)}
+                        aria-label="Incluir sección"
+                        className={`w-4 h-4 rounded grid place-items-center shrink-0 border ${r.included ? 'bg-nina-silver border-nina-silver text-nina-black' : 'border-nina-line text-transparent'}`}
+                      >
+                        <Check className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => setPickerFor(pickerFor === r.key ? null : r.key)}
+                        title="Cambiar ícono"
+                        className="w-7 h-7 grid place-items-center rounded-lg border border-nina-line text-nina-silver hover:text-nina-chrome hover:border-nina-silver/40 transition shrink-0"
+                      >
+                        <Icon className="w-4 h-4" />
+                      </button>
+                      <span className="flex-1 min-w-0 truncate text-[13px] text-nina-chrome">{r.title}</span>
+                      <span className="text-[10px] text-nina-mute shrink-0">{kindMeta(r.kind).label}</span>
+                      <div className="flex flex-col shrink-0">
+                        <button onClick={() => move(r.key, -1)} disabled={i === 0} aria-label="Subir" className="text-nina-mute hover:text-nina-chrome disabled:opacity-20 transition">
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => move(r.key, 1)} disabled={i === rows.length - 1} aria-label="Bajar" className="text-nina-mute hover:text-nina-chrome disabled:opacity-20 transition">
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    {pickerFor === r.key && (
+                      <div className="grid grid-cols-8 gap-1 px-2 pb-2">
+                        {SECTION_ICON_KEYS.map((k) => {
+                          const IC = SECTION_ICONS[k]
+                          return (
+                            <button
+                              key={k}
+                              onClick={() => setIcon(r.key, k)}
+                              title={SECTION_ICON_LABEL[k]}
+                              className={`h-7 grid place-items-center rounded-md border transition ${r.icon === k ? 'border-nina-silver bg-nina-line/40 text-nina-chrome' : 'border-nina-line/60 text-nina-mute hover:text-nina-chrome hover:bg-nina-line/30'}`}
+                            >
+                              <IC className="w-4 h-4" />
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
                 )
               })}
             </div>
