@@ -44,5 +44,15 @@ export function useModulosPublicados() {
     }
   }
 
-  return { modules, loading, removeModule }
+  const renameModule = async (id, title) => {
+    const t = String(title || '').trim()
+    if (!t) return
+    const { error } = await supabase.from('published_modules').update({ title: t }).eq('id', id)
+    if (error) {
+      console.error('[CRM-AI] published_modules rename:', error)
+      throw error
+    }
+  }
+
+  return { modules, loading, removeModule, renameModule }
 }

@@ -25,6 +25,7 @@ import {
   MessagesSquare,
   Package,
   PanelLeft,
+  Pencil,
   Pin,
   Settings,
   Smartphone,
@@ -381,12 +382,15 @@ function SidebarTip({ label, children, disabled = false }) {
 // Botón + card de MÓDULOS PUBLICADOS (plantillas de Code publicadas). Acceso fijo en un extremo del
 // switcher; abre una card flotante (sistema NINA) con la lista: navegar + quitar. Portal+fixed para
 // escapar del overflow del sidebar; cierra al click-fuera, Escape, scroll o resize. Badge con el conteo.
-function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
+function ModulesButton({ modules, removeModule, renameModule, collapsed, onSelect }) {
   const navigate = useNavigate()
   const btnRef = useRef(null)
   const menuRef = useRef(null)
+  const cancelRename = useRef(false)
   const [open, setOpen] = useState(false)
   const [coords, setCoords] = useState(null)
+  const [renamingId, setRenamingId] = useState(null)
+  const [renameValue, setRenameValue] = useState('')
   const count = modules?.length || 0
 
   const toggle = () => {
@@ -443,6 +447,27 @@ function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
       /* el hook ya loguea */
     }
   }
+  const startRename = (e, m) => {
+    e.stopPropagation()
+    setRenamingId(m.id)
+    setRenameValue(m.title)
+  }
+  const commitRename = async (m) => {
+    if (cancelRename.current) {
+      cancelRename.current = false
+      setRenamingId(null)
+      return
+    }
+    const t = renameValue.trim()
+    setRenamingId(null)
+    if (t && t !== m.title) {
+      try {
+        await renameModule(m.id, t)
+      } catch {
+        /* el hook ya loguea */
+      }
+    }
+  }
 
   return (
     <>
@@ -477,13 +502,38 @@ function ModulesButton({ modules, removeModule, collapsed, onSelect }) {
                 const Icon = meta.Icon
                 return (
                   <div key={m.id} className="group flex items-center gap-1 rounded-lg hover:bg-nina-line/40 transition">
-                    <button onClick={() => goModule(m.id)} className="flex-1 min-w-0 flex items-center gap-2 px-2 py-2 text-left">
-                      <Icon className={`w-4 h-4 shrink-0 ${meta.color}`} />
-                      <span className="flex-1 min-w-0 truncate text-[13px] text-nina-chrome">{m.title}</span>
-                    </button>
-                    <button onClick={(e) => del(e, m)} title="Quitar módulo" className="shrink-0 w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-red-300 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition mr-0.5">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {renamingId === m.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            e.currentTarget.blur()
+                          } else if (e.key === 'Escape') {
+                            cancelRename.current = true
+                            e.currentTarget.blur()
+                          }
+                        }}
+                        onBlur={() => commitRename(m)}
+                        className="flex-1 min-w-0 bg-nina-ink border border-nina-silver/40 rounded-md px-2 py-1.5 mx-1 text-[13px] text-nina-chrome outline-none"
+                      />
+                    ) : (
+                      <>
+                        <button onClick={() => goModule(m.id)} className="flex-1 min-w-0 flex items-center gap-2 px-2 py-2 text-left">
+                          <Icon className={`w-4 h-4 shrink-0 ${meta.color}`} />
+                          <span className="flex-1 min-w-0 truncate text-[13px] text-nina-chrome">{m.title}</span>
+                        </button>
+                        <button onClick={(e) => startRename(e, m)} title="Renombrar" className="shrink-0 w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-nina-chrome hover:bg-nina-line/40 opacity-0 group-hover:opacity-100 transition">
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={(e) => del(e, m)} title="Quitar módulo" className="shrink-0 w-7 h-7 grid place-items-center rounded-lg text-nina-mute hover:text-red-300 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition mr-0.5">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 )
               })
@@ -539,7 +589,7 @@ function ModuleSectionsNav({ moduleId, sections, collapsed, onSelect }) {
 
 // Switcher de secciones de alto nivel. EXPANDIDO = carrusel de 3 (anterior · seleccionado · siguiente);
 // COLAPSADO = columna de íconos. El botón de módulos publicados va a la izquierda en ambos.
-function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule }) {
+function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule, renameModule }) {
   const navigate = useNavigate()
   const go = (to) => {
     navigate(to)
@@ -565,7 +615,7 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
           </SidebarTip>
         ))}
         <SidebarTip label="Módulos publicados">
-          <ModulesButton modules={modules} removeModule={removeModule} collapsed onSelect={onSelect} />
+          <ModulesButton modules={modules} removeModule={removeModule} renameModule={renameModule} collapsed onSelect={onSelect} />
         </SidebarTip>
       </div>
     )
@@ -587,7 +637,7 @@ function SectionSwitcher({ collapsed, active, onSelect, modules, removeModule })
 
   return (
     <div className="px-3 pt-3 flex items-center gap-1.5">
-      <ModulesButton modules={modules} removeModule={removeModule} collapsed={false} onSelect={onSelect} />
+      <ModulesButton modules={modules} removeModule={removeModule} renameModule={renameModule} collapsed={false} onSelect={onSelect} />
       {n > 1 && (
         <button onClick={() => go(prev.to)} title={`Anterior: ${prev.label}`} aria-label={`Anterior: ${prev.label}`} className={sideCls}>
           <PrevIcon className="w-4 h-4 group-hover:hidden" />
@@ -836,7 +886,7 @@ export default function AdminLayout() {
   const workspace = getWorkspace(location.pathname)
   // F5: la entrada "Salud" del nav es solo para la Junta (un no-junta vería el panel vacío).
   const navItems = (WORKSPACE_NAV[workspace] ?? []).filter((it) => it.to !== '/admin/salud' || isJunta)
-  const { modules: publishedModules, removeModule } = useModulosPublicados()
+  const { modules: publishedModules, removeModule, renameModule } = useModulosPublicados()
   // Si estás viendo un módulo publicado, el sub-nav muestra SUS secciones (menú en el sidebar).
   const moduleId = location.pathname.match(/^\/admin\/modulos\/([^/?]+)/)?.[1] || null
   const currentModule = moduleId ? publishedModules.find((m) => m.id === moduleId) : null
@@ -867,7 +917,7 @@ export default function AdminLayout() {
         }`}
       >
         <SidebarHeader collapsed={collapsed} onToggle={toggleCollapsed} />
-        <SectionSwitcher collapsed={collapsed} active={workspace} modules={publishedModules} removeModule={removeModule} />
+        <SectionSwitcher collapsed={collapsed} active={workspace} modules={publishedModules} removeModule={removeModule} renameModule={renameModule} />
         {/* Scroll desde JUSTO debajo del menú horizontal: el nav vertical + agentes + conversaciones
             scrollean juntos (antes el nav quedaba fijo y sólo scrolleaban los agentes). */}
         <div className="flex-1 min-h-0 overflow-y-auto">
@@ -915,7 +965,7 @@ export default function AdminLayout() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <SectionSwitcher collapsed={false} active={workspace} onSelect={() => setDrawerOpen(false)} modules={publishedModules} removeModule={removeModule} />
+              <SectionSwitcher collapsed={false} active={workspace} onSelect={() => setDrawerOpen(false)} modules={publishedModules} removeModule={removeModule} renameModule={renameModule} />
               <div className="flex-1 min-h-0 overflow-y-auto">
                 {moduleSecs.length > 0 ? (
                   <ModuleSectionsNav moduleId={moduleId} sections={moduleSecs} collapsed={false} onSelect={() => setDrawerOpen(false)} />
